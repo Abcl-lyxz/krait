@@ -1,0 +1,10 @@
+{
+  "name": "krait",
+  "version-string": "0.0.1",
+  "builtin-baseline": "9d7f79f56ae1a9b4704d6a7fb8237e347a974133",
+  "dependencies": [
+    "catch2",
+    "fmt",
+    "utf8proc"
+  ]
+}

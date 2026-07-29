@@ -12,11 +12,21 @@ ADR-0002's DIY chaining), esctest is GPL-2.0 (external runner only, ADR-0005),
 QML embedding = QQuickRhiItem (ADR-0009), Qt pin = 6.11.1.
 Still zero code, zero CMake — correct.
 
+## Done so far
+
+- T1 ✔ (commit c941753): repo live at https://github.com/Abcl-lyxz/krait,
+  MIT LICENSE, scaffold pushed on `main`.
+- T2 ✔: CMakePresets (`dev`), root CMakeLists, vcpkg.json (baseline
+  9d7f79f5, 2026-07-28), SETUP.md updated. Verified: `cmake --preset dev`
+  green — vcpkg installed catch2/fmt 12.2.0/utf8proc 2.11.3, MSVC 19.51
+  (VS2026 18 Community), CMake 4.2.3 + Ninja bundled with VS,
+  vcpkg at `C:\vcpkg` (set `VCPKG_ROOT=C:\vcpkg` in the dev shell).
+
 ## Next task (exactly one)
 
-**T1 of `docs/plan/02-m0-tasks.md`**: `git init`, LICENSE (MIT, "Krait
-contributors"), .gitignore/.gitattributes, README stub, first commit,
-`gh repo create --public` + push. Needs only git+gh, no toolchain.
+**T3 of `docs/plan/02-m0-tasks.md`**: `krait-core` static lib skeleton +
+standalone zero-dep proof target + Catch2 wiring + first smoke test.
+Verify: `ctest --preset dev` (from a VS x64 dev shell with VCPKG_ROOT set).
 
 ## After that
 
