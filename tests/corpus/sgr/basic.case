@@ -12,9 +12,9 @@ EXPECT pen:-/def/def
 IN \x1B[31;1m\x1B[0m
 EXPECT pen:-/def/def
 
-# Every basic flag at once
+# Every basic flag at once (underline is a style, not a flag, since T17)
 IN \x1B[1;2;3;4;5;7;8;9m
-EXPECT pen:bold,dim,italic,ul,blink,rev,hide,strike/def/def
+EXPECT pen:bold,dim,italic,blink,rev,hide,strike/def/def ul:single/def
 
 # 22 clears bold AND dim; 24 clears underline
 IN \x1B[1;2;4m\x1B[22m\x1B[24m
@@ -36,32 +36,32 @@ EXPECT pen:-/9/10
 IN \x1B[31;42m\x1B[39m
 EXPECT pen:-/def/2
 
-# Underline subparam: 4:0 off, 4:3 style collapses to on
+# Underline subparam: 4:0 off, 4:3 is a real curly style since T17
 IN \x1B[4m\x1B[4:0m
 EXPECT pen:-/def/def
 IN \x1B[4:3m
-EXPECT pen:ul/def/def
+EXPECT pen:-/def/def ul:curly/def
 
-# 21 (double underline) approximated as underline
+# 21 is doubly-underlined (ECMA-48 3rd, per xterm ctlseqs)
 IN \x1B[21m
-EXPECT pen:ul/def/def
+EXPECT pen:-/def/def ul:double/def
 
-# Extended color skeleton: colon form consumed, no color applied,
-# following params still land
+# Colon truecolor WITHOUT a color-space id: 4 subparams, RGB starts at the
+# first. Following params still land.
 IN \x1B[38:2:255:0:0;1m
-EXPECT pen:bold/def/def
+EXPECT pen:bold/#ff0000/def
 
-# Legacy semicolon 256-color form: 38;5;Pi consumed
+# Legacy semicolon 256-color form
 IN \x1B[38;5;196;1m
-EXPECT pen:bold/def/def
+EXPECT pen:bold/196/def
 
-# Legacy truecolor form: 38;2;R;G;B consumed, the 4 after is underline
+# Legacy truecolor form, and the 4 after it is a separate underline SGR
 IN \x1B[38;2;10;20;30;4m
-EXPECT pen:ul/def/def
+EXPECT pen:-/#0a141e/def ul:single/def
 
-# 48 (bg) legacy form consumed the same way
+# 48 sets the background the same way
 IN \x1B[48;5;22;1m
-EXPECT pen:bold/def/def
+EXPECT pen:bold/def/22
 
 # Unknown SGR ignored, neighbors still apply
 IN \x1B[95;999m
@@ -79,6 +79,6 @@ EXPECT pen:-/def/def line:1:m
 IN \x1B[1m\x1B[>0m
 EXPECT pen:bold/def/def
 
-# Colon 256-color form consumed inertly too
+# Colon 256-color form
 IN \x1B[38:5:196;1m
-EXPECT pen:bold/def/def
+EXPECT pen:bold/196/def

@@ -140,8 +140,13 @@ void TerminalItem::rebuildInstances() {
             const auto& attr = cell.attr;
             float fg[3] = {0.86F, 0.87F, 0.89F};  // default fg
             float bg[3] = {0.05F, 0.06F, 0.09F};  // default bg
-            if (attr.fg.kind == core::vt::Color::Kind::Indexed) {
-                int idx = attr.fg.index & 0x0F;
+            // The spike palette only holds the classic 16. Since T17 made
+            // 256-index and truecolor reachable, masking with & 0x0F would
+            // render index 196 as a confidently WRONG colour — worse than the
+            // default it used to fall back to. Leave anything this palette
+            // cannot represent at the default until the real renderer (T25).
+            if (attr.fg.kind == core::vt::Color::Kind::Indexed && attr.fg.index < 16) {
+                int idx = attr.fg.index;
                 if ((attr.flags & core::vt::Attr::kBold) != 0 && idx < 8) {
                     idx += 8;  // bold brightens the classic 8
                 }
@@ -149,8 +154,8 @@ void TerminalItem::rebuildInstances() {
                 fg[1] = kPalette[idx][1];
                 fg[2] = kPalette[idx][2];
             }
-            if (attr.bg.kind == core::vt::Color::Kind::Indexed) {
-                const int idx = attr.bg.index & 0x0F;
+            if (attr.bg.kind == core::vt::Color::Kind::Indexed && attr.bg.index < 16) {
+                const int idx = attr.bg.index;
                 bg[0] = kPalette[idx][0];
                 bg[1] = kPalette[idx][1];
                 bg[2] = kPalette[idx][2];

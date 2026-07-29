@@ -9,10 +9,13 @@
 
 namespace krait::core::vt {
 
-// SGR basic (T7): 0-29, 30-49, 90-107. Extended color (38/48/58) is
-// consumed with correct arity (colon or legacy semicolon form) but applies
-// nothing until M1 — following parameters are never misread. Returns false
-// when intermediates/markers are present.
+// SGR: 0-29, 30-49, 90-107 plus extended color and underline styles (T17).
+// 38/48/58 accept the legacy semicolon form, the ITU/xterm colon form with a
+// color-space id, and the colon form without one — told apart by counting
+// subparameters. A malformed or out-of-range color changes nothing but still
+// consumes its own arguments, so following parameters are never misread.
+// 4:0-4:5 select underline styles; 21 is doubly-underlined per ECMA-48.
+// Returns false when intermediates/markers are present.
 bool applySgr(Attr& pen, const Params& params,
               std::span<const std::uint8_t> intermediates) noexcept;
 
