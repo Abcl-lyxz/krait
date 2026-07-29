@@ -1,0 +1,132 @@
+# ADR-0008 fast gate: required for merge, target <15 min.
+# The heavy suite (MSVC ASan, 30 min clang-cl fuzz, bench vs baselines, full
+# clang-tidy, esctest) is the separate nightly job and is NOT in this file —
+# M0 scope is the merge gate only.
+name: fast-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: fast-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # docs/plan pins Qt 6.11.1, but aqtinstall 3.3.0 (what install-qt-action
+  # ships) cannot resolve Qt 6.11's new per-arch repo layout, so 6.11 is not
+  # installable here any more than it was on the dev machine. CI tracks the
+  # version the tree is actually built against. Flip both together.
+  QT_VERSION: 6.10.3
+
+jobs:
+  fast-gate:
+    # The tree builds with /std:c++23preview on MSVC 19.51 under /W4 /WX.
+    # A different toolset version changes the warning set, so pin the image
+    # whose VS matches the dev machine rather than plain windows-latest
+    # (which is still VS2022 17.14).
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # clang-tidy needs a merge base to diff against
+
+      # Ninja cannot find cl without this, and clang-tidy resolves no MSVC
+      # headers when INCLUDE is unset — its findings become parse garbage.
+      - name: MSVC x64 developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtshadertools # qt_add_shaders / qsb
+          cache: true
+
+      - name: Bridge env into the preset contract
+        shell: pwsh
+        run: |
+          # CMakePresets reads $env{QT_ROOT} and $env{VCPKG_ROOT}. The Qt
+          # action exports QT_ROOT_DIR (not QT_ROOT); the image exports
+          # VCPKG_INSTALLATION_ROOT (not VCPKG_ROOT). Bridge both.
+          "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          # vcpkg's own GitHub-Actions-cache backend (x-gha) was removed
+          # upstream in 2025 — actions/cache over the default archive dir is
+          # the remaining endorsed path. Baseline is pinned inside vcpkg.json,
+          # so hashing that file is a sufficient key.
+          path: ~\AppData\Local\vcpkg\archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Configure
+        run: cmake --preset dev
+
+      - name: Build
+        run: cmake --build --preset dev
+
+      - name: Test (unit + corpus)
+        run: ctest --preset dev
+
+      - name: krait-core standalone (zero-dep proof)
+        shell: pwsh
+        run: |
+          # No vcpkg toolchain, no Qt on the path: proves src/core stayed pure.
+          # Breaking this build is breaking the build (rules/vt-core.md).
+          cmake -S tests/core-standalone -B build/core-standalone -G Ninja `
+                -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=cl
+          cmake --build build/core-standalone
+
+      - name: Fuzz smoke (60 s, zero crashes)
+        shell: cmd
+        run: tests\fuzz\run-smoke.cmd
+
+      - name: clang-format check
+        shell: pwsh
+        run: |
+          # third_party is vendored verbatim and is never reformatted.
+          $files = git ls-files 'src/*.cpp' 'src/*.h' 'tests/*.cpp' 'tests/*.h' 'bench/*.cpp' 'bench/*.h'
+          if (-not $files) { Write-Host 'no sources to check'; exit 0 }
+          clang-format --version
+          clang-format --dry-run -Werror $files
+
+      - name: clang-tidy (changed files)
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # Only .cpp files appear in compile_commands.json; headers are
+          # covered through HeaderFilterRegex when their TU is tidied.
+          $base = $env:BASE_SHA
+          if (-not $base -or $base -match '^0+$') { $base = '' }
+          $changed = if ($base) {
+            git diff --name-only --diff-filter=ACMR $base HEAD -- 'src/*.cpp' 'tests/*.cpp'
+          } else {
+            git ls-files 'src/*.cpp' 'tests/*.cpp'
+          }
+          if (-not $changed) { Write-Host 'no C++ sources changed'; exit 0 }
+          Write-Host "tidying: $($changed -join ', ')"
+          # /Zc:preprocessor and friends are cl-only spellings that clang-tidy's
+          # driver reports as unused/unknown; they are not findings.
+          clang-tidy -p build/dev `
+            --extra-arg=-Wno-unknown-argument `
+            --extra-arg=-Wno-unused-command-line-argument `
+            $changed
+          # Gating is .clang-tidy's WarningsAsErrors ('bugprone-*,concurrency-*');
+          # the rest are advisory here and gate in the nightly full run.
