@@ -26,10 +26,13 @@ env:
 
 jobs:
   fast-gate:
-    # The tree builds with /std:c++23preview on MSVC 19.51 under /W4 /WX.
-    # A different toolset version changes the warning set, so pin the image
-    # whose VS matches the dev machine rather than plain windows-latest
-    # (which is still VS2022 17.14).
+    # The tree builds with /std:c++23preview under /W4 /WX, so a different
+    # toolset version changes the warning set and can turn the gate red on a
+    # runner-image bump alone. This label was OBSERVED to resolve cl to MSVC
+    # 14.51.36231 — the same toolset as the dev machine (see the Toolchain
+    # sanity step, which prints it every run). ADR-0008 assumed plain
+    # windows-latest already carried VS2026; that claim is contested and the
+    # explicit label does not depend on it either way.
     runs-on: windows-2025-vs2026
     timeout-minutes: 30
 
@@ -91,8 +94,11 @@ jobs:
           # "unable to find a build program corresponding to Ninja".
           if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
             choco install ninja -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install ninja failed" }
+            # GITHUB_PATH, not GITHUB_ENV: writing PATH into GITHUB_ENV freezes
+            # it for every later step instead of extending it.
+            "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
             $env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
-            "PATH=$env:PATH" >> $env:GITHUB_ENV
           }
           cmake --version
           Write-Host "ninja: $((Get-Command ninja).Source) $(ninja --version)"
@@ -120,11 +126,22 @@ jobs:
 
       - name: krait-core standalone (zero-dep proof)
         shell: pwsh
+        env:
+          # Blanked deliberately. The Qt action exports these globally, so
+          # without clearing them a future find_package(Qt6) in src/core would
+          # RESOLVE here and this sacred-rule-1 guard would pass green — the
+          # exact thing it exists to catch.
+          QT_ROOT: ''
+          QT_ROOT_DIR: ''
+          Qt5_DIR: ''
+          Qt6_DIR: ''
+          CMAKE_PREFIX_PATH: ''
         run: |
           # No vcpkg toolchain, no Qt on the path: proves src/core stayed pure.
           # Breaking this build is breaking the build (rules/vt-core.md).
           cmake -S tests/core-standalone -B build/core-standalone -G Ninja `
                 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=cl
+          if ($LASTEXITCODE -ne 0) { throw "standalone configure failed" }
           cmake --build build/core-standalone
 
       - name: Fuzz smoke (60 s, zero crashes)
@@ -136,7 +153,11 @@ jobs:
         run: |
           # third_party is vendored verbatim and is never reformatted.
           $files = git ls-files 'src/*.cpp' 'src/*.h' 'tests/*.cpp' 'tests/*.h' 'bench/*.cpp' 'bench/*.h'
-          if (-not $files) { Write-Host 'no sources to check'; exit 0 }
+          # pwsh does not throw on a native non-zero exit mid-script, so an
+          # empty list must be distinguished from a FAILED enumeration —
+          # otherwise a broken git turns this gate into a green no-op.
+          if ($LASTEXITCODE -ne 0) { throw "git ls-files failed to enumerate sources" }
+          if (-not $files) { throw "no sources matched — the check would be vacuous" }
           clang-format --version
           clang-format --dry-run -Werror $files
 
@@ -154,6 +175,10 @@ jobs:
           } else {
             git ls-files 'src/*.cpp' 'tests/*.cpp'
           }
+          # Same trap as the format step: a dangling base SHA after a
+          # force-push would make git fail, print "nothing changed", and go
+          # green having tidied nothing.
+          if ($LASTEXITCODE -ne 0) { throw "git failed to enumerate changed files" }
           if (-not $changed) { Write-Host 'no C++ sources changed'; exit 0 }
           Write-Host "tidying: $($changed -join ', ')"
           # /Zc:preprocessor and friends are cl-only spellings that clang-tidy's
