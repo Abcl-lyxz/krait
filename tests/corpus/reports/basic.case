@@ -1,0 +1,84 @@
+# DA1/DSR replies, generated from the capability table. EXPECT = replies only.
+
+# DA1: the table with no VT220-level features answers VT100+AVO
+IN \x1B[c
+EXPECT reply:\x1B[?1;2c
+IN \x1B[0c
+EXPECT reply:\x1B[?1;2c
+
+# DA1 with a non-zero param is not ours: honest silence
+IN \x1B[1c
+EXPECT -
+
+# DA2 (CSI > c) not implemented: honest silence
+IN \x1B[>c
+EXPECT -
+
+# DSR 5: operating status OK
+IN \x1B[5n
+EXPECT reply:\x1B[0n
+
+# DSR 6: CPR is 1-based and tracks the cursor
+IN \x1B[3;7H\x1B[6n
+EXPECT reply:\x1B[3;7R
+IN \x1B[6n
+EXPECT reply:\x1B[1;1R
+
+# CPR after printing reflects the advance
+IN hi\x1B[6n
+EXPECT reply:\x1B[1;3R
+
+# DECXCPR (CSI ? 6 n) not implemented: honest silence
+IN \x1B[?6n
+EXPECT -
+
+# Unknown DSR selector: silence
+IN \x1B[99n
+EXPECT -
+
+# Colon subparams are rejected here too
+IN \x1B[5:1n
+EXPECT -
+
+# Interrupted request never replies
+IN \x1B[\x18c
+EXPECT -
+
+# Multi-param DA1 is not a defined request: strict honest silence
+IN \x1B[0;0c
+EXPECT -
+IN \x1B[0;1c
+EXPECT -
+
+# DA2 with explicit param: silence
+IN \x1B[>0c
+EXPECT -
+
+# ESC mid-sequence restarts; the restarted request answers
+IN \x1B[6\x1B[6n
+EXPECT reply:\x1B[1;1R
+
+# SUB interrupt kills the request
+IN \x1B[\x1A5n
+EXPECT -
+
+# Multiple DSR selectors: only the first is honored
+IN \x1B[5;6n
+EXPECT reply:\x1B[0n
+
+# DEC printer-status DSR (CSI ? 15 n): honest silence
+IN \x1B[?15n
+EXPECT -
+
+# Rate limit: 8 replies per 256-byte window; 10 back-to-back DSRs -> 8
+IN \x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n
+EXPECT reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n
+
+# Limiter refills after a full 256-byte window: 8 + 8 across two bursts
+IN \x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n
+EXPECT reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n
+
+# 8-bit C1 CSI introducer works for reports too (7-bit reply; S8C1T not implemented)
+MODE c1
+IN \x9B5n
+EXPECT reply:\x1B[0n

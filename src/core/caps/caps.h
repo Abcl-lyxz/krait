@@ -1,0 +1,71 @@
+#pragma once
+
+#include "core/grid/grid.h"
+#include "core/parser/events.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string>
+
+namespace krait::core::vt {
+
+// The capability table (CLAUDE.md honesty rule): DA1 is GENERATED from
+// these flags, and a flag may only be true when the feature is actually
+// implemented and corpus-tested. M0 truth: SGR attributes exist (AVO);
+// nothing VT220-level does yet.
+struct Capabilities {
+    bool avo = true;  // bold/underline/blink attributes (SGR basic, T7)
+    bool columns132 = false;
+    bool printerPort = false;
+    bool regis = false;
+    bool sixel = false;
+    bool selectiveErase = false;
+    bool ansiColor = false;  // claimed only via the VT220+ identity, M1
+};
+
+// Builds the DA1 reply from the table. With no VT220-level feature on, the
+// honest identity is VT100 with AVO (ESC [ ? 1 ; 2 c) — or, with avo off,
+// "VT101 with no options" (ESC [ ? 1 ; 0 c).
+std::string da1Reply(const Capabilities& caps);
+
+// Reply flood guard: hostile input can request reports in a tight loop and
+// use the terminal as an amplifier. Credits refill from INPUT volume, so
+// the core stays clock-free and deterministic. Integrator contract: call
+// addInput(chunk.size()) for every input chunk BEFORE feeding it to the
+// parser — the corpus harness mirrors this wiring.
+class ReplyLimiter {
+  public:
+    static constexpr int kRepliesPerWindow = 8;
+    static constexpr std::size_t kWindowBytes = 256;
+
+    void addInput(std::size_t bytes) noexcept {
+        m_pending += bytes;
+        while (m_pending >= kWindowBytes) {
+            m_pending -= kWindowBytes;
+            m_credits = kRepliesPerWindow;
+        }
+    }
+
+    bool allow() noexcept {
+        if (m_credits <= 0) {
+            return false;
+        }
+        --m_credits;
+        return true;
+    }
+
+  private:
+    std::size_t m_pending = 0;
+    int m_credits = kRepliesPerWindow;
+};
+
+// DA1 (CSI c) and DSR 5/6 (CSI n). Appends the reply to `out` subject to
+// the limiter (a rate-dropped reply still counts as handled). Returns false
+// for anything else — DA2, DECXCPR, DEC ?-forms and colon subparams are
+// honest silence until implemented.
+bool handleReport(const Grid& grid, const Capabilities& caps, const Params& params,
+                  std::span<const std::uint8_t> intermediates, std::uint8_t final,
+                  ReplyLimiter& limiter, std::string& out);
+
+}  // namespace krait::core::vt
