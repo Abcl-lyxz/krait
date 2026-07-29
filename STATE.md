@@ -110,15 +110,26 @@ builds on; the stub grid dies in T8 when the real grid lands.
   after setGraphicsPipeline or all bindings read zeros (black screen);
   (3) KRAIT_SPIKE_ATLAS_DUMP env dumps the atlas PNG for debugging.
 
+- T13 ✔ (PR #9): flood bench. KRAIT_BENCH/_4K/_WARP env drive the spike;
+  `bench/spike/flood-report.cmd`; baseline `bench/baselines/m0-spike.json`
+  (machine HomeCenter, RTX 4060). Results: dev GPU 180 fps (display cap) /
+  0.169 ms GPU at 4K flood; WARP 80.7 fps / 10.07 ms. WARP selected via
+  QQuickGraphicsConfiguration::setPreferSoftwareDevice; timestamps via
+  setTimestamps — BOTH only take effect if set BEFORE first expose, hence
+  Main.qml visible:false + show-after-config in main().
+- T14 ✔ (PR #10): ADR-0013 verdict = **GO**, all gates cleared with
+  margin; the T12 per-instance-buffer deviation ratified by the numbers.
+
 ## Next task (exactly one)
 
-**T13 of `docs/plan/02-m0-tasks.md`**: flood bench — synthetic
-full-grid-change generator + frame timer (QRhi timestamps + CPU clock);
-`flood-report.cmd` emits an fps/ms table; run on dev GPU AND
-`QRhiD3D11InitParams`-forced WARP; record `bench/baselines/m0-spike.json`
-(+ machine id, per open question). Verify: report emitted with both
-adapters. Then T14 = go/no-go ADR-0013 from those numbers (gate: ≥60 fps
-4K dev GPU, ≥30 fps WARP, <10 ms/frame).
+**T15 of `docs/plan/02-m0-tasks.md`** (the last M0 task): ConPTY backend —
+acquire pinned OpenConsole build (`third_party/openconsole/` + MS LICENSE
++ VERSION.md per ADR-0011); `IBackend` + `ConptyBackend`
+(CreatePseudoConsole, per-pipe threads, resize); wire
+backend→parser→grid→spike renderer + keyboard input. Deps: T9, T12.
+Verify: MANUAL — type `dir` in PowerShell through Krait (the user's
+hands). src/net rules apply (.claude/rules/net.md — read before coding).
+OpenConsole acquisition path decided in-task per ADR-0011.
 
 ## After that
 
