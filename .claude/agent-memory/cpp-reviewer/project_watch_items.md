@@ -59,6 +59,14 @@ Watch items from past reviews (verify still true before flagging):
 - Whole clang-cl path (fuzz preset, /clang:-std=c++23, -fsanitize=fuzzer-no-link) is UNVERIFIED — clang-cl not installed on this machine; only fuzz-msvc ran. Re-check the first time someone actually configures the clang preset; also note clang branch drops /WX under a comment claiming warnings-as-errors.
 - run-smoke.cmd hard-codes VS18 Community vcvars64 path — breaks on CI/other machines; fine as personal dev script, revisit when CI lands.
 
+## T11 render spike (t10-fuzz, uncommitted at review)
+- triangle_item.cpp ignores every failure path (loadShader -> invalid QShader, vbuf/srb/pipeline create() bools) and render() draws unconditionally. Accepted for the spike (baked qrc resources, T12 replaces it); T12 glyph renderer MUST have real device-lost/create-failure handling per render.md — do not let this pattern get copy-pasted.
+- Pipeline rebuild only keys on rhi() change; sampleCount/renderPassDescriptor changes not handled. Cannot happen in the spike; re-check if T12 keeps the initialize() skeleton.
+- CMakePresets.json dev preset hard-codes C:/Qt/6.10.3/msvc2022_64 (machine-local; pin is 6.11.1, aqt fetch broken). Breaks other machines/CI — expect flip or move to CMakeUserPresets when 6.11.1 lands.
+- src/render has no own CMakeLists; spike sources compile inside krait-app's qml module. Root CMakeLists comment "T11 adds add_subdirectory(src/render)" now stale. Real src/render target due at T12.
+- Main.qml hex color literals + non-tr() window title accepted for spike only (ui.md bans both) — must not survive into the real shell.
+- app/CMakeLists: find_package floor 6.7 vs qt_standard_project_setup(REQUIRES 6.8) — effective floor 6.8, flagged as confusing.
+
 ## T8 grid (t7-sgr, uncommitted at review)
 - Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.
 - wrappedFromPrev never cleared by ED/EL full-row erase -> stale wrap flags feed M1 reflow. Re-check when reflow lands.

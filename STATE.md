@@ -86,16 +86,26 @@ builds on; the stub grid dies in T8 when the real grid lands.
   asserts live in fuzz builds. Qt 6.11.1 (the pin) now installed at
   C:\Qt\6.11.1\msvc2022_64 via aqtinstall.
 
+- T11 ✔: Qt shell + D3D11 triangle spike. `krait-app` (console subsystem
+  for M0 so gates read stdout): main.cpp sets D3D11, loads Krait/Main.qml;
+  `Triangle` = QQuickRhiItem spike (src/render/spike) with qsb shaders via
+  qt_add_shaders; pipeline-create failure degrades to clear-only. VERIFIED:
+  `rhi backend: D3D11` logged, autoquit hook KRAIT_SPIKE_AUTOQUIT. Qt
+  DEVIATION: pin 6.11.1 not installable via aqt (metadata gap) — built
+  against 6.10.3 + qtshadertools module, floor 6.8, `QT_ROOT` env feeds
+  CMAKE_PREFIX_PATH (SETUP.md). GuiPrivate linked for rhi/qrhi.h; QML
+  module SOURCES + include dir needed for qmltyperegistrations.
+  sceneGraphInitialized signal unreliable cross-thread — backend logged
+  via 1s singleShot instead.
+
 ## Next task (exactly one)
 
-**T11 of `docs/plan/02-m0-tasks.md`**: Qt shell — `src/app/main.cpp` + one
-QML window; `QQuickWindow::setGraphicsApi(D3D11)`; QQuickRhiItem subclass
-drawing a colored triangle (proves the qsb pipeline via `qt_add_shaders`).
-Deliverables: src/app/main.cpp, src/app/qml/Main.qml, src/render/spike/*,
-src/render/shaders/*. Verify: app opens; log line `rhi backend: D3D11`.
-Deps: T2 only. Qt 6.11.1 at C:\Qt\6.11.1\msvc2022_64 (CMAKE_PREFIX_PATH).
-MCP-first: verify QQuickRhiItem API against qt-docs before coding
-(ADR-0009 chose it at plan time).
+**T12 of `docs/plan/02-m0-tasks.md`**: spike renderer — R8 atlas texture
+(ASCII glyphs pre-rasterized via FreeType — ADD freetype TO vcpkg.json),
+instanced quads for a 240×63 grid, per-cell fg/bg from a uniform/storage
+buffer. Deliverables: src/render/spike/*, vcpkg.json. Verify: grid of
+glyphs visible (human eyes needed for the visual check; automate what's
+possible via the log/screenshot).
 
 ## After that
 
