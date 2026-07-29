@@ -14,6 +14,7 @@
 //                      Non-printables and space render as \xNN (uppercase).
 #include "core/parser/csi_cursor.h"
 #include "core/parser/machine.h"
+#include "core/parser/sgr.h"
 #include "core/unicode/utf8.h"
 #include <catch2/catch_test_macros.hpp>
 
@@ -220,7 +221,7 @@ class CursorSink final : public krait::core::vt::ParserEvents {
   public:
     krait::core::vt::StubGrid grid;
 
-    void print(char32_t) override {}
+    void print(char32_t cp) override { grid.putChar(cp); }
 
     void execute(std::uint8_t control) override { krait::core::vt::handleControl(grid, control); }
 
@@ -228,7 +229,14 @@ class CursorSink final : public krait::core::vt::ParserEvents {
 
     void csiDispatch(const krait::core::vt::Params& params,
                      std::span<const std::uint8_t> intermediates, std::uint8_t final) override {
-        krait::core::vt::handleCsiCursor(grid, params, intermediates, final);
+        // Interim routing; the real terminal layer owns this from T15 on.
+        if (final == 'm') {
+            krait::core::vt::applySgr(grid.pen, params, intermediates);
+        } else if (final == 'J' || final == 'K') {
+            krait::core::vt::handleErase(grid, params, intermediates, final);
+        } else {
+            krait::core::vt::handleCsiCursor(grid, params, intermediates, final);
+        }
     }
 
     void dcsHook(const krait::core::vt::Params&, std::span<const std::uint8_t>,
@@ -243,6 +251,54 @@ class CursorSink final : public krait::core::vt::ParserEvents {
     void oscPut(std::uint8_t) override {}
 
     void oscEnd(bool) override {}
+
+    // sgr/ case tokens: pen:<flags>/<fg>/<bg> then line:N:<chars, '.'=erased>
+    // for every row containing at least one written cell (trailing erased
+    // cells trimmed). Corpus text is ASCII-only by construction.
+    std::vector<std::string> describeSgr() const {
+        namespace vt = krait::core::vt;
+        std::vector<std::string> tokens;
+        static constexpr std::array<std::pair<std::uint16_t, const char*>, 8> kNames{
+            {{vt::Attr::kBold, "bold"},
+             {vt::Attr::kDim, "dim"},
+             {vt::Attr::kItalic, "italic"},
+             {vt::Attr::kUnderline, "ul"},
+             {vt::Attr::kBlink, "blink"},
+             {vt::Attr::kReverse, "rev"},
+             {vt::Attr::kInvisible, "hide"},
+             {vt::Attr::kStrike, "strike"}}};
+        std::string flags;
+        for (const auto& [bit, name] : kNames) {
+            if ((grid.pen.flags & bit) != 0) {
+                if (!flags.empty()) {
+                    flags += ',';
+                }
+                flags += name;
+            }
+        }
+        if (flags.empty()) {
+            flags = "-";
+        }
+        const auto color = [](const vt::Color& c) {
+            return c.kind == vt::Color::Kind::Default ? std::string("def")
+                                                      : std::to_string(c.index);
+        };
+        tokens.push_back("pen:" + flags + "/" + color(grid.pen.fg) + "/" + color(grid.pen.bg));
+        for (int r = 0; r < grid.rows; ++r) {
+            std::string line;
+            for (int c = 0; c < grid.cols; ++c) {
+                const char32_t ch = grid.cells[static_cast<std::size_t>(r) * grid.cols + c].ch;
+                line += ch == 0 ? '.' : static_cast<char>(ch);
+            }
+            while (!line.empty() && line.back() == '.') {
+                line.pop_back();
+            }
+            if (!line.empty()) {
+                tokens.push_back(std::format("line:{}:{}", r + 1, line));
+            }
+        }
+        return tokens;
+    }
 
     std::vector<std::string> describe() const {
         std::vector<std::string> tokens;
@@ -299,6 +355,18 @@ TEST_CASE("corpus: csi cursor + c0 controls", "[corpus][csi]") {
         krait::core::vt::Parser parser(sink, c.c1);
         parser.feed(parseBytes(c.in));
         CHECK(sink.describe() == parseTokens(c.expect));
+    }
+    CHECK(!cases.empty());
+}
+
+TEST_CASE("corpus: sgr + erase", "[corpus][sgr]") {
+    const auto cases = loadCases(std::filesystem::path(KRAIT_CORPUS_DIR) / "sgr");
+    for (const auto& c : cases) {
+        CAPTURE(c.file, c.in);
+        CursorSink sink;
+        krait::core::vt::Parser parser(sink, c.c1);
+        parser.feed(parseBytes(c.in));
+        CHECK(sink.describeSgr() == parseTokens(c.expect));
     }
     CHECK(!cases.empty());
 }

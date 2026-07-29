@@ -74,9 +74,9 @@ EXPECT cur:1,1
 IN \x1B[5;10H\x1B[3:4H
 EXPECT cur:5,10
 
-# CAN aborts mid-CSI; the trailing final prints, not dispatches
+# CAN aborts mid-CSI; the trailing final prints (advancing), not dispatches
 IN \x1B[5;10H\x1B[7\x18A
-EXPECT cur:5,10
+EXPECT cur:5,11
 
 # ESC mid-CSI restarts: second CSI wins
 IN \x1B[5;10\x1B[3;3H

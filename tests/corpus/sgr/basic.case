@@ -1,0 +1,84 @@
+# SGR basic (0-29, 30-49, 90-107). EXPECT = pen state after feed.
+
+# Bold + red fg
+IN \x1B[1;31m
+EXPECT pen:bold/1/def
+
+# Bare CSI m resets
+IN \x1B[1;31m\x1B[m
+EXPECT pen:-/def/def
+
+# Explicit SGR 0 resets
+IN \x1B[31;1m\x1B[0m
+EXPECT pen:-/def/def
+
+# Every basic flag at once
+IN \x1B[1;2;3;4;5;7;8;9m
+EXPECT pen:bold,dim,italic,ul,blink,rev,hide,strike/def/def
+
+# 22 clears bold AND dim; 24 clears underline
+IN \x1B[1;2;4m\x1B[22m\x1B[24m
+EXPECT pen:-/def/def
+
+# 23/25/27/28/29 clear their flags
+IN \x1B[3;5;7;8;9m\x1B[23;25;27;28;29m
+EXPECT pen:-/def/def
+
+# Basic colors, bg too
+IN \x1B[31;42m
+EXPECT pen:-/1/2
+
+# Bright range maps to 8-15
+IN \x1B[91;102m
+EXPECT pen:-/9/10
+
+# 39/49 reset to default independently
+IN \x1B[31;42m\x1B[39m
+EXPECT pen:-/def/2
+
+# Underline subparam: 4:0 off, 4:3 style collapses to on
+IN \x1B[4m\x1B[4:0m
+EXPECT pen:-/def/def
+IN \x1B[4:3m
+EXPECT pen:ul/def/def
+
+# 21 (double underline) approximated as underline
+IN \x1B[21m
+EXPECT pen:ul/def/def
+
+# Extended color skeleton: colon form consumed, no color applied,
+# following params still land
+IN \x1B[38:2:255:0:0;1m
+EXPECT pen:bold/def/def
+
+# Legacy semicolon 256-color form: 38;5;Pi consumed
+IN \x1B[38;5;196;1m
+EXPECT pen:bold/def/def
+
+# Legacy truecolor form: 38;2;R;G;B consumed, the 4 after is underline
+IN \x1B[38;2;10;20;30;4m
+EXPECT pen:ul/def/def
+
+# 48 (bg) legacy form consumed the same way
+IN \x1B[48;5;22;1m
+EXPECT pen:bold/def/def
+
+# Unknown SGR ignored, neighbors still apply
+IN \x1B[95;999m
+EXPECT pen:-/13/def
+
+# Truncated legacy 38 at end of sequence: nothing corrupted
+IN \x1B[38;5m\x1B[31m
+EXPECT pen:-/1/def
+
+# CAN aborts an SGR mid-params: pen untouched, trailing final prints
+IN \x1B[1;31\x18m
+EXPECT pen:-/def/def line:1:m
+
+# Private marker means not-SGR: rejected, pen unchanged
+IN \x1B[1m\x1B[>0m
+EXPECT pen:bold/def/def
+
+# Colon 256-color form consumed inertly too
+IN \x1B[38:5:196;1m
+EXPECT pen:bold/def/def
