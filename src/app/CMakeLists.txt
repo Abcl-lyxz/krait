@@ -9,6 +9,10 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(krait-app
     main.cpp
+    ../net/conpty/conpty_backend.cpp
+    ../net/conpty/conpty_backend.h
+    ../net/error.h
+    ../net/ibackend.h
     ../render/spike/glyph_atlas.cpp
     ../render/spike/glyph_atlas.h
 )
@@ -22,6 +26,8 @@ qt_add_qml_module(krait-app
     QML_FILES
         qml/Main.qml
     SOURCES
+        terminal_item.cpp
+        terminal_item.h
         ../render/spike/grid_item.cpp
         ../render/spike/grid_item.h
         ../render/spike/triangle_item.cpp
@@ -47,4 +53,16 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 
 # GuiPrivate: QRhi is Qt's semi-public "guaranteed within a minor series"
 # API; its headers (rhi/qrhi.h) ship under the private include umbrella.
-target_link_libraries(krait-app PRIVATE Qt6::Quick Qt6::GuiPrivate freetype)
+target_link_libraries(krait-app PRIVATE krait-core Qt6::Quick Qt6::GuiPrivate freetype)
+
+# ADR-0011: the bundled ConPTY rides next to the exe; the backend refuses
+# to run without it.
+add_custom_command(TARGET krait-app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:krait-app>/openconsole
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/conpty.dll
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/OpenConsole.exe
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/LICENSE
+        $<TARGET_FILE_DIR:krait-app>/openconsole
+)

@@ -6,6 +6,7 @@ add_library(krait-core STATIC
     parser/csi_cursor.cpp
     parser/machine.cpp
     parser/sgr.cpp
+    terminal/session.cpp
     unicode/utf8.cpp
     version.cpp
 )

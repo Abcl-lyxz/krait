@@ -1,0 +1,54 @@
+#pragma once
+
+#include "core/caps/caps.h"
+#include "core/grid/grid.h"
+#include "core/parser/events.h"
+#include "core/parser/machine.h"
+
+#include <cstdint>
+#include <functional>
+#include <span>
+#include <string>
+
+namespace krait::core::vt {
+
+// One terminal session: parser + grid + the M0 handler set, behind a single
+// feed() seam. Pure core — the app/backends deliver bytes in and take reply
+// bytes out via onReply. OSC/DCS payloads are currently dropped (honestly:
+// nothing claims them; see docs/conformance.md).
+class Session final : public ParserEvents {
+  public:
+    Session(int rows, int cols);
+
+    // Backend output bytes (hostile). Handles reply rate-limit accounting.
+    void feed(std::span<const std::uint8_t> bytes);
+
+    Grid& grid() { return m_grid; }
+
+    const Grid& grid() const { return m_grid; }
+
+    // Terminal -> application replies (DA1/DSR). Called during feed().
+    std::function<void(const std::string&)> onReply;
+
+    // ParserEvents
+    void print(char32_t cp) override;
+    void execute(std::uint8_t control) override;
+    void escDispatch(std::span<const std::uint8_t> intermediates, std::uint8_t final) override;
+    void csiDispatch(const Params& params, std::span<const std::uint8_t> intermediates,
+                     std::uint8_t final) override;
+    void dcsHook(const Params& params, std::span<const std::uint8_t> intermediates,
+                 std::uint8_t final) override;
+    void dcsPut(std::uint8_t byte) override;
+    void dcsUnhook(bool aborted) override;
+    void oscStart() override;
+    void oscPut(std::uint8_t byte) override;
+    void oscEnd(bool aborted) override;
+
+  private:
+    Grid m_grid;
+    Parser m_parser;
+    Capabilities m_caps;
+    ReplyLimiter m_limiter;
+};
+
+}  // namespace krait::core::vt

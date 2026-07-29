@@ -120,16 +120,30 @@ builds on; the stub grid dies in T8 when the real grid lands.
 - T14 ✔ (PR #10): ADR-0013 verdict = **GO**, all gates cleared with
   margin; the T12 per-instance-buffer deviation ratified by the numbers.
 
+- T15 ✔ (PR #11): ConPTY backend + full wiring — KRAIT IS A TERMINAL.
+  `third_party/openconsole/` = REPACKAGED Microsoft.Windows.Console.ConPTY
+  v1.24 nupkg (decision per ADR-0011; conpty.dll + OpenConsole.exe +
+  conpty.h + MS LICENSE + VERSION.md pin). `src/net/{ibackend,error}.h`,
+  `src/net/conpty/` (bundled-dll Conpty* exports, reader/writer threads,
+  3s-timeout stop). `src/core/terminal/session.*` = parser+grid+handlers
+  behind feed(). `src/app/terminal_item.*` = TerminalView (keyboard map,
+  resize, cursor inversion). HARD-WON: STARTF_USESTDHANDLES with NULL std
+  handles is MANDATORY — without it the child bypasses the pty through
+  inherited std pipes (prompt leaked to parent console). Verified: `dir`
+  output renders through grid + screenshots sent to owner. Debug hooks:
+  KRAIT_TERM_INJECT (auto-type), KRAIT_SPIKE_SCREENSHOT.
+
 ## Next task (exactly one)
 
-**T15 of `docs/plan/02-m0-tasks.md`** (the last M0 task): ConPTY backend —
-acquire pinned OpenConsole build (`third_party/openconsole/` + MS LICENSE
-+ VERSION.md per ADR-0011); `IBackend` + `ConptyBackend`
-(CreatePseudoConsole, per-pipe threads, resize); wire
-backend→parser→grid→spike renderer + keyboard input. Deps: T9, T12.
-Verify: MANUAL — type `dir` in PowerShell through Krait (the user's
-hands). src/net rules apply (.claude/rules/net.md — read before coding).
-OpenConsole acquisition path decided in-task per ADR-0011.
+**M0 CLOSEOUT — user actions required:**
+1. MANUAL GATE (plan T15): run `build\dev\src\app\krait-app.exe` and type
+   `dir` in the PowerShell that appears — the plan's acceptance line.
+2. Merge the PR stack IN ORDER: #1 → #2 → … → #11.
+3. Environment debts: clang-cl not installed (ADR-0010 primary fuzz
+   preset untested; `winget install LLVM.LLVM` as admin), Qt pin 6.11.1
+   not installable via aqt (built on 6.10.3; use the official installer,
+   then flip QT_ROOT).
+Then M1 begins per `docs/plan/01-milestones.md`.
 
 ## After that
 
