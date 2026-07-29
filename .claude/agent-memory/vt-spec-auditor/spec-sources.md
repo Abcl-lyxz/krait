@@ -7,6 +7,12 @@ metadata:
 
 # Verified spec sources
 
+- **xterm ctlseqs**: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html — verified live 2026-07-29.
+  Facts confirmed by fetch:
+  - CUU/CUD/CUF/CUB default = 1; CUP/HVP default = [1,1]; CHA `CSI Ps G` default column 1; VPA `CSI Ps d` default row 1.
+  - Colon subparameters are documented **only for SGR** (38:2:..., "colons (standard) or semicolons (legacy)"). Williams machine sends 0x3A in CsiParam → CsiIgnore, so non-SGR sequences containing a colon are ignored whole by xterm.
+  - SO = LS1 (invoke G1), SI = LS0 (invoke G0). `CSI Ps SP A` is SR (scroll right), not CUU.
+
 - **Paul Williams DEC ANSI parser**: https://vt100.net/emu/dec_ansi_parser — verified live 2026-07-29.
   Facts confirmed by fetch (do not trust summarizer tables blindly — one fetch
   wrongly claimed ESC-anywhere has an execute action):

@@ -1,0 +1,41 @@
+# C0 controls on the 24x80 stub grid. EXPECT = final state.
+
+# CR returns to column 1
+IN \x1B[5;10H\x0D
+EXPECT cur:5,1
+
+# LF moves down, column unchanged
+IN \x1B[5;10H\x0A
+EXPECT cur:6,10
+
+# LF clamps at the bottom (no scrolling until the real grid)
+IN \x1B[24;1H\x0A
+EXPECT cur:24,1
+
+# BS stops at column 1
+IN \x1B[1;3H\x08\x08\x08\x08
+EXPECT cur:1,1
+
+# HT to the next fixed stop (every 8): 1 -> 9 -> 17
+IN \x09
+EXPECT cur:1,9
+IN \x1B[1;9H\x09
+EXPECT cur:1,17
+
+# HT clamps at the last column
+IN \x1B[1;79H\x09
+EXPECT cur:1,80
+
+# BEL counted, cursor untouched
+IN \x07\x07
+EXPECT cur:1,1 bell:2
+
+# SO invokes G1; SI restores G0
+IN \x0E
+EXPECT cur:1,1 g1:on
+IN \x0E\x0F
+EXPECT cur:1,1
+
+# CRLF the way shells emit it
+IN \x1B[3;40H\x0D\x0A
+EXPECT cur:4,1

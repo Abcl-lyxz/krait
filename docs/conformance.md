@@ -7,8 +7,8 @@ DA/DECRQM) · n/a not applicable.
 
 | Family | Sequences | Status | Tests | Notes |
 |---|---|---|---|---|
-| C0 controls | BEL BS HT LF CR ... | ✗ | — | M0 |
-| CSI cursor | CUU CUD CUF CUB CUP HVP ... | ✗ | — | M0 |
+| C0 controls | BEL BS HT LF CR SO SI | ◐ | corpus/csi/c0.case | T6 stub grid: BEL counted (app bell later), HT fixed stops every 8 (no HTS/TBC), LF no scroll until real grid (T8), no LNM, SO/SI shift state only (no SCS charsets). NUL ENQ VT FF still ✗ |
+| CSI cursor | CUU CUD CUF CUB CUP HVP CHA VPA | ◐ | corpus/csi/cursor.case | T6: defaults=1, 0→1, clamps at grid edges; colon subparams and intermediates/markers reject the sequence (SGR-only per xterm); no margins (DECSTBM/DECSLRM), no DECOM — those flip this to ✔ |
 | SGR basic | 0–29, 30–49, 90–107 | ✗ | — | M0 |
 | SGR extended | 38/48 truecolor+256, 58/59, 4:x underlines | ✗ | — | M1 |
 | Erase/scroll | ED EL IL DL SU SD DECSTBM | ✗ | — | M0/M1 |

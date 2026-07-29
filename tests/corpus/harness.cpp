@@ -12,6 +12,7 @@
 //                        ]! / UNHOOK! — the string was aborted (CAN/SUB/C1)
 //                        -        no events at all
 //                      Non-printables and space render as \xNN (uppercase).
+#include "core/parser/csi_cursor.h"
 #include "core/parser/machine.h"
 #include "core/unicode/utf8.h"
 #include <catch2/catch_test_macros.hpp>
@@ -213,6 +214,49 @@ std::vector<std::string> parseTokens(const std::string& spec) {
     return tokens;
 }
 
+// Feeds execute/csiDispatch into the T6 stub grid; everything else ignored.
+// csi/ case EXPECT tokens: cur:R,C (1-based), g1:on if shifted, bell:N if >0.
+class CursorSink final : public krait::core::vt::ParserEvents {
+  public:
+    krait::core::vt::StubGrid grid;
+
+    void print(char32_t) override {}
+
+    void execute(std::uint8_t control) override { krait::core::vt::handleControl(grid, control); }
+
+    void escDispatch(std::span<const std::uint8_t>, std::uint8_t) override {}
+
+    void csiDispatch(const krait::core::vt::Params& params,
+                     std::span<const std::uint8_t> intermediates, std::uint8_t final) override {
+        krait::core::vt::handleCsiCursor(grid, params, intermediates, final);
+    }
+
+    void dcsHook(const krait::core::vt::Params&, std::span<const std::uint8_t>,
+                 std::uint8_t) override {}
+
+    void dcsPut(std::uint8_t) override {}
+
+    void dcsUnhook(bool) override {}
+
+    void oscStart() override {}
+
+    void oscPut(std::uint8_t) override {}
+
+    void oscEnd(bool) override {}
+
+    std::vector<std::string> describe() const {
+        std::vector<std::string> tokens;
+        tokens.push_back(std::format("cur:{},{}", grid.row + 1, grid.col + 1));
+        if (grid.g1Invoked) {
+            tokens.emplace_back("g1:on");
+        }
+        if (grid.bells > 0) {
+            tokens.push_back(std::format("bell:{}", grid.bells));
+        }
+        return tokens;
+    }
+};
+
 }  // namespace
 
 TEST_CASE("corpus: utf8 decode", "[corpus][utf8]") {
@@ -243,6 +287,18 @@ TEST_CASE("corpus: parser events", "[corpus][parser]") {
             splitParser.feed({&b, 1});
         }
         CHECK(split.tokens == whole.tokens);
+    }
+    CHECK(!cases.empty());
+}
+
+TEST_CASE("corpus: csi cursor + c0 controls", "[corpus][csi]") {
+    const auto cases = loadCases(std::filesystem::path(KRAIT_CORPUS_DIR) / "csi");
+    for (const auto& c : cases) {
+        CAPTURE(c.file, c.in);
+        CursorSink sink;
+        krait::core::vt::Parser parser(sink, c.c1);
+        parser.feed(parseBytes(c.in));
+        CHECK(sink.describe() == parseTokens(c.expect));
     }
     CHECK(!cases.empty());
 }
