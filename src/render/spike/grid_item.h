@@ -3,6 +3,7 @@
 #include "glyph_atlas.h"
 #include <rhi/qrhi.h>
 
+#include <QElapsedTimer>
 #include <QQuickRhiItem>
 #include <QtQml/qqmlregistration.h>
 
@@ -29,8 +30,15 @@ class GridSpikeItem : public QQuickRhiItem {
 
     const GlyphAtlas& atlas() const { return m_atlas; }
 
+    int benchFrames() const { return m_benchFrames; }
+
+    // Called (queued) from the renderer when the flood bench completes:
+    // logs the report, writes KRAIT_BENCH_OUT if set, quits.
+    Q_INVOKABLE void finishBench(const QString& reportJson);
+
   private:
     GlyphAtlas m_atlas;
+    int m_benchFrames = 0;  // KRAIT_BENCH: full-grid-change frames to time
 };
 
 class GridSpikeRenderer : public QQuickRhiItemRenderer {
@@ -44,10 +52,19 @@ class GridSpikeRenderer : public QQuickRhiItemRenderer {
     // The first initialize() runs before the first synchronize() delivers
     // the atlas, so resource creation is lazy and re-attempted from render().
     void ensureResources(QRhiCommandBuffer* cb);
+    void reportBench();
 
     QRhi* m_rhi = nullptr;  // borrowed; detects device change
     bool m_failed = false;  // creation failed; retry only on device change
-    GlyphAtlas m_atlas;     // copied in synchronize (QImage is COW)
+    // Bench state (T13 flood): mutate every cell every frame, time it.
+    GridSpikeItem* m_item = nullptr;  // borrowed via synchronize; outlives us
+    int m_benchFrames = 0;
+    int m_frame = 0;
+    QElapsedTimer m_timer;
+    std::vector<double> m_cpuMs;
+    std::vector<double> m_gpuMs;
+    bool m_benchDone = false;
+    GlyphAtlas m_atlas;  // copied in synchronize (QImage is COW)
     std::vector<float> m_instances;
     std::unique_ptr<QRhiTexture> m_atlasTex;
     std::unique_ptr<QRhiSampler> m_sampler;

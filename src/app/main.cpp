@@ -1,5 +1,6 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQuickGraphicsConfiguration>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QTimer>
@@ -44,6 +45,15 @@ int main(int argc, char* argv[]) {
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     if (window != nullptr) {
+        // Before scene graph init (first expose): GPU timestamps for the
+        // bench, and the WARP software adapter when benching that leg.
+        QQuickGraphicsConfiguration config;
+        config.setTimestamps(true);
+        if (qEnvironmentVariableIsSet("KRAIT_BENCH_WARP")) {
+            config.setPreferSoftwareDevice(true);
+        }
+        window->setGraphicsConfiguration(config);
+        window->setVisible(true);  // deferred so the config precedes sg init
         // Queried on the GUI thread after the first frames; the
         // sceneGraphInitialized signal is emitted on the render thread and
         // proved unreliable to observe from here.

@@ -5,7 +5,7 @@ Window {
     id: root
     width: 960
     height: 540
-    visible: true
+    visible: false  // shown from main() after the graphics configuration
     title: "Krait spike"
     color: "#0d0f17"
 
