@@ -64,6 +64,25 @@ jobs:
           "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
 
+      - name: Check out vcpkg at the manifest baseline
+        shell: pwsh
+        run: |
+          # The image's vcpkg sits at whatever commit the image was built
+          # with. Handing it only our baseline.json is not enough: it reads
+          # the version DATABASE (versions/) off disk, so a 2026 baseline
+          # against a 2024 versions/ tree fails with "no version database
+          # entry for <port> at <date>". Move the whole registry — ports,
+          # versions and baseline — onto the pinned commit, which is what
+          # builtin-baseline actually means. vcpkg.json stays the only
+          # place the SHA is written down.
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          Write-Host "vcpkg baseline: $baseline"
+          git -C $env:VCPKG_ROOT fetch --no-tags origin $baseline
+          git -C $env:VCPKG_ROOT checkout --force --detach $baseline
+          git -C $env:VCPKG_ROOT rev-parse HEAD
+          # Re-bootstrap so vcpkg-tool matches the registry commit.
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
       - name: Toolchain sanity
         shell: pwsh
         run: |
@@ -78,18 +97,6 @@ jobs:
           cmake --version
           Write-Host "ninja: $((Get-Command ninja).Source) $(ninja --version)"
           Write-Host "cl:    $((Get-Command cl).Source)"
-
-      - name: Pin vcpkg to the manifest baseline
-        shell: pwsh
-        run: |
-          # The image ships its own vcpkg clone, which need not contain the
-          # builtin-baseline commit vcpkg.json pins. vcpkg then fails to read
-          # versions/baseline.json out of it for every port. Fetch exactly
-          # that commit; vcpkg.json stays the single source of the pin.
-          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
-          Write-Host "vcpkg baseline: $baseline"
-          git -C $env:VCPKG_ROOT fetch --no-tags origin $baseline
-          git -C $env:VCPKG_ROOT cat-file -e "${baseline}^{commit}"
 
       - name: Cache vcpkg binary archives
         uses: actions/cache@v4
