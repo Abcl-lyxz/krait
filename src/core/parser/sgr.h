@@ -20,7 +20,7 @@ bool applySgr(Attr& pen, const Params& params,
 // (0 is a real value for erase, unlike the cursor family). ED 3 (scrollback)
 // is a no-op until the real grid. Returns false for other finals or when
 // intermediates/markers are present (DECSED/DECSEL not implemented).
-bool handleErase(StubGrid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
+bool handleErase(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
                  std::uint8_t final) noexcept;
 
 }  // namespace krait::core::vt

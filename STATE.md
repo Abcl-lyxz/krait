@@ -52,17 +52,26 @@ builds on; the stub grid dies in T8 when the real grid lands.
   now a PATTERN both reviewers enforce; keep it for every new CSI family.
   Corpus `tests/corpus/sgr/{basic,erase}.case`; ctest 5/5.
 
+- T8 ✔: real Grid (`src/core/grid/{grid,line,damage}.*`) REPLACED StubGrid
+  everywhere — row storage with explicit `wrappedFromPrev` wrap flags
+  (reflow-from-day-one), DEC deferred wrap (`pendingWrap`; cleared by
+  BS/HT/CR/LF/cursor-family AND by EL/ED per DEC STD 070+xterm ResetWrap —
+  spec-audit catch), erase-to-EOL severs the wrap join to the next row,
+  scroll into 10k-capped deque scrollback, per-row coalesced DamageList,
+  naive resize clamped to 1x1 (rows shrink feeds top into scrollback; no
+  rewrap until M1 — 3 `[!mayfail]` scaffolds in tests/unit/grid_test.cpp
+  document desired reflow). ctest 17/17. Watch item for T9+ sequence work:
+  every op touching the cursor line must decide `pendingWrap` explicitly
+  (ICH/DCH/IL/DL when they come).
+
 ## Next task (exactly one)
 
-**T8 of `docs/plan/02-m0-tasks.md`**: Grid — logical lines + wrap points +
-cursor + damage list; resize-reflow test scaffold (resize during wrapped
-line / wide char at boundary / active prompt — cases marked `[!mayfail]`
-until M1 reflow lands). Deliverables: `src/core/grid/{grid,line,damage}.*`,
-`tests/unit/grid_*.cpp`. Verify: `ctest -R grid`. Landmine: scrollback
-stores logical lines + wrap points FROM DAY ONE — reflow cannot be
-retrofitted (CLAUDE.md). The T6/T7 StubGrid + harness routing get replaced
-by the real grid wired behind ParserEvents (or kept until T15 wiring —
-decide in-task, smallest diff wins).
+**T9 of `docs/plan/02-m0-tasks.md`**: Capability table + honest replies —
+DA1, DSR 5/6 generated from a table that gates on what is actually
+implemented; parser answerback rate-limit hook. Deliverables:
+`src/core/caps/*`, `tests/corpus/reports/*.case`. Verify: corpus — DA1
+reply matches the table exactly. The honesty rule (CLAUDE.md sacred rule 1)
+is the whole point of this task: never claim an unimplemented capability.
 
 ## After that
 

@@ -8,7 +8,7 @@ EXPECT cur:5,1
 IN \x1B[5;10H\x0A
 EXPECT cur:6,10
 
-# LF clamps at the bottom (no scrolling until the real grid)
+# LF at the bottom scrolls (T8); cursor stays on the last row
 IN \x1B[24;1H\x0A
 EXPECT cur:24,1
 
@@ -39,3 +39,31 @@ EXPECT cur:1,1
 # CRLF the way shells emit it
 IN \x1B[3;40H\x0D\x0A
 EXPECT cur:4,1
+
+# T8 autowrap through the parser: deferred wrap parks on the last column...
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EXPECT cur:1,80
+
+# ...the next printable wraps to the next row...
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxZ
+EXPECT cur:2,2
+
+# ...and CR cancels the pending wrap (Z overwrites in place)
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x0DZ
+EXPECT cur:1,2
+
+# BS cancels pending wrap (STD 070): Z lands in the last column
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x08Z
+EXPECT cur:1,80
+
+# HT cancels pending wrap; cursor is already past the last stop
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x09Z
+EXPECT cur:1,80
+
+# EL cancels pending wrap (xterm ClearRight -> ResetWrap)
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1B[KZ
+EXPECT cur:1,80
+
+# CUD cancels pending wrap through the parser
+IN xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1B[BZ
+EXPECT cur:2,80
