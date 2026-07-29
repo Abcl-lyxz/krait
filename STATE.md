@@ -44,14 +44,25 @@ builds on; the stub grid dies in T8 when the real grid lands.
   final grid state (`cur:R,C` / `g1:on` / `bell:N` tokens via CursorSink).
   Both reviewers clean after fixes; ctest 4/4; format+tidy clean.
 
+- T7 ✔: SGR basic (`src/core/parser/sgr.*`, `src/core/grid/cell.h`
+  Color/Attr/Cell) + ED/EL on the stub grid (now has cells + pen +
+  putChar, no wrap). 38/48/58 consumed with correct arity (colon+legacy)
+  but inert until M1; 21≈underline, 4:x collapses to on/off — declared in
+  ledger. Non-SGR handlers (cursor, erase) reject colon subparams — that's
+  now a PATTERN both reviewers enforce; keep it for every new CSI family.
+  Corpus `tests/corpus/sgr/{basic,erase}.case`; ctest 5/5.
+
 ## Next task (exactly one)
 
-**T7 of `docs/plan/02-m0-tasks.md`**: SGR basic (0–29, 30–49, 90–107;
-colon-subparam tolerant skeleton) + ED/EL; attributes in cell struct.
-Deliverables: `src/core/parser/sgr.*`, `src/core/grid/cell.h`,
-`tests/corpus/sgr/*.case`. Verify: corpus green + conformance rows same
-commit. Note: T6's `StubGrid` has no cells — ED/EL need at least attribute
-cells; keep it minimal, the full grid is T8.
+**T8 of `docs/plan/02-m0-tasks.md`**: Grid — logical lines + wrap points +
+cursor + damage list; resize-reflow test scaffold (resize during wrapped
+line / wide char at boundary / active prompt — cases marked `[!mayfail]`
+until M1 reflow lands). Deliverables: `src/core/grid/{grid,line,damage}.*`,
+`tests/unit/grid_*.cpp`. Verify: `ctest -R grid`. Landmine: scrollback
+stores logical lines + wrap points FROM DAY ONE — reflow cannot be
+retrofitted (CLAUDE.md). The T6/T7 StubGrid + harness routing get replaced
+by the real grid wired behind ParserEvents (or kept until T15 wiring —
+decide in-task, smallest diff wins).
 
 ## After that
 

@@ -1,0 +1,57 @@
+# ED/EL on the stub grid. '.'=erased, lines trimmed of trailing erased cells.
+
+# EL0: cursor to end of line
+IN AB\x1B[1;2H\x1B[K
+EXPECT pen:-/def/def line:1:A
+
+# EL default param is 0
+IN AB\x1B[1;2H\x1B[0K
+EXPECT pen:-/def/def line:1:A
+
+# EL1: start to cursor, inclusive
+IN ABC\x1B[1;2H\x1B[1K
+EXPECT pen:-/def/def line:1:..C
+
+# EL2: whole line
+IN ABC\x1B[2K
+EXPECT pen:-/def/def
+
+# ED0: cursor to end of screen
+IN A\x0D\x0AB\x0D\x0AC\x1B[2;1H\x1B[J
+EXPECT pen:-/def/def line:1:A
+
+# ED1: start of screen to cursor, inclusive
+IN A\x0D\x0AB\x0D\x0AC\x1B[2;80H\x1B[1J
+EXPECT pen:-/def/def line:3:C
+
+# ED2: everything
+IN ABC\x1B[2J
+EXPECT pen:-/def/def
+
+# ED3 (scrollback) is a no-op on the stub; screen intact
+IN AB\x1B[3J
+EXPECT pen:-/def/def line:1:AB
+
+# Erased cells drop attributes; rewrite lands with current pen
+IN \x1B[31mAB\x1B[2K\x1B[mC
+EXPECT pen:-/def/def line:1:..C
+
+# DECSED (CSI ? Ps J) is not plain ED: rejected, screen intact
+IN AB\x1B[?2J
+EXPECT pen:-/def/def line:1:AB
+
+# Interrupted erase does nothing
+IN AB\x1B[2\x18K
+EXPECT pen:-/def/def line:1:ABK
+
+# Colon subparams in erase are rejected (SGR-only), screen intact
+IN AB\x1B[2:0K
+EXPECT pen:-/def/def line:1:AB
+IN AB\x1B[1:2J
+EXPECT pen:-/def/def line:1:AB
+IN AB\x1B[1;2H\x1B[0:1K
+EXPECT pen:-/def/def line:1:AB
+
+# DECSEL (CSI ? Ps K) rejected like DECSED
+IN AB\x1B[1;1H\x1B[?2K
+EXPECT pen:-/def/def line:1:AB
