@@ -1,0 +1,87 @@
+# Happy paths through every dispatch family.
+
+# Plain text + C0 execute
+IN hi\x0A
+EXPECT U+0068 U+0069 E:0A
+
+# UTF-8 prints through ground (Thai ko kai)
+IN \xE0\xB8\x81A
+EXPECT U+0E01 U+0041
+
+# Simple CSI with one param
+IN \x1B[2J
+EXPECT CSI:2J
+
+# CSI with no params at all
+IN \x1B[H
+EXPECT CSI:H
+
+# Private marker
+IN \x1B[?25h
+EXPECT CSI:?25h
+
+# Empty params are 0 (consumer maps to default)
+IN \x1B[1;;3m
+EXPECT CSI:1;0;3m
+
+# Trailing empty param after a separator
+IN \x1B[1;H
+EXPECT CSI:1;0H
+
+# Colon subparams are legal (deviation): SGR direct color
+IN \x1B[38:2:255:0:0m
+EXPECT CSI:38:2:255:0:0m
+
+# Param value clamps at 16383 (DEC 14-bit): at the boundary and one past
+IN \x1B[16383G
+EXPECT CSI:16383G
+IN \x1B[16384G
+EXPECT CSI:16383G
+IN \x1B[99999G
+EXPECT CSI:16383G
+
+# Empty subparam part stores 0 (38:2::r:g:b, empty colorspace)
+IN \x1B[38:2::255:0:0m
+EXPECT CSI:38:2:0:255:0:0m
+
+# Leading separator only
+IN \x1B[;H
+EXPECT CSI:0;0H
+
+# DEL in ground prints U+007F (documented deviation; display layer decides)
+IN A\x7FB
+EXPECT U+0041 U+007F U+0042
+
+# ESC dispatch, plain and with intermediate
+IN \x1Bc
+EXPECT ESC:c
+IN \x1B(B
+EXPECT ESC:(B
+
+# CSI intermediate after params (DECSCUSR: CSI 2 SP q)
+IN \x1B[2 q
+EXPECT CSI:2\x20q
+
+# OSC terminated by BEL (deviation: xterm behavior)
+IN \x1B]0;title\x07
+EXPECT OSC[0;title]
+
+# OSC terminated by ESC \ (ST); the ST itself esc-dispatches as a no-op
+IN \x1B]52;abc\x1B\x5C
+EXPECT OSC[52;abc] ESC:\
+
+# OSC payload keeps raw UTF-8 bytes
+IN \x1B]0;\xE0\xB8\x81\x07
+EXPECT OSC[0;\xE0\xB8\x81]
+
+# DCS: hook with intermediate, payload put, unhook (DECRQSS shape)
+IN \x1BP$qm\x1B\x5C
+EXPECT DCS:$q PUT[m] UNHOOK ESC:\
+
+# DCS with params
+IN \x1BP1;2+qdata\x1B\x5C
+EXPECT DCS:1;2+q PUT[data] UNHOOK ESC:\
+
+# C0 executes inside a CSI without aborting it
+IN \x1B[1\x0A2m
+EXPECT E:0A CSI:12m

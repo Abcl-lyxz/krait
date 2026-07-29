@@ -1,0 +1,49 @@
+# Sequences interrupted mid-flight (plan T5 corpus requirement).
+
+# CAN aborts a CSI mid-params; the CAN itself executes
+IN \x1B[1;2\x18X
+EXPECT E:18 U+0058
+
+# SUB aborts an ESC intermediate sequence
+IN \x1B(\x1AZ
+EXPECT E:1A U+005A
+
+# ESC restarts: aborted CSI leaves no params behind
+IN \x1B[1\x1BcA
+EXPECT ESC:c U+0041
+
+# CAN inside an OSC: the handler is told the string ended AND was aborted
+IN \x1B]0;ti\x18X
+EXPECT OSC[0;ti]! E:18 U+0058
+
+# ESC inside a DCS payload: unhook fires, next sequence parses cleanly
+IN \x1BPqdata\x1B[m
+EXPECT DCS:q PUT[data] UNHOOK CSI:m
+
+# ESC interrupts a pending UTF-8 sequence: damage becomes U+FFFD
+IN \xE0\xB8\x1B[m
+EXPECT U+FFFD CSI:m
+
+# C0 interrupts a pending UTF-8 sequence
+IN \xF0\x9F\x0Ax
+EXPECT U+FFFD E:0A U+0078
+
+# CAN aborts a DCS before its final byte: nothing dispatches
+IN \x1BP1;2\x18A
+EXPECT E:18 U+0041
+
+# CAN inside a hooked DCS payload: unhook fires flagged as aborted
+IN \x1BPqda\x18X
+EXPECT DCS:q PUT[da] UNHOOK! E:18 U+0058
+
+# SUB inside an OSC: aborted
+IN \x1B]0;t\x1AX
+EXPECT OSC[0;t]! E:1A U+0058
+
+# ESC then immediately CAN: escape aborted, nothing dispatches
+IN \x1B\x18A
+EXPECT E:18 U+0041
+
+# CAN mid-subparams recovers to ground
+IN \x1B[1:2\x18A
+EXPECT E:18 U+0041

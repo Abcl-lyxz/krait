@@ -1,6 +1,7 @@
 # krait-core — the sacred zone (rules/vt-core.md): STL + utf8proc only.
 # Zero Qt/network/render deps, proven by tests/core-standalone.
 add_library(krait-core STATIC
+    parser/machine.cpp
     unicode/utf8.cpp
     version.cpp
 )

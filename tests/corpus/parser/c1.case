@@ -1,0 +1,36 @@
+# 8-bit C1 introducers/terminators, only honored when the C1 policy flag is
+# on (legacy non-UTF-8 sessions). Same bytes with the flag off are malformed
+# UTF-8 — see garbage.case.
+MODE c1
+
+# 8-bit CSI
+IN \x9B2J
+EXPECT CSI:2J
+
+# 8-bit OSC terminated by 8-bit ST
+IN \x9D0;t\x9C
+EXPECT OSC[0;t]
+
+# Stray C1 control executes
+IN \x85
+EXPECT E:85
+
+# 8-bit DCS with 8-bit ST
+IN \x90qab\x9C
+EXPECT DCS:q PUT[ab] UNHOOK
+
+# C1 CSI restarts a half-open 7-bit CSI (entry clear wipes params)
+IN \x1B[7\x9B2J
+EXPECT CSI:2J
+
+# Stray 8-bit ST in ground is a no-op (no execute)
+IN A\x9CB
+EXPECT U+0041 U+0042
+
+# 8-bit CSI interrupts an open OSC: aborted end, then the CSI parses
+IN \x9D0;t\x9B2J
+EXPECT OSC[0;t]! CSI:2J
+
+# 8-bit ST releases a colon-poisoned (ignored) DCS
+IN \x901:2qzz\x9CA
+EXPECT U+0041
