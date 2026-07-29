@@ -7,14 +7,35 @@ if(NOT MSVC)
 endif()
 
 # C++23 preview until VS finishes /std:c++23 (rules/cpp.md); warnings are errors.
-add_compile_options(/std:c++23preview /W4 /WX /utf-8 /permissive- /Zc:preprocessor)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # clang-cl (fuzz preset): same language level, its own flag spellings.
+    # NOTE: untested until clang-cl is installed on the dev machine.
+    add_compile_options(/clang:-std=c++23 /W4 /WX /utf-8)
+else()
+    add_compile_options(/std:c++23preview /W4 /WX /utf-8 /permissive- /Zc:preprocessor)
+endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 enable_testing()
 
-add_subdirectory(src/core)
-add_subdirectory(tests/unit)
-add_subdirectory(tests/corpus)
+option(KRAIT_FUZZ "Build the libFuzzer target instead of the test suite" OFF)
+
+if(KRAIT_FUZZ)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # Coverage instrumentation for everything the fuzzer executes.
+        add_compile_options(-fsanitize=fuzzer-no-link,address)
+    else()
+        # MSVC: sanitizer+coverage must match across the whole build or the
+        # ASan container annotations mismatch at link (LNK2038).
+        add_compile_options(/fsanitize=address /fsanitize=fuzzer)
+    endif()
+    add_subdirectory(src/core)
+    add_subdirectory(tests/fuzz)
+else()
+    add_subdirectory(src/core)
+    add_subdirectory(tests/unit)
+    add_subdirectory(tests/corpus)
+endif()
 
 # T11 adds: add_subdirectory(src/render) + add_subdirectory(src/app)

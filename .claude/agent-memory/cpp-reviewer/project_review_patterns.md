@@ -23,6 +23,11 @@ T7 confirmations (both recurring patterns hit again):
 - First diff where all three recurring asks shipped unprompted: colon-subparam rejection, interrupted-mid-sequence corpus case (CAN), conformance row honest with explicit gaps. Keep checking, but the author has the pattern now.
 - New recurring check for reply-generating handlers: rate/flood guards must have a test that exercises the REFILL path, not just initial-credit exhaustion — test harness wiring (single up-front addInput) can make refill untestable by construction.
 
+## T10 lesson (fuzz tooling)
+- Node tooling that re-parses corpus .case files must mirror harness.cpp parseBytes EXACTLY: read as latin1 (not utf8 — c1.case and utf8/basic.case contain raw multibyte, charCodeAt+Buffer masks to low byte), and bound check `i + 3 < len` (mjs shipped `< len + 1`, accepts truncated 1-digit escape). Diff any new byte-parser against harness.cpp:70 line by line.
+- Fuzz presets keep asserts live by overriding CMAKE_CXX_FLAGS_RELWITHDEBINFO to "/O2 /Zi" (drops /DNDEBUG). Verified correct; re-check if presets are touched.
+- Harness invariant asserts verified sound vs core: intermediates cap 2 (machine.h:44), params uint16<=16383/count<=32, grid cursor always clamped (deferred wrap keeps col<cols). ReplyLimiter credits RESET to 8 per window (never accumulate), so single up-front addInput => max 8 replies/iteration.
+
 ## T8 lesson
 - docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.
 - Grid behavior changes tend to ship unit tests only; vt-core rule also wants corpus cases (parser-path: wrap at margin, LF-at-bottom scroll, pendingWrap cancel) in the same commit.

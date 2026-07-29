@@ -11,10 +11,36 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "cl"
       }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "Fuzz (Ninja + clang-cl libFuzzer+ASan, ADR-0010 primary)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/fuzz",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/O2 /Zi",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "KRAIT_FUZZ": "ON"
+      }
+    },
+    {
+      "name": "fuzz-msvc",
+      "displayName": "Fuzz (Ninja + MSVC /fsanitize=fuzzer, experimental fallback)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/fuzz-msvc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/O2 /Zi",
+        "CMAKE_CXX_COMPILER": "cl",
+        "KRAIT_FUZZ": "ON"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "dev", "configurePreset": "dev" }
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "fuzz", "configurePreset": "fuzz" },
+    { "name": "fuzz-msvc", "configurePreset": "fuzz-msvc" }
   ],
   "testPresets": [
     {
