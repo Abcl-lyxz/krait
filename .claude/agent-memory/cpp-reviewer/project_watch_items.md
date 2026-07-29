@@ -84,6 +84,26 @@ Watch items from past reviews (verify still true before flagging):
   safety; lazy ensureResources because first initialize() precedes first
   synchronize().
 
+## T13 flood bench (t12-atlas-spike, uncommitted at review, no blockers)
+- Bench hang path: if pipeline create fails (m_failed) or atlas invalid, the
+  !m_pipeline early-return skips the bench branch AND update(), so KRAIT_BENCH
+  runs hang forever (flood-report.cmd stalls unattended). Accepted for spike;
+  add a watchdog if the bench ever runs in CI.
+- finishBench: KRAIT_BENCH_OUT open failure is silent, exit code stays 0, and
+  flood-report.cmd `type`s the stale json from a previous run. Re-check when
+  perf-auditor starts consuming these files.
+- Verified-correct patterns worth reusing: renderer->item queued invokeMethod
+  is safe (m_item borrowed in synchronize, reportBench only from render(),
+  QQuickRhiItem tears down renderer before item; queued event dropped if
+  receiver dies first); hidden-window-then-setGraphicsConfiguration-then-show
+  ordering for pre-scenegraph config; resource batch handed to beginPass;
+  warmup arithmetic exact (frames 0..59 warm, frame kWarmup starts timer,
+  exactly N samples); QString::asprintf %f is locale-independent -> valid JSON.
+- lastCompletedGpuTime repeats the same completed-frame value across frames
+  (multi-frame latency), so gpu_samples overcounts distinct measurements;
+  dev-GPU cpu numbers are vsync-paced (fps == display Hz). Both disclosed in
+  m0-spike.json notes — keep that disclosure if baselines are regenerated.
+
 ## T8 grid (t7-sgr, uncommitted at review)
 - Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.
 - wrappedFromPrev never cleared by ED/EL full-row erase -> stale wrap flags feed M1 reflow. Re-check when reflow lands.
