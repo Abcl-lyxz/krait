@@ -1,0 +1,101 @@
+# CSI cursor family on the 24x80 stub grid. EXPECT = final state.
+
+# CUP absolute, default, and 0-as-default
+IN \x1B[5;10H
+EXPECT cur:5,10
+IN \x1B[H
+EXPECT cur:1,1
+IN \x1B[0;0H
+EXPECT cur:1,1
+
+# HVP is CUP
+IN \x1B[3;4f
+EXPECT cur:3,4
+
+# CUU stops at top
+IN \x1B[5;10H\x1B[99A
+EXPECT cur:1,10
+
+# CUD stops at bottom (24 rows)
+IN \x1B[99B
+EXPECT cur:24,1
+
+# CUF then CUB
+IN \x1B[10C\x1B[3D
+EXPECT cur:1,8
+
+# CUB stops at left
+IN \x1B[5D
+EXPECT cur:1,1
+
+# CUF stops at right (80 cols)
+IN \x1B[999C
+EXPECT cur:1,80
+
+# CHA column absolute, row unchanged
+IN \x1B[5;10H\x1B[3G
+EXPECT cur:5,3
+
+# VPA row absolute, column unchanged
+IN \x1B[5;10H\x1B[7d
+EXPECT cur:7,10
+
+# Defaults move by exactly 1
+IN \x1B[5;10H\x1B[A\x1B[C
+EXPECT cur:4,11
+
+# Absolute targets clamp to the grid
+IN \x1B[999G
+EXPECT cur:1,80
+IN \x1B[16383;16383H
+EXPECT cur:24,80
+
+# Cursor sequences take no intermediates: CSI 5 SP A is not CUU
+IN \x1B[5;10H\x1B[5 A
+EXPECT cur:5,10
+
+# Colon subparams are illegal outside SGR: CSI 5:10 H does not move
+IN \x1B[5:10H
+EXPECT cur:1,1
+
+# CAN aborts a CUP mid-params: grid must not move
+IN \x1B[5;10H\x1B[3;3\x18
+EXPECT cur:5,10
+
+# Input ends mid-sequence: nothing dispatched
+IN \x1B[7;7
+EXPECT cur:1,1
+
+# Private marker rejected (CSI ? 5 A is not CUU)
+IN \x1B[?5A
+EXPECT cur:1,1
+
+# Subparam rejection preserves prior position too
+IN \x1B[5;10H\x1B[3:4H
+EXPECT cur:5,10
+
+# CAN aborts mid-CSI; the trailing final prints, not dispatches
+IN \x1B[5;10H\x1B[7\x18A
+EXPECT cur:5,10
+
+# ESC mid-CSI restarts: second CSI wins
+IN \x1B[5;10\x1B[3;3H
+EXPECT cur:3,3
+
+# CHA/VPA defaults are 1
+IN \x1B[5;10H\x1B[G
+EXPECT cur:5,1
+IN \x1B[5;10H\x1B[d
+EXPECT cur:1,10
+
+# Explicit 0 means 1 for count params
+IN \x1B[5;10H\x1B[0A\x1B[0C
+EXPECT cur:4,11
+
+# CUP with row only: column defaults to 1
+IN \x1B[5;10H\x1B[7H
+EXPECT cur:7,1
+
+# C0 executes inside an open CSI, then the CSI completes
+IN \x1B[3;10H\x1B[5;\x0812H
+EXPECT cur:5,12

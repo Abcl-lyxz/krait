@@ -4,11 +4,10 @@ Phase: M0 in progress
 
 ## Now
 
-T5 just landed: the DEC ANSI parser state machine is real and corpus-tested.
-The `ParserEvents` interface (print/execute/esc/csi/dcs/osc + `aborted` flag
-on string ends) is the seam T6 builds on. Deviations from the vt100.net
-diagram are documented in the `tables.h` header comment — read it before
-touching the tables.
+T5 + T6 are done, stacked as PRs (main is hook-protected, see Watchouts):
+PR #1 = t5-parser (parser machine), PR #2 = t6-cursor stacked on it.
+Merge #1 then #2. The `ParserEvents` seam and the T6 `StubGrid` are what T7
+builds on; the stub grid dies in T8 when the real grid lands.
 
 ## Done so far
 
@@ -34,15 +33,25 @@ touching the tables.
   `.claude/agent-memory/vt-spec-auditor/t5-audit-findings.md`.
   /preflight GREEN (tidy note below).
 
+- T6 ✔: C0 controls (BEL BS HT LF CR SO SI) + CSI cursor family
+  (CUU CUD CUF CUB CUP HVP CHA VPA) on `StubGrid`
+  (`src/core/parser/csi_cursor.*`, 24x80, no scroll/margins/DECOM/LNM/SCS —
+  partials declared in the ledger). Colon subparams and intermediates reject
+  the sequence (xterm: subparams are SGR-only). `docs/conformance.md`
+  existed from the scaffold as a FAMILY ledger — T6 flipped its two rows
+  ✗→◐; fuzz seeds started (`tests/fuzz/seeds/`, 10 files, no harness yet —
+  that's a later task). Corpus `tests/corpus/csi/{cursor,c0}.case` asserts
+  final grid state (`cur:R,C` / `g1:on` / `bell:N` tokens via CursorSink).
+  Both reviewers clean after fixes; ctest 4/4; format+tidy clean.
+
 ## Next task (exactly one)
 
-**T6 of `docs/plan/02-m0-tasks.md`**: C0 controls (BEL BS HT LF CR SO SI) +
-CSI cursor family (CUU CUD CUF CUB CUP HVP CHA VPA) on a stub grid;
-`docs/conformance.md` rows flip ✗→✔ (file starts here); fuzz seeds per
-sequence (`tests/fuzz/seeds/` starts here).
-Verify: corpus green + conformance rows updated in the same commit.
-Note for T6: OSC/DCS sinks must discard aborted strings and bound their own
-payload accumulation — the parser streams unbounded (events.h doc comments).
+**T7 of `docs/plan/02-m0-tasks.md`**: SGR basic (0–29, 30–49, 90–107;
+colon-subparam tolerant skeleton) + ED/EL; attributes in cell struct.
+Deliverables: `src/core/parser/sgr.*`, `src/core/grid/cell.h`,
+`tests/corpus/sgr/*.case`. Verify: corpus green + conformance rows same
+commit. Note: T6's `StubGrid` has no cells — ED/EL need at least attribute
+cells; keep it minimal, the full grid is T8.
 
 ## After that
 
