@@ -64,6 +64,33 @@ jobs:
           "QT_ROOT=$env:QT_ROOT_DIR" >> $env:GITHUB_ENV
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
 
+      - name: Toolchain sanity
+        shell: pwsh
+        run: |
+          # Ninja is not reliably on PATH on this image even inside the VS dev
+          # environment, and a missing one surfaces as the misleading
+          # "unable to find a build program corresponding to Ninja".
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y --no-progress
+            $env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
+            "PATH=$env:PATH" >> $env:GITHUB_ENV
+          }
+          cmake --version
+          Write-Host "ninja: $((Get-Command ninja).Source) $(ninja --version)"
+          Write-Host "cl:    $((Get-Command cl).Source)"
+
+      - name: Pin vcpkg to the manifest baseline
+        shell: pwsh
+        run: |
+          # The image ships its own vcpkg clone, which need not contain the
+          # builtin-baseline commit vcpkg.json pins. vcpkg then fails to read
+          # versions/baseline.json out of it for every port. Fetch exactly
+          # that commit; vcpkg.json stays the single source of the pin.
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          Write-Host "vcpkg baseline: $baseline"
+          git -C $env:VCPKG_ROOT fetch --no-tags origin $baseline
+          git -C $env:VCPKG_ROOT cat-file -e "${baseline}^{commit}"
+
       - name: Cache vcpkg binary archives
         uses: actions/cache@v4
         with:
