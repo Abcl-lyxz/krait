@@ -1,0 +1,25 @@
+# Build
+build/
+out/
+vcpkg_installed/
+CMakeUserPresets.json
+compile_commands.json
+
+# IDE / tools
+.vs/
+.idea/
+.cache/
+*.user
+
+# Claude Code — machine-local state (never commit)
+.claude/settings.local.json
+.claude/.cache/
+.claude/agent-memory-local/
+
+# Secrets — belt and suspenders (the vault is DPAPI, but never risk it)
+*.ppk
+*.pem
+id_rsa*
+id_ed25519*
+.env
+.env.*

@@ -1,0 +1,12 @@
+# Normalize to LF in repo; MSVC, CMake, Ninja, and Qt are all LF-clean.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaries
+*.png binary
+*.ico binary
+*.ttf binary
+*.otf binary

@@ -1,0 +1,36 @@
+# Krait C++ style — enforced by the post-edit hook; never hand-format.
+BasedOnStyle: LLVM
+Standard: c++20          # clang-format's latest stable dialect switch; fine for C++23 sources
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: All
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+InsertBraces: true       # if/for always braced — terminal state machines punish sloppiness
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"krait/'          # our own public headers
+    Priority: 1
+  - Regex: '^<(QtCore|QtGui|QtQuick|QtQml|Q[A-Z])'
+    Priority: 3
+  - Regex: '^<(harfbuzz|hb|ft2build|freetype|libssh|toml\+\+|fmt|utf8proc)'
+    Priority: 4
+  - Regex: '^<[a-z_]+>$'       # std
+    Priority: 5
+  - Regex: '.*'
+    Priority: 2
+
+SeparateDefinitionBlocks: Always
+SpacesBeforeTrailingComments: 2
+FixNamespaceComments: true
+QualifierAlignment: Left

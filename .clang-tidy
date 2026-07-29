@@ -1,0 +1,28 @@
+# Krait clang-tidy policy. Runs in /preflight on changed files; CI runs full.
+# Style is clang-format's job — this file is about bugs, UB, and lifetimes.
+Checks: >
+  bugprone-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-container-size-empty,
+  readability-misleading-indentation,
+  readability-redundant-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays
+
+WarningsAsErrors: 'bugprone-*,concurrency-*'
+HeaderFilterRegex: '(src|tests|bench)/'
+FormatStyle: file
+
+CheckOptions:
+  - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: true
+  - key: performance-move-const-arg.CheckTriviallyCopyableMove
+    value: false
