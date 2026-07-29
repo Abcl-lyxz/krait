@@ -28,3 +28,11 @@ lands (T2 of `docs/plan/02-m0-tasks.md` adds the exact versions/commands).
 ## Repo
 
 - `git clone https://github.com/Abcl-lyxz/krait` · read `STATE.md` first.
+
+## Qt (from T11)
+
+- Install Qt via aqtinstall; pin is 6.11.1 (ADR-0001) but aqt cannot fetch
+  its metadata yet - 6.10.3 msvc2022_64 + the qtshadertools module works
+  (floor is 6.8). Use the official Qt installer for 6.11.1 when convenient.
+- Set `QT_ROOT` (e.g. `C:\Qt\6.10.3\msvc2022_64`) in the dev shell; the
+  dev preset reads it for CMAKE_PREFIX_PATH.

@@ -36,6 +36,7 @@ else()
     add_subdirectory(src/core)
     add_subdirectory(tests/unit)
     add_subdirectory(tests/corpus)
+    add_subdirectory(src/app)
 endif()
 
 # T11 adds: add_subdirectory(src/render) + add_subdirectory(src/app)
