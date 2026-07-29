@@ -50,9 +50,14 @@ Watch items from past reviews (verify still true before flagging):
 **How to apply:** when a review touches src/core deps, root flags, or T11 targets, check these first.
 
 ## T9 caps/reports (t8-grid, uncommitted at review)
-- ReplyLimiter refill branch (addInput while-loop) has zero test coverage: harness calls addInput(total) once BEFORE feed, so credits are always reset to 8 up-front and no corpus case can ever exercise interleaved refill (>8 replies). Re-check when the app layer wires addInput per network chunk — that wiring order (addInput before each feed chunk) is an undocumented contract.
+- ReplyLimiter refill coverage: RESOLVED in committed T9 — harness reports test now feeds 64-byte chunks with addInput per chunk (harness.cpp ~385). Contract (addInput before each feed chunk) is documented in caps.h. Fuzz harness deliberately uses single up-front addInput => max 8 replies/iteration.
 - handleReport DA1 accepts `CSI 0;1c` (only values[0] checked, count>1 not rejected). Harmless reply, noted not blocked.
 - Unreachable Capabilities flags (columns132..ansiColor) + VT220 `?62` branch in da1Reply are dead until M1 — accepted because vt-core rule mandates table-generated DA. Verify flags flip only alongside real implementations.
+
+## T10 fuzz (t9-caps, uncommitted at review)
+- extract-seeds.mjs flagged: utf8-read corrupts non-ASCII IN payloads (needs latin1) + escape bound off-by-one vs harness. Verify fixed before trusting corpus-derived seeds.
+- Whole clang-cl path (fuzz preset, /clang:-std=c++23, -fsanitize=fuzzer-no-link) is UNVERIFIED — clang-cl not installed on this machine; only fuzz-msvc ran. Re-check the first time someone actually configures the clang preset; also note clang branch drops /WX under a comment claiming warnings-as-errors.
+- run-smoke.cmd hard-codes VS18 Community vcvars64 path — breaks on CI/other machines; fine as personal dev script, revisit when CI lands.
 
 ## T8 grid (t7-sgr, uncommitted at review)
 - Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.

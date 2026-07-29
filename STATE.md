@@ -74,14 +74,28 @@ builds on; the stub grid dies in T8 when the real grid lands.
   8-bit C1 request. Watch item (M1): ansiColor deliberately under-claimed
   until the 62-identity is honest.
 
+- T10 ✔: fuzz target (`tests/fuzz/parser_fuzz.cpp` — FuzzSink with cursor/
+  params/amplification invariant asserts, both C1 policies by input parity),
+  presets `fuzz` (clang-cl+ASan primary, ADR-0010 — UNTESTED, clang-cl not
+  installed; `winget install LLVM.LLVM` needs an admin elevation) and
+  `fuzz-msvc` (verified fallback: 60s smoke = 213–350k execs, ZERO
+  crashes). Seeds: `tools/extract-seeds.mjs` (node) extracts every corpus
+  IN payload byte-exactly (latin1 read) + tests/fuzz/seeds → 189 files.
+  `tests/fuzz/run-smoke.cmd` = the per-commit gate; replays
+  tests/fuzz/regressions/ first (empty). RelWithDebInfo override keeps
+  asserts live in fuzz builds. Qt 6.11.1 (the pin) now installed at
+  C:\Qt\6.11.1\msvc2022_64 via aqtinstall.
+
 ## Next task (exactly one)
 
-**T10 of `docs/plan/02-m0-tasks.md`**: fuzz target
-`tests/fuzz/parser_fuzz.cpp` (bytes→parser→grid with invariant ASSERTs),
-clang-cl `fuzz` build preset, seed corpus = all corpus inputs,
-`run-smoke.cmd` (60 s). Verify: `tests\fuzz\run-smoke.cmd` zero crashes.
-Per ADR-0010. After T10, the remaining M0 tasks (T11–T15) need Qt 6.11.1 +
-GPU on the dev machine.
+**T11 of `docs/plan/02-m0-tasks.md`**: Qt shell — `src/app/main.cpp` + one
+QML window; `QQuickWindow::setGraphicsApi(D3D11)`; QQuickRhiItem subclass
+drawing a colored triangle (proves the qsb pipeline via `qt_add_shaders`).
+Deliverables: src/app/main.cpp, src/app/qml/Main.qml, src/render/spike/*,
+src/render/shaders/*. Verify: app opens; log line `rhi backend: D3D11`.
+Deps: T2 only. Qt 6.11.1 at C:\Qt\6.11.1\msvc2022_64 (CMAKE_PREFIX_PATH).
+MCP-first: verify QQuickRhiItem API against qt-docs before coding
+(ADR-0009 chose it at plan time).
 
 ## After that
 
