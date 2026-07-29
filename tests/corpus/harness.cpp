@@ -219,7 +219,7 @@ std::vector<std::string> parseTokens(const std::string& spec) {
 // csi/ case EXPECT tokens: cur:R,C (1-based), g1:on if shifted, bell:N if >0.
 class CursorSink final : public krait::core::vt::ParserEvents {
   public:
-    krait::core::vt::StubGrid grid;
+    krait::core::vt::Grid grid{24, 80};
 
     void print(char32_t cp) override { grid.putChar(cp); }
 
@@ -287,7 +287,7 @@ class CursorSink final : public krait::core::vt::ParserEvents {
         for (int r = 0; r < grid.rows; ++r) {
             std::string line;
             for (int c = 0; c < grid.cols; ++c) {
-                const char32_t ch = grid.cells[static_cast<std::size_t>(r) * grid.cols + c].ch;
+                const char32_t ch = grid.cellAt(r, c).ch;
                 line += ch == 0 ? '.' : static_cast<char>(ch);
             }
             while (!line.empty() && line.back() == '.') {

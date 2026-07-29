@@ -133,7 +133,7 @@ bool applySgr(Attr& pen, const Params& params,
     return true;
 }
 
-bool handleErase(StubGrid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
+bool handleErase(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
                  std::uint8_t final) noexcept {
     if (!intermediates.empty()) {
         return false;
@@ -150,8 +150,20 @@ bool handleErase(StubGrid& grid, const Params& params, std::span<const std::uint
             const int c0 = (r == fromRow) ? fromCol : 0;
             const int c1 = (r == toRow) ? toCol : grid.cols - 1;
             for (int c = c0; c <= c1; ++c) {
-                grid.cells[static_cast<std::size_t>(r) * grid.cols + c] = Cell{};
+                grid.cellAt(r, c) = Cell{};
             }
+            if (c0 == 0 && c1 == grid.cols - 1) {
+                // A fully-blanked row is no longer a wrap continuation;
+                // leaving the flag would glue blanks onto the previous
+                // logical line at reflow time.
+                grid.lineAt(r).wrappedFromPrev = false;
+            }
+            if (c1 == grid.cols - 1 && r + 1 < grid.rows) {
+                // Erasing to end-of-line severs the join to the next row
+                // (xterm ClearRight -> LineClrWrapped).
+                grid.lineAt(r + 1).wrappedFromPrev = false;
+            }
+            grid.damage.mark(r, c0, c1);
         }
     };
     switch (final) {
@@ -163,6 +175,9 @@ bool handleErase(StubGrid& grid, const Params& params, std::span<const std::uint
         } else if (mode == 2) {
             clearRange(0, 0, grid.rows - 1, grid.cols - 1);
         }
+        if (mode >= 0 && mode <= 2) {
+            grid.pendingWrap = false;  // DEC STD 070: erase resets the LCF
+        }
         // mode 3 (scrollback): no-op until the real grid; others ignored
         return true;
     case 'K':  // EL
@@ -172,6 +187,9 @@ bool handleErase(StubGrid& grid, const Params& params, std::span<const std::uint
             clearRange(grid.row, 0, grid.row, grid.col);
         } else if (mode == 2) {
             clearRange(grid.row, 0, grid.row, grid.cols - 1);
+        }
+        if (mode >= 0 && mode <= 2) {
+            grid.pendingWrap = false;  // DEC STD 070: erase resets the LCF
         }
         return true;
     default:

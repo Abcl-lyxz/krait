@@ -17,22 +17,25 @@ int param(const Params& p, std::size_t i) noexcept {
 
 }  // namespace
 
-bool handleControl(StubGrid& grid, std::uint8_t control) noexcept {
+bool handleControl(Grid& grid, std::uint8_t control) noexcept {
     switch (control) {
     case 0x07:  // BEL
         ++grid.bells;
         return true;
     case 0x08:  // BS: one left, stops at column 1
         grid.col = std::max(0, grid.col - 1);
+        grid.pendingWrap = false;
         return true;
-    case 0x09:  // HT: fixed stops every 8 until HTS/TBC land (T8+)
+    case 0x09:  // HT: fixed stops every 8 until HTS/TBC land
         grid.col = std::min(grid.cols - 1, (grid.col / 8 + 1) * 8);
+        grid.pendingWrap = false;
         return true;
-    case 0x0A:  // LF: down one; no scrolling until the real grid (T8)
-        grid.row = std::min(grid.rows - 1, grid.row + 1);
+    case 0x0A:  // LF: down one, scrolling at the bottom
+        grid.linefeed();
         return true;
     case 0x0D:  // CR
         grid.col = 0;
+        grid.pendingWrap = false;
         return true;
     case 0x0E:  // SO: invoke G1
         grid.g1Invoked = true;
@@ -45,8 +48,8 @@ bool handleControl(StubGrid& grid, std::uint8_t control) noexcept {
     }
 }
 
-bool handleCsiCursor(StubGrid& grid, const Params& params,
-                     std::span<const std::uint8_t> intermediates, std::uint8_t final) noexcept {
+bool handleCsiCursor(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
+                     std::uint8_t final) noexcept {
     if (!intermediates.empty()) {
         return false;
     }
@@ -59,30 +62,32 @@ bool handleCsiCursor(StubGrid& grid, const Params& params,
     switch (final) {
     case 'A':  // CUU: stops at top (margins land with DECSTBM)
         grid.row = std::max(0, grid.row - param(params, 0));
-        return true;
+        break;
     case 'B':  // CUD
         grid.row = std::min(grid.rows - 1, grid.row + param(params, 0));
-        return true;
+        break;
     case 'C':  // CUF
         grid.col = std::min(grid.cols - 1, grid.col + param(params, 0));
-        return true;
+        break;
     case 'D':  // CUB
         grid.col = std::max(0, grid.col - param(params, 0));
-        return true;
+        break;
     case 'G':  // CHA: column absolute
         grid.col = std::clamp(param(params, 0) - 1, 0, grid.cols - 1);
-        return true;
+        break;
     case 'd':  // VPA: row absolute
         grid.row = std::clamp(param(params, 0) - 1, 0, grid.rows - 1);
-        return true;
+        break;
     case 'H':  // CUP
     case 'f':  // HVP (identical semantics)
         grid.row = std::clamp(param(params, 0) - 1, 0, grid.rows - 1);
         grid.col = std::clamp(param(params, 1) - 1, 0, grid.cols - 1);
-        return true;
+        break;
     default:
         return false;
     }
+    grid.pendingWrap = false;  // any explicit cursor motion cancels it
+    return true;
 }
 
 }  // namespace krait::core::vt

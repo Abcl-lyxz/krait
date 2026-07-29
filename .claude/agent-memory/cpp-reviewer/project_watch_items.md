@@ -48,3 +48,8 @@ Watch items from past reviews (verify still true before flagging):
 
 **Why:** these were deliberately accepted as fine-for-now in a skeleton commit; they become defects only when later milestones touch them.
 **How to apply:** when a review touches src/core deps, root flags, or T11 targets, check these first.
+
+## T8 grid (t7-sgr, uncommitted at review)
+- Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.
+- wrappedFromPrev never cleared by ED/EL full-row erase -> stale wrap flags feed M1 reflow. Re-check when reflow lands.
+- scrollUp allocates a fresh Line per scrolled row (emplace_back) even when scrollback cap discards one -> recycle candidate when parser bench lands.

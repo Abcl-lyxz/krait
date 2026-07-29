@@ -18,3 +18,7 @@ T7 confirmations (both recurring patterns hit again):
 - handleErase (sgr.cpp) shipped ignoring subparam flags — third reminder that every non-SGR CSI handler must reject colon subparams like handleCsiCursor does. Check this FIRST on any new CSI handler.
 - sgr/basic.case shipped without an interrupted-mid-SGR variant (erase.case had one). Authors remember interruption for the second family they write, not the first.
 - Session-file hygiene: agent memory once got written under tests/fuzz/seeds/.claude/ — check untracked dirs for stray .claude/ junk before commit.
+
+## T8 lesson
+- docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.
+- Grid behavior changes tend to ship unit tests only; vt-core rule also wants corpus cases (parser-path: wrap at margin, LF-at-bottom scroll, pendingWrap cancel) in the same commit.
