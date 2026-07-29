@@ -6,19 +6,129 @@ namespace krait::core::vt {
 
 namespace {
 
-// Number of extra LEGACY (semicolon) parameters an extended-color
-// introducer consumes: 38;5;Pi -> 2, 38;2;Pr;Pg;Pb -> 4, malformed -> 0.
-std::size_t legacyColorArity(const Params& p, std::size_t i) noexcept {
-    if (i + 1 >= p.count) {
-        return 0;
+// Outcome of reading one 38/48/58 argument list.
+struct ExtColor {
+    bool ok = false;           // false: malformed/out of range -> change nothing
+    Color color;               //
+    std::size_t consumed = 1;  // parameters used, INCLUDING the introducer
+};
+
+constexpr bool isByte(std::uint16_t v) noexcept {
+    return v <= 255;
+}
+
+Color rgbOf(std::uint16_t r, std::uint16_t g, std::uint16_t b) noexcept {
+    return {Color::Kind::Rgb, 0,
+            (static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) |
+                static_cast<std::uint32_t>(b)};
+}
+
+// 38/48/58 arrive in three shapes, and telling them apart is the whole job:
+//
+//   legacy semicolons     38;5;Ps           38;2;Pr;Pg;Pb        no color-space id
+//   colon, ITU/xterm      38:5:Ps           38:2:Pi:Pr:Pg:Pb     Pi present, ignored
+//   colon, Pi omitted     -                 38:2:Pr:Pg:Pb        common in the wild
+//
+// The two colon RGB forms are distinguished by COUNTING subparameters, not by
+// guessing which one an application meant: 5 OR MORE after the introducer
+// means Pi is there, exactly 4 means it is not. It must stay ">= 5", never
+// "== 5" — the ITU form may carry trailing tolerance parameters
+// (38:2:Pi:R:G:B:Ps:Pt), which xterm documents as "ignores parameters 6 (and
+// above)". An empty Pi (38:2::R:G:B) parses to 0 and lands in the 5-subparam
+// case on its own, so it needs no special path.
+//
+// `subEnd` is one past the last subparameter of the introducer at `i`.
+ExtColor readExtendedColor(const Params& p, std::size_t i, std::size_t subEnd) noexcept {
+    ExtColor out;
+    const std::size_t subCount = subEnd - i - 1;
+
+    if (subCount > 0) {
+        // Colon form: every subparameter belongs to this introducer, so all of
+        // them are consumed even when the payload turns out to be unusable.
+        out.consumed = subEnd - i;
+        const std::uint16_t kind = p.values[i + 1];
+        if (kind == 5 && subCount >= 2) {
+            if (!isByte(p.values[i + 2])) {
+                return out;
+            }
+            out.color = {Color::Kind::Indexed, static_cast<std::uint8_t>(p.values[i + 2]), 0};
+            out.ok = true;
+        } else if (kind == 2 && subCount >= 4) {
+            const std::size_t r = i + (subCount >= 5 ? 3 : 2);
+            if (!isByte(p.values[r]) || !isByte(p.values[r + 1]) || !isByte(p.values[r + 2])) {
+                return out;
+            }
+            out.color = rgbOf(p.values[r], p.values[r + 1], p.values[r + 2]);
+            out.ok = true;
+        }
+        return out;
     }
-    if (p.values[i + 1] == 5) {
-        return 2;
+
+    // Legacy form: plain parameters. Consume only what is actually present so
+    // a truncated `38;5` cannot swallow whatever follows it.
+    const std::size_t avail = p.count - i - 1;
+    if (avail == 0) {
+        return out;
     }
-    if (p.values[i + 1] == 2) {
-        return 4;
+    const std::uint16_t kind = p.values[i + 1];
+
+    // xterm also accepts the MIXED spelling, where the introducer is separated
+    // by a semicolon but the kind carries its own colon run — its source names
+    // both: "accept CSI 38 ; 5 : 1 m" and "accept CSI 38 ; 2 : 1 : 2 : 3 m".
+    // The Pi rule shifts accordingly: xterm uses `have > 3` here, counting the
+    // subparameters hanging off the kind rather than off the introducer.
+    if (i + 2 < p.count && p.subparam[i + 2]) {
+        std::size_t runEnd = i + 2;
+        while (runEnd < p.count && p.subparam[runEnd]) {
+            ++runEnd;
+        }
+        const std::size_t have = runEnd - (i + 2);
+        out.consumed = runEnd - i;
+        if (kind == 5 && have >= 1 && isByte(p.values[i + 2])) {
+            out.color = {Color::Kind::Indexed, static_cast<std::uint8_t>(p.values[i + 2]), 0};
+            out.ok = true;
+        } else if (kind == 2 && have >= 3) {
+            const std::size_t r = i + 2 + (have > 3 ? 1 : 0);
+            if (isByte(p.values[r]) && isByte(p.values[r + 1]) && isByte(p.values[r + 2])) {
+                out.color = rgbOf(p.values[r], p.values[r + 1], p.values[r + 2]);
+                out.ok = true;
+            }
+        }
+        return out;
     }
-    return 0;
+
+    if (kind == 5) {
+        out.consumed = std::min<std::size_t>(3, avail + 1);
+        if (avail >= 2 && isByte(p.values[i + 2])) {
+            out.color = {Color::Kind::Indexed, static_cast<std::uint8_t>(p.values[i + 2]), 0};
+            out.ok = true;
+        }
+        return out;
+    }
+    if (kind == 2) {
+        out.consumed = std::min<std::size_t>(5, avail + 1);
+        if (avail >= 4 && isByte(p.values[i + 2]) && isByte(p.values[i + 3]) &&
+            isByte(p.values[i + 4])) {
+            out.color = rgbOf(p.values[i + 2], p.values[i + 3], p.values[i + 4]);
+            out.ok = true;
+        }
+        return out;
+    }
+    // Unknown color kind: consume the introducer AND the kind. xterm does the
+    // same (extended_colors_limit() yields 0, and its loop then steps past the
+    // kind). Consuming only the introducer would leave e.g. the 7 of
+    // `38;7;1;2` to execute as SGR 7 — hostile input synthesising reverse
+    // video, which no reference terminal produces.
+    out.consumed = 2;
+    return out;
+}
+
+// SGR 4:n. kitty's prose documents 0-5 and is silent above that, but its
+// implementation clamps — `decoration = MIN(5, params[i])` (kitty cursor.c) —
+// so 4:9 renders dashed, not single. Match the implementation: Underline has
+// exactly those six values, so the clamp maps 1:1.
+constexpr Underline underlineFromSub(std::uint16_t v) noexcept {
+    return static_cast<Underline>(v > 5 ? 5 : v);
 }
 
 }  // namespace
@@ -40,7 +150,19 @@ bool applySgr(Attr& pen, const Params& params,
             ++next;
         }
         const bool hasSub = next > i + 1;
-        switch (params.values[i]) {
+        // Only 4 and the colour introducers take subparameters. xterm ignores
+        // a subparameter group on any other code (`item += skip; op = 9999`)
+        // and kitty rejects the whole sequence; acting on the base would be
+        // worse than either. It also disarms a leading colon: `CSI :3 m`
+        // parses its empty first part as 0, which would otherwise fire SGR 0
+        // and wipe every attribute — the loudest possible response to
+        // malformed input, and one no reference terminal gives.
+        const std::uint16_t code = params.values[i];
+        if (hasSub && code != 4 && code != 38 && code != 48 && code != 58) {
+            i = next;
+            continue;
+        }
+        switch (code) {
         case 0:
             pen = {};
             break;
@@ -54,12 +176,8 @@ bool applySgr(Attr& pen, const Params& params,
             pen.flags |= Attr::kItalic;
             break;
         case 4:
-            // 4:0 = off; 4:1..n styles collapse to plain underline until M1.
-            if (hasSub && params.values[i + 1] == 0) {
-                pen.flags &= static_cast<std::uint16_t>(~Attr::kUnderline);
-            } else {
-                pen.flags |= Attr::kUnderline;
-            }
+            // Bare `4` is single; `4:n` selects a style (kitty 4:0-4:5).
+            pen.underline = hasSub ? underlineFromSub(params.values[i + 1]) : Underline::Single;
             break;
         case 5:
             pen.flags |= Attr::kBlink;
@@ -73,8 +191,8 @@ bool applySgr(Attr& pen, const Params& params,
         case 9:
             pen.flags |= Attr::kStrike;
             break;
-        case 21:  // doubly underlined: approximated as underline until M1
-            pen.flags |= Attr::kUnderline;
+        case 21:  // "Doubly-underlined, ECMA-48 3rd" per xterm ctlseqs.
+            pen.underline = Underline::Double;
             break;
         case 22:
             pen.flags &= static_cast<std::uint16_t>(~(Attr::kBold | Attr::kDim));
@@ -83,7 +201,7 @@ bool applySgr(Attr& pen, const Params& params,
             pen.flags &= static_cast<std::uint16_t>(~Attr::kItalic);
             break;
         case 24:
-            pen.flags &= static_cast<std::uint16_t>(~Attr::kUnderline);
+            pen.underline = Underline::None;
             break;
         case 25:
             pen.flags &= static_cast<std::uint16_t>(~Attr::kBlink);
@@ -105,13 +223,27 @@ bool applySgr(Attr& pen, const Params& params,
             break;
         case 38:
         case 48:
-        case 58:
-            // Extended color skeleton (M1): consume args, change nothing.
-            if (!hasSub) {
-                next = std::min(next + legacyColorArity(params, i), params.count);
+        case 58: {
+            const ExtColor ext = readExtendedColor(params, i, next);
+            if (ext.ok) {
+                Color& target = params.values[i] == 38   ? pen.fg
+                                : params.values[i] == 48 ? pen.bg
+                                                         : pen.ul;
+                target = ext.color;
+            }
+            // Consume the arguments even when unusable, so a malformed color
+            // never turns its own payload into the SGRs that follow it.
+            next = std::min(i + ext.consumed, params.count);
+            // And never let `next` land ON a subparameter: the top of the loop
+            // guarantees `i` addresses a base parameter, and `38;5;1:7` would
+            // otherwise promote the trailing 7 into SGR 7, reverse video.
+            while (next < params.count && params.subparam[next]) {
+                ++next;
             }
             break;
-        case 59:  // underline color reset (M1): tolerated no-op
+        }
+        case 59:  // reset underline color to "follow the foreground"
+            pen.ul = {};
             break;
         default: {
             const int v = params.values[i];

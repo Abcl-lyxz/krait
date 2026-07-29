@@ -1,0 +1,225 @@
+# SGR extended (T17): 38/48/58 colour in every accepted shape, 4:x underline
+# styles, and the malformed variants that must not corrupt the parameters
+# that follow them. EXPECT = pen state after feed.
+#
+# Spec: xterm ctlseqs (38:2:Pi:Pr:Pg:Pb, "the color space identifier Pi is
+# ignored"; semicolon form carries no Pi; "after the first colon, colons must
+# be used") + kitty underlines (4:0-4:5, 58 "works exactly like 38, 48").
+
+# ---- the three RGB shapes must agree ----
+
+# Colon WITH colour-space id: 5 subparams, RGB starts after Pi
+IN \x1B[38:2:0:1:2:3m
+EXPECT pen:-/#010203/def
+
+# Colon with an EMPTY colour-space id parses Pi as 0 — same 5-subparam case
+IN \x1B[38:2::1:2:3m
+EXPECT pen:-/#010203/def
+
+# Colon WITHOUT a colour-space id: 4 subparams, RGB starts immediately
+IN \x1B[38:2:1:2:3m
+EXPECT pen:-/#010203/def
+
+# Legacy semicolons carry no Pi
+IN \x1B[38;2;1;2;3m
+EXPECT pen:-/#010203/def
+
+# A non-zero Pi is ignored, not treated as red
+IN \x1B[38:2:7:1:2:3m
+EXPECT pen:-/#010203/def
+
+# ---- indexed ----
+
+IN \x1B[38:5:196m
+EXPECT pen:-/196/def
+IN \x1B[38;5;196m
+EXPECT pen:-/196/def
+
+# Index 255 is in range; the whole 256-colour space is reachable
+IN \x1B[48:5:255m
+EXPECT pen:-/def/255
+
+# ---- 58/59 underline colour ----
+
+IN \x1B[4:3;58:2:255:0:0m
+EXPECT pen:-/def/def ul:curly/#ff0000
+
+IN \x1B[58;5;33m
+EXPECT pen:-/def/def ul:none/33
+
+# 59 resets the underline colour to "follow fg", leaving the style alone
+IN \x1B[4;58:5:33m\x1B[59m
+EXPECT pen:-/def/def ul:single/def
+
+# Underline colour is independent of fg: setting fg does not disturb it
+IN \x1B[58:5:33;31m
+EXPECT pen:-/1/def ul:none/33
+
+# ---- every underline style ----
+
+IN \x1B[4:1m
+EXPECT pen:-/def/def ul:single/def
+IN \x1B[4:2m
+EXPECT pen:-/def/def ul:double/def
+IN \x1B[4:4m
+EXPECT pen:-/def/def ul:dotted/def
+IN \x1B[4:5m
+EXPECT pen:-/def/def ul:dashed/def
+
+# Above 5 kitty's prose is silent but its code clamps (MIN(5, n)), so this is
+# dashed rather than a fallback to single
+IN \x1B[4:9m
+EXPECT pen:-/def/def ul:dashed/def
+
+# 24 clears the style whatever it was; 4:0 likewise
+IN \x1B[4:3m\x1B[24m
+EXPECT pen:-/def/def
+IN \x1B[4:5m\x1B[4:0m
+EXPECT pen:-/def/def
+
+# SGR 0 resets style AND underline colour along with everything else
+IN \x1B[4:3;58:5:33;1;31m\x1B[0m
+EXPECT pen:-/def/def
+
+# ---- out of range: change nothing, but still consume the arguments ----
+
+# Channel > 255 is rejected; the trailing 1 must still be read as bold
+IN \x1B[38;2;300;0;0;1m
+EXPECT pen:bold/def/def
+
+# Same in the colon form
+IN \x1B[38:2:0:300:0:0;1m
+EXPECT pen:bold/def/def
+
+# Index > 255 rejected, neighbour still applies
+IN \x1B[38;5;999;1m
+EXPECT pen:bold/def/def
+
+# A rejected colour must not clobber a colour already set
+IN \x1B[31m\x1B[38;5;999m
+EXPECT pen:-/1/def
+
+# ---- truncated: must not swallow what follows ----
+
+# 38;5 with no index, then an explicit red
+IN \x1B[38;5m\x1B[31m
+EXPECT pen:-/1/def
+
+# 38;2 missing blue: consumes only what is there
+IN \x1B[38;2;1;2m\x1B[31m
+EXPECT pen:-/1/def
+
+# Bare 38 at the very end
+IN \x1B[38m\x1B[31m
+EXPECT pen:-/1/def
+
+# Truncated colon form consumes its whole subparam run and applies nothing
+IN \x1B[38:2:1;1m
+EXPECT pen:bold/def/def
+
+# ---- interaction with the rest of the parameter list ----
+
+# Two extended colours back to back, then a flag
+IN \x1B[38;2;1;2;3;48;5;9;1m
+EXPECT pen:bold/#010203/9
+
+# fg truecolor then 39 resets only fg
+IN \x1B[38:2:1:2:3;48:5:9m\x1B[39m
+EXPECT pen:-/def/9
+
+# ---- mixed separators ----
+# xterm's source literally names these two: "accept CSI 38 ; 5 : 1 m" and
+# "accept CSI 38 ; 2 : 1 : 2 : 3 m". The Pi rule shifts to counting the
+# subparams hanging off the KIND (xterm: have > 3).
+
+IN \x1B[38;2:1:2:3m
+EXPECT pen:-/#010203/def
+IN \x1B[38;5:1m
+EXPECT pen:-/1/def
+IN \x1B[38;2:0:1:2:3m
+EXPECT pen:-/#010203/def
+
+# A trailing subparam must not be promoted to a base SGR (the 7 here is NOT
+# reverse video)
+IN \x1B[38;5;1:7m
+EXPECT pen:-/1/def
+
+# ITU tolerance parameters: Pi + RGB + 2 more, all consumed and ignored
+IN \x1B[38:2:1:2:3:4:5:6m
+EXPECT pen:-/#020304/def
+
+# ---- unknown colour kind consumes the kind too ----
+# Without that, the 7 would execute as SGR 7 and paint reverse video —
+# an attribute no reference terminal produces from this input.
+IN \x1B[38;7;1;2m
+EXPECT pen:bold,dim/def/def
+IN \x1B[38:7:1:2m
+EXPECT pen:-/def/def
+
+# ---- subparameters on a code that does not take them ----
+# xterm ignores the group; acting on the base would let a leading colon fire
+# SGR 0 and wipe the pen.
+IN \x1B[1m\x1B[:3m
+EXPECT pen:bold/def/def
+IN \x1B[1m\x1B[7:2m
+EXPECT pen:bold/def/def
+
+# ---- the 255/256 boundary ----
+IN \x1B[38;2;255;255;255m
+EXPECT pen:-/#ffffff/def
+IN \x1B[38;5;256m\x1B[1m
+EXPECT pen:bold/def/def
+IN \x1B[38:2:0:255:255:256;1m
+EXPECT pen:bold/def/def
+
+# ---- 58 really does behave "exactly like 38/48" ----
+IN \x1B[58:2:0:1:2:3m
+EXPECT pen:-/def/def ul:none/#010203
+IN \x1B[58;2;1;2;3m
+EXPECT pen:-/def/def ul:none/#010203
+IN \x1B[58;5;999;1m
+EXPECT pen:bold/def/def
+
+# kitty's invariant: reverse video must never disturb the underline colour
+IN \x1B[58:5:33;7m
+EXPECT pen:rev/def/def ul:none/33
+IN \x1B[4;58:5:33;7;27m
+EXPECT pen:-/def/def ul:single/33
+
+# ---- underline style edges ----
+# kitty clamps rather than falling back: decoration = MIN(5, n)
+IN \x1B[4:6m
+EXPECT pen:-/def/def ul:dashed/def
+# empty subparam is 4:0
+IN \x1B[4:m
+EXPECT pen:-/def/def
+
+# ---- more interrupted forms ----
+IN \x1B[38:2:1:2\x18m
+EXPECT pen:-/def/def line:1:m
+IN \x1B[38;2;1;2\x1Am
+EXPECT pen:-/def/def line:1:m
+IN \x1B[4:3\x1B[31m
+EXPECT pen:-/1/def
+
+# ---- the 32-parameter cap ----
+# This is the one boundary where an off-by-one becomes a remote-driven
+# out-of-bounds read, so it is pinned by test rather than by argument.
+
+# Introducer straddling the cap: RGB ends exactly on the last slot
+IN \x1B[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;38:2:1:2:3m
+EXPECT pen:bold/#010203/def
+
+# One parameter further: the run is truncated by the cap, nothing applies
+IN \x1B[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;38:2:1:2:3m
+EXPECT pen:bold/def/def
+
+# ---- interrupted mid-sequence ----
+
+# CAN inside the colour params aborts: pen untouched, the final prints
+IN \x1B[38;2;1;2\x18m
+EXPECT pen:-/def/def line:1:m
+
+# ESC re-introduces: the abandoned colour never applies
+IN \x1B[38;2;1;2\x1B[31m
+EXPECT pen:-/1/def

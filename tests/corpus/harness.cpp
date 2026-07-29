@@ -272,11 +272,10 @@ class CursorSink final : public krait::core::vt::ParserEvents {
     std::vector<std::string> describeSgr() const {
         namespace vt = krait::core::vt;
         std::vector<std::string> tokens;
-        static constexpr std::array<std::pair<std::uint16_t, const char*>, 8> kNames{
+        static constexpr std::array<std::pair<std::uint16_t, const char*>, 7> kNames{
             {{vt::Attr::kBold, "bold"},
              {vt::Attr::kDim, "dim"},
              {vt::Attr::kItalic, "italic"},
-             {vt::Attr::kUnderline, "ul"},
              {vt::Attr::kBlink, "blink"},
              {vt::Attr::kReverse, "rev"},
              {vt::Attr::kInvisible, "hide"},
@@ -294,10 +293,29 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             flags = "-";
         }
         const auto color = [](const vt::Color& c) {
-            return c.kind == vt::Color::Kind::Default ? std::string("def")
-                                                      : std::to_string(c.index);
+            switch (c.kind) {
+            case vt::Color::Kind::Rgb:
+                return std::format("#{:06x}", c.rgb);
+            case vt::Color::Kind::Indexed:
+                return std::to_string(c.index);
+            case vt::Color::Kind::Default:
+                break;
+            }
+            return std::string("def");
         };
         tokens.push_back("pen:" + flags + "/" + color(grid.pen.fg) + "/" + color(grid.pen.bg));
+        // Emitted only when there is something to say, so the many cases that
+        // never touch underlines keep their two-token expectations.
+        if (grid.pen.underline != vt::Underline::None ||
+            grid.pen.ul.kind != vt::Color::Kind::Default) {
+            static constexpr std::array<const char*, 6> kStyles{"none",  "single", "double",
+                                                                "curly", "dotted", "dashed"};
+            static_assert(kStyles.size() == static_cast<std::size_t>(vt::Underline::Dashed) + 1,
+                          "a new Underline style needs a name here, or this indexes past the end");
+            tokens.push_back(
+                "ul:" + std::string(kStyles[static_cast<std::size_t>(grid.pen.underline)]) + "/" +
+                color(grid.pen.ul));
+        }
         for (int r = 0; r < grid.rows; ++r) {
             std::string line;
             for (int c = 0; c < grid.cols; ++c) {

@@ -1,6 +1,6 @@
 ---
 name: project-review-patterns
-description: Recurring things to check when reviewing Krait VT-core diffs (T5-T7 era)
+description: Recurring things to check when reviewing Krait VT-core diffs (T5-T17): corpus/fuzz/conformance completeness, Params bounds proofs, Cell size budget, local verify commands
 metadata:
   type: project
 ---
@@ -27,6 +27,13 @@ T7 confirmations (both recurring patterns hit again):
 - Node tooling that re-parses corpus .case files must mirror harness.cpp parseBytes EXACTLY: read as latin1 (not utf8 — c1.case and utf8/basic.case contain raw multibyte, charCodeAt+Buffer masks to low byte), and bound check `i + 3 < len` (mjs shipped `< len + 1`, accepts truncated 1-digit escape). Diff any new byte-parser against harness.cpp:70 line by line.
 - Fuzz presets keep asserts live by overriding CMAKE_CXX_FLAGS_RELWITHDEBINFO to "/O2 /Zi" (drops /DNDEBUG). Verified correct; re-check if presets are touched.
 - Harness invariant asserts verified sound vs core: intermediates cap 2 (machine.h:44), params uint16<=16383/count<=32, grid cursor always clamped (deferred wrap keeps col<cols). ReplyLimiter credits RESET to 8 per window (never accumulate), so single up-front addInput => max 8 replies/iteration.
+
+## T17 lesson (SGR extended colour) — verifying, not just reading
+- Reviews of index-arithmetic diffs are cheap to PROVE, not argue: `Params` invariants (machine.cpp commitParam writes only while count<kMaxParams; every digit clamped to kMaxValue=16383 so the uint16_t cast can never wrap) mean any read bounded by `count-1` or `subEnd-1` is safe. State the bound chain, don't hand-wave.
+- Recurring GAP: parameter-cap boundary. Diffs that index near `count` never ship a corpus case at 32 params. Cheapest probe: N leading `1;` params so the introducer's last subparam lands on values[31]. I can add a temp .case, run, and delete — corpus files are auto-discovered by directory_iterator, no CMake edit.
+- Attr/Cell size is a real budget: `Line{std::vector<Cell>}` × kMaxScrollback=10'000. Every byte added to `Attr` costs ~2.4 MB per 100 cols of scrollback. Flag size deltas on cell.h diffs; `Color` (kind+index+rgb, 8 B) is the obvious packing target.
+- Spike renderer (src/app/terminal_item.cpp) masks colour index with `& 0x0F` and ignores Kind::Rgb — any core colour widening turns "default colour" into "confidently wrong colour" there. Check terminal_item on every cell.h/sgr.cpp diff until T25.
+- Local verification (Bash tool): cmake is NOT on PATH — use `/c/Program Files/CMake/bin/cmake.exe`. ASan fuzz binary needs the VC `bin/Hostx64/x64` dir (clang_rt.asan_dynamic-x86_64.dll) prepended to PATH or it exits 127.
 
 ## T8 lesson
 - docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.
