@@ -9,7 +9,14 @@ Window {
     title: "Krait spike"
     color: "#0d0f17"
 
+    // Bench runs keep the synthetic spike; normal runs are the terminal.
     SpikeGrid {
         anchors.fill: parent
+        visible: benchMode
+    }
+    TerminalView {
+        anchors.fill: parent
+        visible: !benchMode
+        focus: !benchMode
     }
 }

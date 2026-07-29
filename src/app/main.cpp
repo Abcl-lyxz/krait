@@ -1,5 +1,6 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QQuickGraphicsConfiguration>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
@@ -35,6 +36,7 @@ int main(int argc, char* argv[]) {
     qInfo("krait starting");
 
     QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("benchMode", qEnvironmentVariableIsSet("KRAIT_BENCH"));
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
@@ -64,7 +66,7 @@ int main(int argc, char* argv[]) {
         // PNG so visual gates (T12 "grid of glyphs visible") leave evidence.
         const QByteArray shotPath = qgetenv("KRAIT_SPIKE_SCREENSHOT");
         if (!shotPath.isEmpty()) {
-            QTimer::singleShot(1500, window, [window, shotPath] {
+            QTimer::singleShot(2500, window, [window, shotPath] {
                 const QImage frame = window->grabWindow();
                 const bool ok = frame.save(QString::fromLocal8Bit(shotPath));
                 qInfo("screenshot %s: %s", ok ? "saved" : "FAILED", shotPath.constData());
@@ -75,7 +77,7 @@ int main(int argc, char* argv[]) {
     // Headless verification hook: KRAIT_SPIKE_AUTOQUIT closes after 2 s so
     // the T11 gate (log line above) can run unattended.
     if (qEnvironmentVariableIsSet("KRAIT_SPIKE_AUTOQUIT")) {
-        QTimer::singleShot(2000, &app, &QCoreApplication::quit);
+        QTimer::singleShot(3000, &app, &QCoreApplication::quit);
     }
     return app.exec();
 }
