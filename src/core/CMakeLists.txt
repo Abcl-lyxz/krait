@@ -1,0 +1,6 @@
+# krait-core — the sacred zone (rules/vt-core.md): STL + utf8proc only.
+# Zero Qt/network/render deps, proven by tests/core-standalone.
+add_library(krait-core STATIC
+    version.cpp
+)
+target_include_directories(krait-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

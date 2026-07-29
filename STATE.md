@@ -22,11 +22,17 @@ Still zero code, zero CMake — correct.
   (VS2026 18 Community), CMake 4.2.3 + Ninja bundled with VS,
   vcpkg at `C:\vcpkg` (set `VCPKG_ROOT=C:\vcpkg` in the dev shell).
 
+- T3 ✔: `krait-core` static lib + Catch2 wiring (`ctest --preset dev` =
+  1/1 passed) + standalone zero-dep proof builds without vcpkg/Qt
+  (`cmake -S tests/core-standalone -B build/core-standalone -G Ninja`).
+  cpp-reviewer: clean pass (watch items in `.claude/agent-memory/`).
+
 ## Next task (exactly one)
 
-**T3 of `docs/plan/02-m0-tasks.md`**: `krait-core` static lib skeleton +
-standalone zero-dep proof target + Catch2 wiring + first smoke test.
-Verify: `ctest --preset dev` (from a VS x64 dev shell with VCPKG_ROOT set).
+**T4 of `docs/plan/02-m0-tasks.md`**: UTF-8 decoder (incremental,
+malformed→U+FFFD per WHATWG replacement rules) + corpus harness v0
+(`tests/corpus/*.case` golden format: `IN` bytes / `EXPECT` events).
+Verify: `ctest --preset dev -R corpus`.
 
 ## After that
 

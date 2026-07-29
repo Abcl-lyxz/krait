@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 enable_testing()
 
-# Targets land per docs/plan/02-m0-tasks.md:
-#   T3  add_subdirectory(src/core) + tests/
-#   T11 add_subdirectory(src/render) + add_subdirectory(src/app)
+add_subdirectory(src/core)
+add_subdirectory(tests/unit)
+
+# T11 adds: add_subdirectory(src/render) + add_subdirectory(src/app)
