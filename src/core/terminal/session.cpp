@@ -1,6 +1,7 @@
 #include "core/terminal/session.h"
 
 #include "core/parser/csi_cursor.h"
+#include "core/parser/csi_scroll.h"
 #include "core/parser/sgr.h"
 
 namespace krait::core::vt {
@@ -30,6 +31,8 @@ void Session::csiDispatch(const Params& params, std::span<const std::uint8_t> in
         applySgr(m_grid.pen, params, intermediates);
     } else if (final == 'J' || final == 'K') {
         handleErase(m_grid, params, intermediates, final);
+    } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
+        handleScroll(m_grid, params, intermediates, final);
     } else if (final == 'c' || final == 'n') {
         std::string reply;
         handleReport(m_grid, m_caps, params, intermediates, final, m_limiter, reply);

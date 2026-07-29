@@ -76,7 +76,7 @@ void Grid::scrollRegionUp(int n) {
         return;
     }
     n = std::min(n, height);
-    const bool toHistory = fullScreenRegion();
+    const bool toHistory = capturesScrollback();
     for (int k = 0; k < n; ++k) {
         Line& top = m_screen[static_cast<std::size_t>(scrollTop)];
         if (toHistory) {

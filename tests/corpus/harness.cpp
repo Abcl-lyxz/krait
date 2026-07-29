@@ -14,6 +14,7 @@
 //                      Non-printables and space render as \xNN (uppercase).
 #include "core/caps/caps.h"
 #include "core/parser/csi_cursor.h"
+#include "core/parser/csi_scroll.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
 #include "core/unicode/utf8.h"
@@ -238,6 +239,8 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             krait::core::vt::applySgr(grid.pen, params, intermediates);
         } else if (final == 'J' || final == 'K') {
             krait::core::vt::handleErase(grid, params, intermediates, final);
+        } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
+            krait::core::vt::handleScroll(grid, params, intermediates, final);
         } else if (final == 'c' || final == 'n') {
             std::string out;
             krait::core::vt::handleReport(grid, caps, params, intermediates, final, limiter, out);
@@ -304,6 +307,12 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             return std::string("def");
         };
         tokens.push_back("pen:" + flags + "/" + color(grid.pen.fg) + "/" + color(grid.pen.bg));
+        // Only when DECSTBM has narrowed the region, so every pre-T18 case
+        // keeps its existing expectations.
+        if (grid.scrollTop != 0 || grid.scrollBottom != grid.rows - 1) {
+            tokens.push_back("region:" + std::to_string(grid.scrollTop + 1) + "," +
+                             std::to_string(grid.scrollBottom + 1));
+        }
         // Emitted only when there is something to say, so the many cases that
         // never touch underlines keep their two-token expectations.
         if (grid.pen.underline != vt::Underline::None ||

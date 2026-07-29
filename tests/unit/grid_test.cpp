@@ -83,13 +83,24 @@ TEST_CASE("grid: scroll region down loses lines off the bottom", "[grid][scroll]
     CHECK(g.scrollbackSize() == 0);    // never below the screen
 }
 
-TEST_CASE("grid: full-screen region still feeds scrollback", "[grid][scroll]") {
-    Grid g(3, 4);
+TEST_CASE("grid: scrollback capture is gated on the TOP margin only", "[grid][scroll]") {
+    // xterm's gate is top_marg == 0, not a full-screen region: an app that
+    // reserves a footer still wants its history kept.
+    Grid g(4, 4);
     g.putChar(U'A');
-    REQUIRE(g.fullScreenRegion());
+    g.scrollBottom = 2;  // footer reserved on the last row, top margin still 0
+    REQUIRE(g.capturesScrollback());
     g.scrollRegionUp(1);
     REQUIRE(g.scrollbackSize() == 1);
     CHECK(g.scrollbackAt(0).cells[0].ch == U'A');
+
+    // Pinning a header (top > 0) suppresses capture.
+    Grid h(4, 4);
+    h.scrollTop = 1;
+    h.scrollBottom = 3;
+    CHECK_FALSE(h.capturesScrollback());
+    h.scrollRegionUp(1);
+    CHECK(h.scrollbackSize() == 0);
 }
 
 TEST_CASE("grid: scroll amount clamps to the region height", "[grid][scroll]") {

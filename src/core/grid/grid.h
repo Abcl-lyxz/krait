@@ -39,11 +39,13 @@ class Grid {
 
     bool inScrollRegion(int r) const { return r >= scrollTop && r <= scrollBottom; }
 
-    // True when the region covers the whole screen — the only case where
-    // scrolled-off lines belong in scrollback (a region-limited scroll is an
-    // application managing its own viewport, e.g. a status line, and feeding
-    // those lines to history would corrupt it).
-    bool fullScreenRegion() const { return scrollTop == 0 && scrollBottom == rows - 1; }
+    // Whether lines scrolled off the top belong in scrollback. xterm's gate is
+    // the TOP margin alone — `scroll_all_lines = (scrollWidget && !whichBuf &&
+    // screen->top_marg == 0)` — NOT a full-screen region. An app reserving a
+    // footer (top=0, bottom<rows-1) still wants its history kept; one that
+    // pins a header (top>0) is managing its own viewport and must not pollute
+    // history. (The alternate screen never captures either, once it exists.)
+    bool capturesScrollback() const { return scrollTop == 0; }
 
     // Scroll the region by n lines. Lines pushed out of the region are lost
     // (DEC: "Lines scrolled off the page are lost"), except off the top of a
