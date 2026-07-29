@@ -50,6 +50,16 @@ int main(int argc, char* argv[]) {
         QTimer::singleShot(1000, window, [window] {
             qInfo("rhi backend: %s", apiName(window->rendererInterface()->graphicsApi()));
         });
+        // KRAIT_SPIKE_SCREENSHOT=<path>: grab the first rendered frames to a
+        // PNG so visual gates (T12 "grid of glyphs visible") leave evidence.
+        const QByteArray shotPath = qgetenv("KRAIT_SPIKE_SCREENSHOT");
+        if (!shotPath.isEmpty()) {
+            QTimer::singleShot(1500, window, [window, shotPath] {
+                const QImage frame = window->grabWindow();
+                const bool ok = frame.save(QString::fromLocal8Bit(shotPath));
+                qInfo("screenshot %s: %s", ok ? "saved" : "FAILED", shotPath.constData());
+            });
+        }
     }
 
     // Headless verification hook: KRAIT_SPIKE_AUTOQUIT closes after 2 s so

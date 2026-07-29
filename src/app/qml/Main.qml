@@ -9,7 +9,7 @@ Window {
     title: "Krait spike"
     color: "#0d0f17"
 
-    Triangle {
+    SpikeGrid {
         anchors.fill: parent
     }
 }

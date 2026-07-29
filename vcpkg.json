@@ -5,6 +5,7 @@
   "dependencies": [
     "catch2",
     "fmt",
+    "freetype",
     "utf8proc"
   ]
 }

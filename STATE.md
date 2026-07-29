@@ -98,14 +98,27 @@ builds on; the stub grid dies in T8 when the real grid lands.
   sceneGraphInitialized signal unreliable cross-thread — backend logged
   via 1s singleShot instead.
 
+- T12 ✔: glyph-atlas spike renderer. FreeType (vcpkg) rasterizes ASCII
+  into an R8 atlas (`src/render/spike/glyph_atlas.*`); `SpikeGrid`
+  QQuickRhiItem draws 240×63 instanced quads, per-cell glyph+fg+bg in a
+  DYNAMIC PER-INSTANCE BUFFER (bench-equivalent deviation from the plan's
+  storage-buffer wording — decide finally with T13 data). VERIFIED via
+  screenshot (KRAIT_SPIKE_SCREENSHOT hook): full glyph grid on D3D11;
+  sent to the user for the human eyeball check. HARD-WON QRhi FACTS:
+  (1) first initialize() runs BEFORE first synchronize() — create
+  resources lazily, re-attempt from render(); (2) cb->setShaderResources()
+  after setGraphicsPipeline or all bindings read zeros (black screen);
+  (3) KRAIT_SPIKE_ATLAS_DUMP env dumps the atlas PNG for debugging.
+
 ## Next task (exactly one)
 
-**T12 of `docs/plan/02-m0-tasks.md`**: spike renderer — R8 atlas texture
-(ASCII glyphs pre-rasterized via FreeType — ADD freetype TO vcpkg.json),
-instanced quads for a 240×63 grid, per-cell fg/bg from a uniform/storage
-buffer. Deliverables: src/render/spike/*, vcpkg.json. Verify: grid of
-glyphs visible (human eyes needed for the visual check; automate what's
-possible via the log/screenshot).
+**T13 of `docs/plan/02-m0-tasks.md`**: flood bench — synthetic
+full-grid-change generator + frame timer (QRhi timestamps + CPU clock);
+`flood-report.cmd` emits an fps/ms table; run on dev GPU AND
+`QRhiD3D11InitParams`-forced WARP; record `bench/baselines/m0-spike.json`
+(+ machine id, per open question). Verify: report emitted with both
+adapters. Then T14 = go/no-go ADR-0013 from those numbers (gate: ≥60 fps
+4K dev GPU, ≥30 fps WARP, <10 ms/frame).
 
 ## After that
 
