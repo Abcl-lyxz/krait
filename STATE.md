@@ -1,69 +1,74 @@
 # STATE
 
-Phase: M0 planned
+Phase: M0 in progress
 
 ## Now
 
-The master plan is written and approved (2026-07-29): `docs/plan/00..03`,
-ADRs 0004–0012 recorded. All load-bearing API facts were MCP/doc-verified —
-the ledger is Appendix A of `docs/plan/00-architecture.md`. Notable plan-time
-findings: libssh 0.11+ has native ProxyJump (ADR-0012 partially supersedes
-ADR-0002's DIY chaining), esctest is GPL-2.0 (external runner only, ADR-0005),
-QML embedding = QQuickRhiItem (ADR-0009), Qt pin = 6.11.1.
-Still zero code, zero CMake — correct.
+T5 just landed: the DEC ANSI parser state machine is real and corpus-tested.
+The `ParserEvents` interface (print/execute/esc/csi/dcs/osc + `aborted` flag
+on string ends) is the seam T6 builds on. Deviations from the vt100.net
+diagram are documented in the `tables.h` header comment — read it before
+touching the tables.
 
 ## Done so far
 
-- T1 ✔ (commit c941753): repo live at https://github.com/Abcl-lyxz/krait,
-  MIT LICENSE, scaffold pushed on `main`.
-- T2 ✔: CMakePresets (`dev`), root CMakeLists, vcpkg.json (baseline
-  9d7f79f5, 2026-07-28), SETUP.md updated. Verified: `cmake --preset dev`
-  green — vcpkg installed catch2/fmt 12.2.0/utf8proc 2.11.3, MSVC 19.51
-  (VS2026 18 Community), CMake 4.2.3 + Ninja bundled with VS,
-  vcpkg at `C:\vcpkg` (set `VCPKG_ROOT=C:\vcpkg` in the dev shell).
-
-- T3 ✔: `krait-core` static lib + Catch2 wiring (`ctest --preset dev` =
-  1/1 passed) + standalone zero-dep proof builds without vcpkg/Qt
-  (`cmake -S tests/core-standalone -B build/core-standalone -G Ninja`).
-  cpp-reviewer: clean pass (watch items in `.claude/agent-memory/`).
-
-- T4 ✔: WHATWG UTF-8 decoder (`src/core/unicode/utf8.*`, byte-restore
-  replacement semantics) + corpus harness v0 + 18 `.case` cases
-  (`tests/corpus/utf8/`). ctest 2/2 green; cpp-reviewer clean
-  (spec-conformance hand-verified).
+- T1 ✔ (c941753): repo live at https://github.com/Abcl-lyxz/krait, MIT, main.
+- T2 ✔ (3ceac79): CMakePresets (`dev`), root CMakeLists, vcpkg.json (baseline
+  9d7f79f5). Toolchain: MSVC 19.51 (VS2026 18 Community), CMake 4.2.3 + Ninja
+  from VS, vcpkg at `C:\vcpkg` (`VCPKG_ROOT=C:\vcpkg` in the dev shell).
+  No wrapper scripts exist in-repo — build via a VS x64 dev shell.
+- T3 ✔ (0920812): `krait-core` static lib + Catch2 wiring + standalone
+  zero-dep proof (`cmake -S tests/core-standalone -B build/core-standalone -G Ninja`).
+- T4 ✔ (c65553e): WHATWG UTF-8 decoder + corpus harness + utf8 cases.
+- T5 ✔: parser state machine — 14 states/14 actions as constexpr tables
+  (`src/core/parser/{events,tables,machine}.*`), dispatching to `ParserEvents`.
+  Deviations implemented: UTF-8 outside the machine, 0x3A subparam-legal in
+  CSI, C1 policy flag (`acceptC1`, default off), param cap 32 / clamp 16383,
+  BEL ends OSC, DEL prints in ground (display layer decides), aborted-string
+  flag on `oscEnd`/`dcsUnhook` (CAN/SUB/C1 = aborted; ESC assumed ST).
+  Corpus: `tests/corpus/parser/{basic,interrupted,garbage,c1}.case`, every
+  case run whole-buffer AND byte-at-a-time. Harness grew `MODE c1` directive
+  and event-token EXPECT format (documented in harness.cpp header).
+  cpp-reviewer: clean (both findings fixed in-commit). vt-spec-auditor: no
+  undocumented deviations; its watch items live in
+  `.claude/agent-memory/vt-spec-auditor/t5-audit-findings.md`.
+  /preflight GREEN (tidy note below).
 
 ## Next task (exactly one)
 
-**T5 of `docs/plan/02-m0-tasks.md`**: parser state machine — the 14
-states / 14 actions of vt100.net/emu/dec_ansi_parser as tables, with the
-documented deviations (UTF-8 outside machine, 0x3A subparam-legal, C1
-policy flag, param cap 32), dispatching to a `ParserEvents` interface.
-Corpus: interrupted-mid-sequence + garbage cases.
-Verify: `ctest --preset dev -R corpus`.
+**T6 of `docs/plan/02-m0-tasks.md`**: C0 controls (BEL BS HT LF CR SO SI) +
+CSI cursor family (CUU CUD CUF CUB CUP HVP CHA VPA) on a stub grid;
+`docs/conformance.md` rows flip ✗→✔ (file starts here); fuzz seeds per
+sequence (`tests/fuzz/seeds/` starts here).
+Verify: corpus green + conformance rows updated in the same commit.
+Note for T6: OSC/DCS sinks must discard aborted strings and bound their own
+payload accumulation — the parser streams unbounded (events.h doc comments).
 
 ## After that
 
-T2 onward in dependency order, one task at a time, `/preflight` green after
-each (until T2 lands the presets, `/preflight` = "T-verify command passes").
-M0 acceptance = the block in `docs/plan/01-milestones.md` §M0, including the
-QRhi spike gate (T12–T14): ≥60 fps 4K flood on dev GPU, ≥30 fps WARP,
-<10 ms/frame — verdict recorded as ADR-0013.
+T7 onward in dependency order, `/preflight` green after each. M0 acceptance =
+`docs/plan/01-milestones.md` §M0 incl. the QRhi spike gate (T12–T14),
+verdict recorded as ADR-0013.
 
 ## Open questions (non-blocking)
 
-- Code-signing certificate: which vendor + when to buy (needed by M6, decide
-  by M4).
-- Reference perf machine spec for `bench/baselines/` — record machine id with
-  the first committed baseline (T13).
-- OpenConsole acquisition path (build from source vs repackage release
-  artifact) — decided inside T15 per ADR-0011.
+- Code-signing certificate vendor + timing (needed by M6, decide by M4).
+- Reference perf machine spec for `bench/baselines/` (record with T13).
+- OpenConsole acquisition path — decided inside T15 per ADR-0011.
+- clang-tidy config gaps found in T5's preflight: `/Zc:preprocessor` triggers
+  a driver-arg error under clang-tidy (needs `-Wno-unused-command-line-argument`
+  in a wrapper or the config), and `cppcoreguidelines-avoid-c-arrays` still
+  fires though its modernize alias is disabled. Non-gating; tidy's error set
+  (bugprone/concurrency) is clean.
 
 ## Watchouts
 
-- `src/` starts at T3, not before; follow task order — T1 is deliberately
-  toolchain-free.
-- Interview decisions are recorded in ADRs 0004–0008 — do not re-ask.
-- `.claude/settings.local.json` and `.claude/.cache/` are machine-local;
-  never commit them (T1's .gitignore covers this).
-- First session on a new machine: follow `SETUP.md` (MCP approval, plugins,
-  clangd) or half the tooling will be silently missing.
+- Follow task order; interview decisions live in ADRs 0004–0008 — don't re-ask.
+- `.claude/settings.local.json` and `.claude/.cache/` are machine-local; never commit.
+- clang-tidy must run from the VS dev shell (needs `INCLUDE`); outside it,
+  MSVC headers don't resolve and findings are parse garbage.
+- The parser's `entry.next == m_state` early-return skips entry actions on
+  same-state table transitions — currently provably harmless, but re-verify
+  if you ever add a same-state transition with an entry action (cpp-reviewer
+  watch item).
+- First session on a new machine: follow `SETUP.md`.

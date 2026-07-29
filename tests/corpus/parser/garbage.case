@@ -1,0 +1,50 @@
+# Hostile / malformed input (plan T5 corpus requirement). The machine must
+# swallow garbage without dispatching it and recover on the next byte.
+
+# Private marker mid-params is illegal: sequence swallowed to its final
+IN \x1B[1<2hX
+EXPECT U+0058
+
+# Digit after an intermediate is illegal: swallowed
+IN \x1B[1 2qX
+EXPECT U+0058
+
+# Too many intermediates (cap 2): sequence completes but dispatches nothing
+IN \x1B[ !"#$q
+EXPECT -
+
+# High bytes inside a CSI are ignored (UTF-8 belongs outside sequences)
+IN \x1B[3\xE0\xB8\x81m
+EXPECT CSI:3m
+
+# Param parts past 32 are dropped; the sequence still dispatches
+IN \x1B[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27;28;29;30;31;32;33;34m
+EXPECT CSI:1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27;28;29;30;31;32m
+
+# SOS/PM/APC strings are swallowed entirely
+IN \x1BXsecret\x1B\x5CA
+EXPECT ESC:\ U+0041
+
+# Colon in DCS params is illegal there (spec routing): whole DCS swallowed
+IN \x1BP1:2qdata\x1B\x5CA
+EXPECT ESC:\ U+0041
+
+# Lone C1-range byte in ground with C1 policy off is just malformed UTF-8
+IN \x9BA
+EXPECT U+FFFD U+0041
+
+# DEL is ignored inside escape sequences
+IN \x1B[2\x7FJ
+EXPECT CSI:2J
+
+# Bare ESC followed by text: 'c' is consumed as RIS, rest prints
+IN \x1BcX
+EXPECT ESC:c U+0058
+
+# Private marker + two intermediates exhausts the 2-slot collect buffer
+IN \x1B[?1 $p
+EXPECT -
+
+# Parts past 32 are dropped even as subparams
+IN \x1B[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27;28;29;30;31;32:33m
+EXPECT CSI:1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27;28;29;30;31;32m
