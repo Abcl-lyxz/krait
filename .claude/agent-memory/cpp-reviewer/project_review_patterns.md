@@ -19,6 +19,10 @@ T7 confirmations (both recurring patterns hit again):
 - sgr/basic.case shipped without an interrupted-mid-SGR variant (erase.case had one). Authors remember interruption for the second family they write, not the first.
 - Session-file hygiene: agent memory once got written under tests/fuzz/seeds/.claude/ — check untracked dirs for stray .claude/ junk before commit.
 
+## T9 confirmation (checklist finally internalized)
+- First diff where all three recurring asks shipped unprompted: colon-subparam rejection, interrupted-mid-sequence corpus case (CAN), conformance row honest with explicit gaps. Keep checking, but the author has the pattern now.
+- New recurring check for reply-generating handlers: rate/flood guards must have a test that exercises the REFILL path, not just initial-credit exhaustion — test harness wiring (single up-front addInput) can make refill untestable by construction.
+
 ## T8 lesson
 - docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.
 - Grid behavior changes tend to ship unit tests only; vt-core rule also wants corpus cases (parser-path: wrap at margin, LF-at-bottom scroll, pendingWrap cancel) in the same commit.

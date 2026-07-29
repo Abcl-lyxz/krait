@@ -12,6 +12,7 @@
 //                        ]! / UNHOOK! — the string was aborted (CAN/SUB/C1)
 //                        -        no events at all
 //                      Non-printables and space render as \xNN (uppercase).
+#include "core/caps/caps.h"
 #include "core/parser/csi_cursor.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
@@ -220,6 +221,9 @@ std::vector<std::string> parseTokens(const std::string& spec) {
 class CursorSink final : public krait::core::vt::ParserEvents {
   public:
     krait::core::vt::Grid grid{24, 80};
+    krait::core::vt::Capabilities caps;
+    krait::core::vt::ReplyLimiter limiter;
+    std::vector<std::string> replyTokens;  // reports/ cases assert these
 
     void print(char32_t cp) override { grid.putChar(cp); }
 
@@ -234,6 +238,16 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             krait::core::vt::applySgr(grid.pen, params, intermediates);
         } else if (final == 'J' || final == 'K') {
             krait::core::vt::handleErase(grid, params, intermediates, final);
+        } else if (final == 'c' || final == 'n') {
+            std::string out;
+            krait::core::vt::handleReport(grid, caps, params, intermediates, final, limiter, out);
+            if (!out.empty()) {
+                std::string tok = "reply:";
+                for (const char ch : out) {
+                    tok += escapeByte(static_cast<std::uint8_t>(ch));
+                }
+                replyTokens.push_back(tok);
+            }
         } else {
             krait::core::vt::handleCsiCursor(grid, params, intermediates, final);
         }
@@ -355,6 +369,25 @@ TEST_CASE("corpus: csi cursor + c0 controls", "[corpus][csi]") {
         krait::core::vt::Parser parser(sink, c.c1);
         parser.feed(parseBytes(c.in));
         CHECK(sink.describe() == parseTokens(c.expect));
+    }
+    CHECK(!cases.empty());
+}
+
+TEST_CASE("corpus: reports (DA1/DSR) honest replies", "[corpus][reports]") {
+    const auto cases = loadCases(std::filesystem::path(KRAIT_CORPUS_DIR) / "reports");
+    for (const auto& c : cases) {
+        CAPTURE(c.file, c.in);
+        CursorSink sink;
+        krait::core::vt::Parser parser(sink, c.c1);
+        const auto bytes = parseBytes(c.in);
+        // Production wiring: addInput per chunk, then feed the chunk — this
+        // is what exercises the limiter's refill path.
+        for (std::size_t off = 0; off < bytes.size(); off += 64) {
+            const std::size_t n = std::min<std::size_t>(64, bytes.size() - off);
+            sink.limiter.addInput(n);
+            parser.feed(std::span(bytes).subspan(off, n));
+        }
+        CHECK(sink.replyTokens == parseTokens(c.expect));
     }
     CHECK(!cases.empty());
 }

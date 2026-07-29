@@ -64,14 +64,24 @@ builds on; the stub grid dies in T8 when the real grid lands.
   every op touching the cursor line must decide `pendingWrap` explicitly
   (ICH/DCH/IL/DL when they come).
 
+- T9 ✔: capability table + honest replies (`src/core/caps/caps.*`) — DA1
+  generated from the table (VT100+AVO `?1;2c`; VT220 identity only when a
+  real VT220 feature flips), DSR 5 OK + DSR 6 CPR; DA2/DECXCPR/?-DSR =
+  honest silence. ReplyLimiter: clock-free token bucket, 8 replies per 256
+  INPUT bytes — integrator must call addInput(chunk) before each feed
+  (contract documented in caps.h; harness wires it that way). Corpus
+  `tests/corpus/reports/basic.case` incl. refill-across-window burst and
+  8-bit C1 request. Watch item (M1): ansiColor deliberately under-claimed
+  until the 62-identity is honest.
+
 ## Next task (exactly one)
 
-**T9 of `docs/plan/02-m0-tasks.md`**: Capability table + honest replies —
-DA1, DSR 5/6 generated from a table that gates on what is actually
-implemented; parser answerback rate-limit hook. Deliverables:
-`src/core/caps/*`, `tests/corpus/reports/*.case`. Verify: corpus — DA1
-reply matches the table exactly. The honesty rule (CLAUDE.md sacred rule 1)
-is the whole point of this task: never claim an unimplemented capability.
+**T10 of `docs/plan/02-m0-tasks.md`**: fuzz target
+`tests/fuzz/parser_fuzz.cpp` (bytes→parser→grid with invariant ASSERTs),
+clang-cl `fuzz` build preset, seed corpus = all corpus inputs,
+`run-smoke.cmd` (60 s). Verify: `tests\fuzz\run-smoke.cmd` zero crashes.
+Per ADR-0010. After T10, the remaining M0 tasks (T11–T15) need Qt 6.11.1 +
+GPU on the dev machine.
 
 ## After that
 

@@ -49,6 +49,11 @@ Watch items from past reviews (verify still true before flagging):
 **Why:** these were deliberately accepted as fine-for-now in a skeleton commit; they become defects only when later milestones touch them.
 **How to apply:** when a review touches src/core deps, root flags, or T11 targets, check these first.
 
+## T9 caps/reports (t8-grid, uncommitted at review)
+- ReplyLimiter refill branch (addInput while-loop) has zero test coverage: harness calls addInput(total) once BEFORE feed, so credits are always reset to 8 up-front and no corpus case can ever exercise interleaved refill (>8 replies). Re-check when the app layer wires addInput per network chunk — that wiring order (addInput before each feed chunk) is an undocumented contract.
+- handleReport DA1 accepts `CSI 0;1c` (only values[0] checked, count>1 not rejected). Harmless reply, noted not blocked.
+- Unreachable Capabilities flags (columns132..ansiColor) + VT220 `?62` branch in da1Reply are dead until M1 — accepted because vt-core rule mandates table-generated DA. Verify flags flip only alongside real implementations.
+
 ## T8 grid (t7-sgr, uncommitted at review)
 - Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.
 - wrappedFromPrev never cleared by ED/EL full-row erase -> stale wrap flags feed M1 reflow. Re-check when reflow lands.

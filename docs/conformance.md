@@ -16,4 +16,4 @@ DA/DECRQM) · n/a not applicable.
 | OSC | 0/2 title, 4/10/11 colors, 7 cwd, 8 links, 52 clip, 9;4, 133, 66 | ✗ | — | staged |
 | DCS | DECRQSS, XTGETTCAP, sixel, kitty gfx | ✗ | — | M5 |
 | Keyboard | kitty keyboard protocol (all flags), win32-input-mode | ✗ | — | M2 |
-| Reports | DA1/DA2, DSR/CPR, DECRQM | ✗ | — | honest replies rule |
+| Reports | DA1/DA2, DSR/CPR, DECRQM | ◐ | corpus/reports/basic.case | T9: DA1 generated from the capability table (currently VT100+AVO `?1;2c` — no VT220 feature claimed), DSR 5 OK, DSR 6 CPR 1-based (no DECOM); replies rate-limited (8 per 256 input bytes). DA2, DECXCPR, DEC ?-DSR, DECRQM: honest silence, still ✗ |
