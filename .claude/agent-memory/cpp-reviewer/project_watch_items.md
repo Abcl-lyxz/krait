@@ -67,6 +67,23 @@ Watch items from past reviews (verify still true before flagging):
 - Main.qml hex color literals + non-tr() window title accepted for spike only (ui.md bans both) — must not survive into the real shell.
 - app/CMakeLists: find_package floor 6.7 vs qt_standard_project_setup(REQUIRES 6.8) — effective floor 6.8, flagged as confusing.
 
+## T12 glyph grid spike (t11-qt-shell, uncommitted at review, no blockers)
+- glyph_atlas.cpp:57 assumes FT_PIXEL_MODE_GRAY + positive pitch (OOB read on
+  mono/bitmap-strike glyphs). Flagged with one-line guard; verify fixed if any
+  font path beyond the two hardcoded outline fonts appears (T13+ shaper atlas).
+- grid_item.cpp: pipeline create() failure => per-frame full resource rebuild
+  (texture+upload+buffers each frame); texture/sampler/buffer/srb create()
+  bools still unchecked (partial improvement over T11 triangle). Real
+  device-lost handling per render.md still owed by the real renderer.
+- Still latent from T11: pipeline rebuild keys only on rhi() change
+  (sampleCount/format ignored); src/render still has no own CMake target
+  (promised at T12, not delivered); hardcoded C:/Windows/Fonts paths + 24px.
+- Verified-correct patterns worth reusing: own-cell clip handles negative
+  bitmap_left; FT_Done on all exits; tight-pack copy for 4-byte-aligned QImage
+  scanlines before R8 upload; synchronize-copy of COW QImage for render-thread
+  safety; lazy ensureResources because first initialize() precedes first
+  synchronize().
+
 ## T8 grid (t7-sgr, uncommitted at review)
 - Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.
 - wrappedFromPrev never cleared by ED/EL full-row erase -> stale wrap flags feed M1 reflow. Re-check when reflow lands.
