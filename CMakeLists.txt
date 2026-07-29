@@ -15,5 +15,6 @@ enable_testing()
 
 add_subdirectory(src/core)
 add_subdirectory(tests/unit)
+add_subdirectory(tests/corpus)
 
 # T11 adds: add_subdirectory(src/render) + add_subdirectory(src/app)

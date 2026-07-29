@@ -1,0 +1,41 @@
+# WHATWG replacement behavior: U+FFFD per error, offending byte restored.
+
+# Lone continuation byte
+IN \x80
+EXPECT U+FFFD
+
+# Lone lead byte then ASCII (restored byte decodes normally)
+IN \xE0A
+EXPECT U+FFFD U+0041
+
+# Overlong encoding of '/' (C0 is never a valid lead)
+IN \xC0\xAF
+EXPECT U+FFFD U+FFFD
+
+# Overlong 3-byte (E0 requires A0..BF continuation)
+IN \xE0\x80
+EXPECT U+FFFD U+FFFD
+
+# CESU-8 style surrogate U+D800 (ED caps at 9F)
+IN \xED\xA0\x80
+EXPECT U+FFFD U+FFFD U+FFFD
+
+# Above U+10FFFF (F4 caps at 8F)
+IN \xF4\x90\x80\x80
+EXPECT U+FFFD U+FFFD U+FFFD U+FFFD
+
+# Invalid lead bytes F5..FF
+IN \xF5\xFE\xFF
+EXPECT U+FFFD U+FFFD U+FFFD
+
+# Truncated 3-byte sequence at end of stream (finish() emits one U+FFFD)
+IN \xE0\xB8
+EXPECT U+FFFD
+
+# Truncated 4-byte sequence at end of stream
+IN \xF0\x9F
+EXPECT U+FFFD
+
+# Valid text surviving around damage
+IN ok\xE0\xB8\x81\x80!
+EXPECT U+006F U+006B U+0E01 U+FFFD U+0021

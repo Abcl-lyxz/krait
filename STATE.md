@@ -27,11 +27,18 @@ Still zero code, zero CMake — correct.
   (`cmake -S tests/core-standalone -B build/core-standalone -G Ninja`).
   cpp-reviewer: clean pass (watch items in `.claude/agent-memory/`).
 
+- T4 ✔: WHATWG UTF-8 decoder (`src/core/unicode/utf8.*`, byte-restore
+  replacement semantics) + corpus harness v0 + 18 `.case` cases
+  (`tests/corpus/utf8/`). ctest 2/2 green; cpp-reviewer clean
+  (spec-conformance hand-verified).
+
 ## Next task (exactly one)
 
-**T4 of `docs/plan/02-m0-tasks.md`**: UTF-8 decoder (incremental,
-malformed→U+FFFD per WHATWG replacement rules) + corpus harness v0
-(`tests/corpus/*.case` golden format: `IN` bytes / `EXPECT` events).
+**T5 of `docs/plan/02-m0-tasks.md`**: parser state machine — the 14
+states / 14 actions of vt100.net/emu/dec_ansi_parser as tables, with the
+documented deviations (UTF-8 outside machine, 0x3A subparam-legal, C1
+policy flag, param cap 32), dispatching to a `ParserEvents` interface.
+Corpus: interrupted-mid-sequence + garbage cases.
 Verify: `ctest --preset dev -R corpus`.
 
 ## After that
