@@ -48,6 +48,90 @@ TEST_CASE("grid: linefeed at the bottom scrolls into scrollback", "[grid]") {
     CHECK(g.damage.all());
 }
 
+TEST_CASE("grid: scroll region confines scrolling to the margins", "[grid][scroll]") {
+    Grid g(5, 4);
+    for (int r = 0; r < 5; ++r) {  // label every row with its index
+        g.row = r;
+        g.col = 0;
+        g.putChar(U'0' + static_cast<char32_t>(r));
+    }
+    g.scrollTop = 1;
+    g.scrollBottom = 3;
+    g.scrollRegionUp(1);
+    // Rows outside the margins must not move at all.
+    CHECK(g.cellAt(0, 0).ch == U'0');
+    CHECK(g.cellAt(4, 0).ch == U'4');
+    CHECK(g.cellAt(1, 0).ch == U'2');
+    CHECK(g.cellAt(2, 0).ch == U'3');
+    CHECK(g.cellAt(3, 0).ch == 0);  // blanked bottom of the region
+    // A region-limited scroll is an app managing its own viewport; those
+    // lines are lost, never pushed into history.
+    CHECK(g.scrollbackSize() == 0);
+}
+
+TEST_CASE("grid: scroll region down loses lines off the bottom", "[grid][scroll]") {
+    Grid g(4, 4);
+    for (int r = 0; r < 4; ++r) {
+        g.row = r;
+        g.col = 0;
+        g.putChar(U'a' + static_cast<char32_t>(r));
+    }
+    g.scrollRegionDown(1);
+    CHECK(g.cellAt(0, 0).ch == 0);  // blank inserted at the top
+    CHECK(g.cellAt(1, 0).ch == U'a');
+    CHECK(g.cellAt(3, 0).ch == U'c');  // the 'd' row fell off and is gone
+    CHECK(g.scrollbackSize() == 0);    // never below the screen
+}
+
+TEST_CASE("grid: full-screen region still feeds scrollback", "[grid][scroll]") {
+    Grid g(3, 4);
+    g.putChar(U'A');
+    REQUIRE(g.fullScreenRegion());
+    g.scrollRegionUp(1);
+    REQUIRE(g.scrollbackSize() == 1);
+    CHECK(g.scrollbackAt(0).cells[0].ch == U'A');
+}
+
+TEST_CASE("grid: scroll amount clamps to the region height", "[grid][scroll]") {
+    Grid g(6, 4);
+    g.scrollTop = 2;
+    g.scrollBottom = 3;
+    for (int r = 0; r < 6; ++r) {
+        g.row = r;
+        g.col = 0;
+        g.putChar(U'0' + static_cast<char32_t>(r));
+    }
+    g.scrollRegionUp(99);              // far more than the 2-row region
+    CHECK(g.cellAt(1, 0).ch == U'1');  // untouched above
+    CHECK(g.cellAt(2, 0).ch == 0);     // region fully blanked
+    CHECK(g.cellAt(3, 0).ch == 0);
+    CHECK(g.cellAt(4, 0).ch == U'4');  // untouched below
+    g.scrollRegionUp(0);               // no-op, must not blank anything
+    CHECK(g.cellAt(4, 0).ch == U'4');
+}
+
+TEST_CASE("grid: linefeed below the region does not scroll it", "[grid][scroll]") {
+    Grid g(4, 4);
+    g.scrollTop = 0;
+    g.scrollBottom = 1;  // region is the top two rows only
+    g.row = 3;           // cursor parked below the region, on the last row
+    g.linefeed();
+    // Outside the margins there is nothing to scroll and nowhere to go.
+    CHECK(g.row == 3);
+    CHECK(g.scrollbackSize() == 0);
+}
+
+TEST_CASE("grid: resize re-clamps stale margins", "[grid][scroll]") {
+    Grid g(10, 4);
+    g.scrollTop = 4;
+    g.scrollBottom = 9;
+    g.resize(3, 4);  // margins now describe rows that no longer exist
+    CHECK(g.scrollTop == 0);
+    CHECK(g.scrollBottom == 2);
+    g.scrollRegionUp(1);  // must not index past the screen
+    SUCCEED();
+}
+
 TEST_CASE("grid: damage coalesces per-row spans and clears", "[grid]") {
     Grid g(3, 10);
     g.putChar(U'A');

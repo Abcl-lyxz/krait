@@ -31,6 +31,27 @@ class Grid {
     Attr pen;
     DamageList damage;
 
+    // Scrolling region (DECSTBM), 0-based and INCLUSIVE. Defaults to the whole
+    // screen. DEC VT510: "You cannot perform scrolling outside the margins."
+    int scrollTop = 0;
+    int scrollBottom;         // rows - 1 at construction
+    bool originMode = false;  // DECOM: addressing is relative to scrollTop
+
+    bool inScrollRegion(int r) const { return r >= scrollTop && r <= scrollBottom; }
+
+    // True when the region covers the whole screen — the only case where
+    // scrolled-off lines belong in scrollback (a region-limited scroll is an
+    // application managing its own viewport, e.g. a status line, and feeding
+    // those lines to history would corrupt it).
+    bool fullScreenRegion() const { return scrollTop == 0 && scrollBottom == rows - 1; }
+
+    // Scroll the region by n lines. Lines pushed out of the region are lost
+    // (DEC: "Lines scrolled off the page are lost"), except off the top of a
+    // full-screen region, which goes to scrollback. Blank lines carry no
+    // attributes. n is clamped to the region height.
+    void scrollRegionUp(int n);
+    void scrollRegionDown(int n);
+
     Cell& cellAt(int r, int c);
     const Cell& cellAt(int r, int c) const;
     Line& lineAt(int r);
@@ -51,7 +72,8 @@ class Grid {
     void resize(int newRows, int newCols);
 
   private:
-    void scrollUp();
+    // Retires a line off the top of the screen into scrollback.
+    void pushToScrollback(Line&& line);
 
     std::vector<Line> m_screen;
     std::deque<Line> m_scrollback;
