@@ -1,6 +1,11 @@
 #include "grid_item.h"
 
+#include <QCoreApplication>
 #include <QFile>
+#include <QTimer>
+
+#include <algorithm>
+#include <numeric>
 
 namespace krait::render {
 
@@ -44,6 +49,37 @@ GridSpikeItem::GridSpikeItem() {
             m_atlas.image.save(QString::fromLocal8Bit(dump));
         }
     }
+    bool ok = false;
+    const int frames = qEnvironmentVariableIntValue("KRAIT_BENCH", &ok);
+    if (ok && frames > 0) {
+        m_benchFrames = frames;
+        // Watchdog: a failed pipeline would otherwise idle forever and
+        // stall flood-report.cmd unattended.
+        QTimer::singleShot(60000, this, [] {
+            qWarning("bench: timed out");
+            QCoreApplication::exit(2);
+        });
+        if (qEnvironmentVariableIsSet("KRAIT_BENCH_4K")) {
+            // Honest 4K fill cost regardless of the window/monitor size.
+            setFixedColorBufferWidth(3840);
+            setFixedColorBufferHeight(2160);
+        }
+    }
+}
+
+void GridSpikeItem::finishBench(const QString& reportJson) {
+    qInfo("bench: %s", qPrintable(reportJson));
+    const QByteArray out = qgetenv("KRAIT_BENCH_OUT");
+    if (!out.isEmpty()) {
+        QFile f(QString::fromLocal8Bit(out));
+        if (!f.open(QIODevice::WriteOnly)) {
+            qWarning("bench: cannot write %s", out.constData());
+            QCoreApplication::exit(1);  // never let stale JSON pass as fresh
+            return;
+        }
+        f.write(reportJson.toUtf8());
+    }
+    QCoreApplication::quit();
 }
 
 QQuickRhiItemRenderer* GridSpikeItem::createRenderer() {
@@ -53,6 +89,8 @@ QQuickRhiItemRenderer* GridSpikeItem::createRenderer() {
 void GridSpikeRenderer::synchronize(QQuickRhiItem* item) {
     auto* gridItem = static_cast<GridSpikeItem*>(item);
     m_atlas = gridItem->atlas();
+    m_item = gridItem;
+    m_benchFrames = gridItem->benchFrames();
 }
 
 void GridSpikeRenderer::fillInstances() {
@@ -177,8 +215,9 @@ void GridSpikeRenderer::ensureResources(QRhiCommandBuffer* cb) {
         m_pipeline.reset();
         m_failed = true;  // retried only after an rhi/device change
     } else {
-        qInfo("spike: grid pipeline ready (atlas %dx%d, cell %dx%d)", m_atlas.image.width(),
-              m_atlas.image.height(), m_atlas.cellWidth, m_atlas.cellHeight);
+        qInfo("spike: grid pipeline ready (atlas %dx%d, cell %dx%d, adapter %s)",
+              m_atlas.image.width(), m_atlas.image.height(), m_atlas.cellWidth, m_atlas.cellHeight,
+              m_rhi->driverInfo().deviceName.constData());
     }
 }
 
@@ -190,7 +229,38 @@ void GridSpikeRenderer::render(QRhiCommandBuffer* cb) {
         cb->endPass();
         return;
     }
-    cb->beginPass(renderTarget(), clear, {1.0F, 0});
+    QRhiResourceUpdateBatch* batch = nullptr;
+    if (m_benchFrames > 0 && !m_benchDone) {
+        // T13 flood: every cell changes glyph and fg every frame, and the
+        // entire per-instance buffer is re-uploaded — the worst realistic
+        // frame a terminal produces.
+        for (int i = 0; i < kCellCount; ++i) {
+            float* inst = m_instances.data() + static_cast<std::size_t>(i) * kInstanceFloats;
+            inst[0] = static_cast<float>((i + m_frame) % 95);
+            inst[1] = 0.2F + static_cast<float>((i + m_frame) % 7) / 8.0F;
+        }
+        batch = m_rhi->nextResourceUpdateBatch();
+        batch->updateDynamicBuffer(m_instanceBuf.get(), 0,
+                                   static_cast<quint32>(m_instances.size() * sizeof(float)),
+                                   m_instances.data());
+        constexpr int kWarmup = 60;
+        if (m_frame == kWarmup) {
+            m_timer.start();
+        } else if (m_frame > kWarmup) {
+            m_cpuMs.push_back(static_cast<double>(m_timer.nsecsElapsed()) / 1e6);
+            m_timer.restart();
+            const double gpuSeconds = cb->lastCompletedGpuTime();
+            if (gpuSeconds > 0.0) {
+                m_gpuMs.push_back(gpuSeconds * 1000.0);
+            }
+        }
+        ++m_frame;
+        if (static_cast<int>(m_cpuMs.size()) >= m_benchFrames) {
+            m_benchDone = true;
+            reportBench();
+        }
+    }
+    cb->beginPass(renderTarget(), clear, {1.0F, 0}, batch);
     cb->setGraphicsPipeline(m_pipeline.get());
     cb->setShaderResources();  // binds the pipeline's srb (ubuf + atlas)
     const QSize outputSize = renderTarget()->pixelSize();
@@ -203,6 +273,33 @@ void GridSpikeRenderer::render(QRhiCommandBuffer* cb) {
     cb->setVertexInput(0, 2, vbufs);
     cb->draw(4, kCellCount);
     cb->endPass();
+    if (m_benchFrames > 0 && !m_benchDone) {
+        update();  // keep the flood running at presentation rate
+    }
+}
+
+void GridSpikeRenderer::reportBench() {
+    std::vector<double> cpu = m_cpuMs;
+    std::sort(cpu.begin(), cpu.end());
+    const double avg =
+        std::accumulate(cpu.begin(), cpu.end(), 0.0) / static_cast<double>(cpu.size());
+    const double p99 = cpu[cpu.size() * 99 / 100];
+    const double worst = cpu.back();
+    const double fps = avg > 0.0 ? 1000.0 / avg : 0.0;
+    double gpuAvg = 0.0;
+    if (!m_gpuMs.empty()) {
+        gpuAvg = std::accumulate(m_gpuMs.begin(), m_gpuMs.end(), 0.0) /
+                 static_cast<double>(m_gpuMs.size());
+    }
+    const QSize size = renderTarget()->pixelSize();
+    const QString json =
+        QString::asprintf("{\"target\":\"%dx%d\",\"frames\":%d,\"cpu_avg_ms\":%.3f,"
+                          "\"cpu_p99_ms\":%.3f,\"cpu_max_ms\":%.3f,\"fps\":%.1f,"
+                          "\"gpu_avg_ms\":%.3f,\"gpu_samples\":%d}",
+                          size.width(), size.height(), static_cast<int>(m_cpuMs.size()), avg, p99,
+                          worst, fps, gpuAvg, static_cast<int>(m_gpuMs.size()));
+    // Queued: the item lives on the GUI thread and outlives the renderer.
+    QMetaObject::invokeMethod(m_item, "finishBench", Qt::QueuedConnection, Q_ARG(QString, json));
 }
 
 }  // namespace krait::render

@@ -1,0 +1,31 @@
+{
+  "recorded": "2026-07-29",
+  "machine": "HomeCenter",
+  "gpu_adapter": "NVIDIA GeForce RTX 4060",
+  "warp_adapter": "Microsoft Basic Render Driver",
+  "os": "Windows 11 Pro 10.0.26200",
+  "qt": "6.10.3 (pin 6.11.1 pending, see SETUP.md)",
+  "compiler": "MSVC 19.51",
+  "display_hz": 180,
+  "notes": "cpu_*_ms include vsync pacing; gpu_avg_ms is QRhi timestamp render cost (lastCompletedGpuTime lags and repeats across frames, so gpu_samples count duplicates - the mean is duplicate-weighted). 4K fixed color buffer, 240x63 grid, full-grid change per frame.",
+  "dev_gpu": {
+    "target": "3840x2160",
+    "frames": 600,
+    "cpu_avg_ms": 5.553,
+    "cpu_p99_ms": 5.932,
+    "cpu_max_ms": 7.134,
+    "fps": 180.1,
+    "gpu_avg_ms": 0.169,
+    "gpu_samples": 600
+  },
+  "warp": {
+    "target": "3840x2160",
+    "frames": 600,
+    "cpu_avg_ms": 12.395,
+    "cpu_p99_ms": 18.643,
+    "cpu_max_ms": 27.782,
+    "fps": 80.7,
+    "gpu_avg_ms": 10.065,
+    "gpu_samples": 600
+  }
+}
