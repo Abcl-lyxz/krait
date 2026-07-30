@@ -5,10 +5,12 @@
 #include "core/grid/damage.h"
 #include "core/grid/line.h"
 #include "core/grid/scrollback.h"
+#include "core/grid/sync_output.h"
 #include "core/unicode/width.h"
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <vector>
 
@@ -51,6 +53,23 @@ class Grid {
     // wires it to the settings registry and mode 2027 is how an application
     // negotiates it. Never guess per-codepoint at a call site.
     unicode::Ambiguous ambiguous = unicode::Ambiguous::Narrow;
+
+    // Mode 2004, bracketed paste. Stored here and reported by DECRQM; the
+    // wrapping of a paste in ESC[200~ / ESC[201~ is the input path's job
+    // (T28), which is also where the paste-guard lives.
+    bool bracketedPaste = false;
+
+    // Mode 2026, synchronized output. See sync_output.h for why the guard's
+    // clock is supplied by the caller rather than read here.
+    SyncOutput sync;
+
+    // The integrator's monotonic millisecond stamp, refreshed before each fed
+    // chunk. src/core/ reads no clock (rules/vt-core.md: zero OS deps, and
+    // every test stays deterministic), so this is how a DECSET 2026 arriving
+    // mid-stream learns when "now" is. Left at 0 it simply means the 2026
+    // guard measures in chunks the caller never stamped — the mode still
+    // works, the timeout just cannot fire.
+    std::uint64_t nowMs = 0;
 
     // Scrolling region (DECSTBM), 0-based and INCLUSIVE. Defaults to the whole
     // screen. DEC VT510: "You cannot perform scrolling outside the margins."

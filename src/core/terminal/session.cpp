@@ -42,6 +42,15 @@ void Session::csiDispatch(const Params& params, std::span<const std::uint8_t> in
         if (!reply.empty() && onReply) {
             onReply(reply);
         }
+    } else if (final == 'p') {
+        // DECRQM is selected by its '?' '$' intermediates, not by 'p' alone —
+        // handleDecrqm rejects every other 'p' form (DECSCL, DECSTR) so they
+        // stay honest silence rather than answering as a mode query.
+        std::string reply;
+        handleDecrqm(m_grid, m_caps, params, intermediates, final, m_limiter, reply);
+        if (!reply.empty() && onReply) {
+            onReply(reply);
+        }
     } else {
         handleCsiCursor(m_grid, params, intermediates, final);
     }
