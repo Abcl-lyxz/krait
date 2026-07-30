@@ -9,6 +9,7 @@ add_executable(krait-core-tests
     atlas_test.cpp
     grid_test.cpp
     modes_test.cpp
+    profile_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
     fontdb_test.cpp
@@ -20,7 +21,8 @@ add_executable(krait-core-tests
 )
 # krait-shaper brings krait-core with it (PUBLIC), and stays Qt-free so real
 # HarfBuzz shaping is testable here without a QGuiApplication.
-target_link_libraries(krait-core-tests PRIVATE krait-core krait-shaper Catch2::Catch2WithMain)
+target_link_libraries(krait-core-tests
+    PRIVATE krait-core krait-shaper krait-session Catch2::Catch2WithMain)
 
 include(Catch)
 catch_discover_tests(krait-core-tests)
