@@ -153,6 +153,12 @@ class SshBackend : public IBackend {
     Outcome pump();
 
     void fail(ErrorCode code, const QString& message);
+    // Clears the answer slot. MUST be called before emitting the prompt, not
+    // inside waitForAnswer: the answer can arrive before the worker reaches the
+    // wait — trivially so if the receiver is connected directly, and as a race
+    // otherwise — and clearing it afterwards throws that answer away and then
+    // waits for it.
+    void armAnswer();
     // Blocks the worker until the GUI answers, `timeoutMs` passes, or stop() is
     // called. False means "no answer" for any of those reasons.
     bool waitForAnswer(int timeoutMs);

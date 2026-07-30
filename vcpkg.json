@@ -6,7 +6,12 @@
     "catch2",
     "fmt",
     "freetype",
-    "libssh",
+    {
+      "name": "libssh",
+      "features": [
+        "server"
+      ]
+    },
     {
       "name": "harfbuzz",
       "default-features": false,

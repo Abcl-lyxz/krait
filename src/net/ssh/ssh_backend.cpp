@@ -9,6 +9,7 @@
 
 #include "../reconnect.h"
 #include "../remote_text.h"
+#include "algorithms.h"
 #include "hostkey_art.h"
 #include <windows.h>
 
@@ -167,6 +168,16 @@ bool SshBackend::connectSession() {
     }
     ssh_session session = m_impl->session;
 
+    // The algorithm policy, from the one file that holds it (net.md). Applied
+    // before anything else so nothing can negotiate outside it.
+    ssh_options_set(session, SSH_OPTIONS_KEY_EXCHANGE, kKeyExchange);
+    ssh_options_set(session, SSH_OPTIONS_CIPHERS_C_S, kCiphers);
+    ssh_options_set(session, SSH_OPTIONS_CIPHERS_S_C, kCiphers);
+    ssh_options_set(session, SSH_OPTIONS_HMAC_C_S, kMacs);
+    ssh_options_set(session, SSH_OPTIONS_HMAC_S_C, kMacs);
+    ssh_options_set(session, SSH_OPTIONS_HOSTKEYS, kHostKeys);
+    ssh_options_set(session, SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES, kPublicKeyTypes);
+
     ssh_options_set(session, SSH_OPTIONS_HOST, m_config.host.c_str());
     const int port = m_config.port;
     ssh_options_set(session, SSH_OPTIONS_PORT, &port);
@@ -180,6 +191,15 @@ bool SshBackend::connectSession() {
     // Windows is long past the point where the user closed the tab.
     const long timeout = m_config.connectTimeoutSeconds;
     ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout);
+
+    // KRAIT_SSH_DEBUG=1..4 turns on libssh's own protocol log to stderr. An SSH
+    // client without a way to see the handshake is a client where every
+    // connection problem is a guess — and libssh's error strings alone
+    // routinely name a symptom several layers below the cause.
+    if (const QByteArray level = qgetenv("KRAIT_SSH_DEBUG"); !level.isEmpty()) {
+        const int verbosity = level.toInt();
+        ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity);
+    }
 
     if (ssh_connect(session) != SSH_OK) {
         // ssh_get_error is the server's or the resolver's text. It names a host
@@ -290,6 +310,7 @@ bool SshBackend::verifyHostKey() {
 }
 
 Secret SshBackend::askForSecret(const QString& prompt, bool echo, bool* remember) {
+    armAnswer();  // before the emit; see armAnswer's note
     emit credentialPrompt(prompt, echo);
     if (!waitForAnswer(kPromptTimeoutMs)) {
         return {};
@@ -678,9 +699,13 @@ void SshBackend::stop() {
     m_connected = false;
 }
 
+void SshBackend::armAnswer() {
+    const std::lock_guard lock(m_mutex);
+    m_answered = false;
+}
+
 bool SshBackend::waitForAnswer(int timeoutMs) {
     std::unique_lock lock(m_mutex);
-    m_answered = false;
     const bool woke = m_cv.wait_for(lock, std::chrono::milliseconds(timeoutMs),
                                     [this] { return m_answered || m_shutdown.load(); });
     return woke && m_answered;

@@ -43,8 +43,18 @@ add_executable(krait-qt-tests
     reconnect_test.cpp
     remote_text_test.cpp
     settings_test.cpp
+    ssh_contract_test.cpp
+    ../support/ssh_test_server.cpp
+    ../support/ssh_test_server.h
     vault_test.cpp
 )
+# The contract tests run a real SSH server in-process (see the note in
+# ssh_test_server.h for why that beats a Docker fixture here), so this binary
+# needs libssh directly rather than only through krait-net.
+find_package(libssh CONFIG REQUIRED)
+target_include_directories(krait-qt-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../support)
+# ws2_32 for the test server's wake-the-accept self-connect (see wakeAccept).
+target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32)
 target_link_libraries(krait-qt-tests
     PRIVATE krait-render krait-input krait-settings krait-net Qt6::Test Qt6::Xml
             Catch2::Catch2WithMain)
