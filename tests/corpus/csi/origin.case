@@ -1,0 +1,205 @@
+# DECOM (mode ?6) + mode 1049 cursor behavior (T18). Grid is 24x80.
+# EXPECT tokens: cur:R,C — 1-based and ABSOLUTE, which is the point: every
+# expectation below is the real screen row, not the row the app addressed.
+#
+# Spec basis: xterm cursor.c (CursorSet / CursorUp / CursorDown, read verbatim)
+# + vt100.net DECOM. Where DEC prose and xterm disagree, xterm wins and the
+# case says so.
+
+# ---- DECOM homes the cursor, both directions ----
+
+# Set with no region narrowed: home is absolute row 1
+IN \x1B[10;20H\x1B[?6h
+EXPECT cur:1,1
+
+# Set with a region: home is the TOP MARGIN
+IN \x1B[5;10r\x1B[?6h
+EXPECT cur:5,1
+
+# RESET also homes — xterm's DECOM case calls CursorSet(0,0) unconditionally,
+# and by then ORIGIN is cleared, so this lands on absolute row 1.
+IN \x1B[5;10r\x1B[?6h\x1B[3;2H\x1B[?6l
+EXPECT cur:1,1
+
+# ---- CUP / HVP are margin-relative when DECOM is SET ----
+
+# Row 1 of the region is absolute row 5
+IN \x1B[5;10r\x1B[?6h\x1B[1;1H
+EXPECT cur:5,1
+
+# Row 3 of the region is absolute row 7
+IN \x1B[5;10r\x1B[?6h\x1B[3;4H
+EXPECT cur:7,4
+
+# ...and the result cannot leave the region: clamped to the BOTTOM margin
+IN \x1B[5;10r\x1B[?6h\x1B[99;1H
+EXPECT cur:10,1
+
+# HVP is identical
+IN \x1B[5;10r\x1B[?6h\x1B[2;3f
+EXPECT cur:6,3
+
+# ---- CUP can leave the region when DECOM is RESET ----
+
+# vt100.net DECOM: "When DECOM is reset ... the cursor can move outside of the
+# margins." xterm's CursorSet clamps to the page, never reading the margins.
+IN \x1B[5;10r\x1B[20;3H
+EXPECT cur:20,3
+
+# ---- VPA follows CUP's row rule ----
+
+IN \x1B[5;10r\x1B[?6h\x1B[2d
+EXPECT cur:6,1
+
+IN \x1B[5;10r\x1B[?6h\x1B[99d
+EXPECT cur:10,1
+
+# DECOM reset: VPA addresses the page
+IN \x1B[5;10r\x1B[20d
+EXPECT cur:20,1
+
+# ---- CUU / CUD are margin-aware even with DECOM RESET ----
+# xterm cursor.c never reads the flags in CursorUp/CursorDown, only the margins.
+
+# From inside the region, CUU stops at the TOP margin
+IN \x1B[5;10r\x1B[8;4H\x1B[99A
+EXPECT cur:5,4
+
+# From ABOVE the region the cursor is outside it, so CUU reaches row 1:
+# `min = ((cur_row < top_marg) ? 0 : top_marg)`
+IN \x1B[5;10r\x1B[3;4H\x1B[99A
+EXPECT cur:1,4
+
+# From BELOW the region CUU still stops at the top margin — it walks in
+IN \x1B[5;10r\x1B[20;4H\x1B[99A
+EXPECT cur:5,4
+
+# From inside, CUD stops at the BOTTOM margin
+IN \x1B[5;10r\x1B[6;4H\x1B[99B
+EXPECT cur:10,4
+
+# From ABOVE the region CUD walks INTO it and stops at the bottom margin —
+# the top margin is never a barrier to downward motion
+IN \x1B[5;10r\x1B[2;4H\x1B[99B
+EXPECT cur:10,4
+
+# From BELOW the region CUD may reach the last screen row
+IN \x1B[5;10r\x1B[20;4H\x1B[99B
+EXPECT cur:24,4
+
+# ---- DECSTBM's home is origin-aware ----
+
+# DEC prose says DECSTBM homes to "line 1 of the page"; xterm passes its flags
+# to CursorSet, so with DECOM already on it homes to the top margin instead.
+IN \x1B[?6h\x1B[5;10r
+EXPECT cur:5,1
+
+# An ignored (inverted) DECSTBM moves nothing — not even the cursor. Parked
+# AWAY from the top margin first, so a "reject the margins but still home"
+# implementation cannot pass this by accident.
+IN \x1B[5;10r\x1B[?6h\x1B[3;2H\x1B[20;10r
+EXPECT cur:7,2
+
+# Ps=0 means 1, so this addresses region row 1 rather than absolute row 1
+IN \x1B[5;10r\x1B[?6h\x1B[0;0H
+EXPECT cur:5,1
+
+# An omitted CUU parameter moves 1 and still stops at the top margin
+IN \x1B[5;10r\x1B[5;4H\x1B[A
+EXPECT cur:5,4
+
+# CUD with Ps=0 moves 1 and still stops at the bottom margin
+IN \x1B[5;10r\x1B[10;4H\x1B[0B
+EXPECT cur:10,4
+
+# ---- mode 1049 saves and restores the cursor ----
+
+# Entering does NOT move the cursor
+IN \x1B[10;20H\x1B[?1049h
+EXPECT cur:10,20
+
+# Leaving restores it, discarding wherever the alt-screen app left it
+IN \x1B[10;20H\x1B[?1049h\x1B[3;3H\x1B[?1049l
+EXPECT cur:10,20
+
+# Round trip survives origin mode: the slot stores an ABSOLUTE row, and the
+# restore subtracts the top margin back out before re-applying it
+IN \x1B[5;10r\x1B[?6h\x1B[2;2H\x1B[?1049h\x1B[1;1H\x1B[?1049l
+EXPECT cur:6,2
+
+# Leaving when we never entered still RESTORES — the switch-back no-ops but
+# CursorRestore runs unconditionally, so a virgin slot homes the cursor
+IN \x1B[10;20H\x1B[?1049l
+EXPECT cur:1,1
+
+# Entering twice re-saves, but into the ALTERNATE slot (sc[1], because the
+# second save happens while already on the alternate buffer). Slot 0 still
+# holds where the first h left off, so the exit lands there.
+IN \x1B[10;20H\x1B[?1049h\x1B[3;3H\x1B[?1049h\x1B[?1049l
+EXPECT cur:10,20
+
+# ---- the margins moved while the alternate screen was up ----
+
+# The slot holds an ABSOLUTE row, and cursorSet clamps only the BOTTOM — so the
+# cursor legitimately ends up ABOVE the top margin with DECOM still set. xterm's
+# CursorSet has no low clamp beyond 0, and this is what makes an unclamped CPR
+# emit a negative parameter (see corpus/reports/basic.case).
+IN \x1B[?6h\x1B[?1049h\x1B[20;24r\x1B[?1049l
+EXPECT cur:1,1
+
+# ...and from there CUD still ignores the flags, walking down one row
+IN \x1B[?6h\x1B[?1049h\x1B[20;24r\x1B[?1049l\x1B[1B
+EXPECT cur:2,1
+
+# ---- forms that are not ours ----
+
+# An intermediate byte makes this some other sequence entirely, never DECOM
+IN \x1B[10;20H\x1B[?6\x20h
+EXPECT cur:10,20
+
+# A private marker that is not '?' is not DECSET
+IN \x1B[10;20H\x1B[>6h
+EXPECT cur:10,20
+
+# Parameters saturate at kMaxValue (16383) rather than wrapping, so no huge
+# value can alias onto 6 or 1049
+IN \x1B[10;20H\x1B[?16390;17433h
+EXPECT cur:10,20
+
+# kMaxParams is 32, so a 33rd parameter is dropped and this 6 never applies
+IN \x1B[10;20H\x1B[?1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;6h
+EXPECT cur:10,20
+
+# Subparameters are SGR-only, so this is rejected and DECOM never sets
+IN \x1B[10;20H\x1B[?6:1h
+EXPECT cur:10,20
+
+# No private marker: ANSI mode 6 is not DECOM and is not implemented
+IN \x1B[10;20H\x1B[6h
+EXPECT cur:10,20
+
+# A mode we do not implement is consumed and changes nothing
+IN \x1B[10;20H\x1B[?25h
+EXPECT cur:10,20
+
+# DECSET takes a LIST: the unknown 25 is skipped, 6 still applies
+IN \x1B[10;20H\x1B[?25;6h
+EXPECT cur:1,1
+
+# `CSI ? h` names no mode at all
+IN \x1B[10;20H\x1B[?h
+EXPECT cur:10,20
+
+# ---- interrupted mid-sequence ----
+
+# CAN aborts, so DECOM never sets and the trailing final prints instead
+IN \x1B[10;20H\x1B[?6\x18h
+EXPECT cur:10,21
+
+# SUB aborts like CAN; the trailing final prints instead
+IN \x1B[10;20H\x1B[?6\x1Ah
+EXPECT cur:10,21
+
+# ESC re-introduces: the abandoned DECSET never applies, the second one does
+IN \x1B[10;20H\x1B[?6\x1B[?6h
+EXPECT cur:1,1

@@ -24,6 +24,17 @@ metadata:
   - GR note: 0xA0-0xFF treated as GL 0x20-0x7F (Krait deviates deliberately: UTF-8 outside machine).
   - Ground 0x7F: diagram lumps it into 20-7F/print but page notes special/ambiguous DEL handling — real terminals mostly ignore DEL in ground. Open point, see [[t5-audit-findings]].
 
+- **vt100.net VT510 DECOM**: https://vt100.net/docs/vt510-rm/DECOM.html — verified live 2026-07-30.
+  The page describes ONLY where "home" is, never that the cursor moves:
+  set = "the home cursor position is at the upper-left corner of the screen,
+  within the margins ... The cursor cannot move outside of the margins";
+  reset = "...independent of the margins. The cursor can move outside of the
+  margins." Do not cite this page for "DECOM homes the cursor" — that comes
+  from xterm's code (and DEC STD 070), not from here.
+- **vt100.net VT510 CPR**: https://vt100.net/docs/vt510-rm/CPR.html — verified 2026-07-30.
+  Says only "Pl indicates what line the cursor is on" — silent on DECOM.
+  The margin-relative rule is xterm's, cite charproc.c CASE_DSR.
+
 - **kitty underlines**: https://sw.kovidgoyal.net/kitty/underlines/ — verified live 2026-07-29.
   - `4:0`..`4:5` = none/straight/double/curly/dotted/dashed; `4` and `24` kept for back-compat.
   - SGR 58 "works exactly like the codes 38, 48"; 59 resets. Detection = terminfo boolean `Su`.
@@ -64,3 +75,51 @@ questions, download the source with `gh api` and use the Grep tool:
 - **kitty clamps `4:n` to 5**: `decoration = MIN(5, params[i])`, so `4:9` is dashed, not single.
 - xterm ignores subparameters on every code except 38/48 (`item += skip; op = 9999`); kitty
   dispatches them. Divergence is expected — 4:x/58 are kitty extensions.
+
+### Cursor / margins / alt-screen facts confirmed from xterm master (2026-07-30)
+
+Files: `charproc.c`, `cursor.c`, `screen.c`, `util.c`, `ptyx.h` (same `gh api` recipe).
+
+- **`case srm_OPT_ALTBUF_CURSOR:` (1049), charproc.c ~7727** — verbatim:
+  `if (IsSM()) { CursorSave(xw); ToAlternate(xw, True); ClearScreen(xw); }
+  else { FromAlternate(xw, False); CursorRestore(xw); }`
+  The `whichBuf` guard lives ONLY inside `ToAlternate`/`FromAlternate`
+  (charproc.c ~9523/9542). **CursorSave, ClearScreen and CursorRestore are
+  unconditional** — so in xterm a repeated `1049h` DOES re-clear the alt screen
+  and re-save into `sc[1]`, and a `1049l` on the normal screen DOES restore.
+  Anyone claiming "xterm's whichBuf guard makes a repeat a no-op" is wrong.
+- **`CursorSet` (cursor.c 68)** — ORIGIN: `use_col += lft_marg; max_col = rgt_marg;`
+  `use_row += top_marg; max_row = bot_marg;` then `use_row = (use_row < 0 ? 0 : use_row)`
+  and clamp to max; ends with `ResetWrap(screen)`.
+- **`CursorUp` / `CursorDown` (cursor.c ~251/271)** read the margins, never the
+  flags: `min = ((cur_row < top_marg) ? 0 : top_marg)`,
+  `max = (cur_row > bot_marg ? max_row : bot_marg)`.
+- **`CursorRestore` (cursor.c ~462, via CursorRestoreFlags)** — restores flags
+  first, then `CursorSet(screen, sc->row - top_marg, ...)` under ORIGIN (a
+  no-op round trip, since CursorSet re-adds it), then
+  `screen->do_wrap = sc->wrap_flag; /* after CursorSet/ResetWrap */`.
+  It does **not** bail out when `!sc->saved` — a virgin slot homes the cursor
+  and resets the pen; only charsets take the `sc->saved` branch.
+  `CursorSave2` stores row/col/`xw->flags`/curgl/curgr/`do_wrap`/colors/gsets — no margins.
+- **`DECSTBM` (charproc.c 4768)** — `top = one_if_default(0)`; Pb DEFAULT/0/>MaxRows → MaxRows;
+  `if (bot > top) { set_tb_margins(...); CursorSet(screen, 0, 0, xw->flags); }` — no else.
+  `use_default_value()` (charproc.c 2224) maps `result <= 0` to the default, so an
+  explicit `Ps = 0` really is 1.
+- **CPR (charproc.c CASE_DSR, ~4615)** — `value = cur_row; if (flags & ORIGIN) value -= top_marg;`
+  then `+ 1`; column likewise `-= lft_marg`. **No clamp at 0** (only the
+  status-line branch clamps: `if ((value -= LastRowNumber(screen)) < 0) value = 0;`).
+  `typedef short ParmType` (ptyx.h 439) printed via `unsigned short` — xterm
+  wraps where we would print a literal `-`.
+- **`ClearScreen` (util.c 1915)** — `ResetWrap(screen)` + `ClearBufRows(0, max_row)`;
+  never moves the cursor, ignores the margins, and `ClearCells` (screen.c ~839)
+  ORs in `TERM_COLOR_FLAGS(xw)` + `xtermColorPair(xw)` → xterm's clear IS BCE.
+- **`ScreenResize` (screen.c 2189)** — inactive buffer: "The non-visible buffer is
+  simple, since we will not copy data to/from the saved-lines" → plain
+  `Reallocate(...editBuf_index[!whichBuf]...)`. `Reallocate` (screen.c 447):
+  "If the screen shrinks, remove lines off the top of the buffer if
+  resizeGravity resource says to do so" (default SouthWest → top is trimmed,
+  bottom preserved, for BOTH buffers). The saved-lines copy path is gated on
+  `GravityIsSouthWest && delta_rows && saveBuf_index != NULL` — **not** on
+  `whichBuf`, so xterm does push alternate-screen lines into scrollback on a
+  shrink. Also confirmed: `resetMargins(xw)` + `UIntClr(*flags, ORIGIN)`.
+- `#define SAVED_CURSORS 2` (ptyx.h 2331).

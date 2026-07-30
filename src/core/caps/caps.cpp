@@ -1,5 +1,6 @@
 #include "core/caps/caps.h"
 
+#include <algorithm>
 #include <format>
 
 namespace krait::core::vt {
@@ -53,9 +54,23 @@ bool handleReport(const Grid& grid, const Capabilities& caps, const Params& para
             }
             return true;
         }
-        if (ps == 6) {  // CPR, 1-based (DECOM not implemented)
+        if (ps == 6) {  // CPR, 1-based
+            // With DECOM set the position an application asked for was
+            // margin-relative, so the one it is told back must be too — a CPR
+            // that ignored origin mode would break the save/restore round trip
+            // full-screen apps do (vt100.net DECOM; xterm reports
+            // `cur_row - top_marg` when ORIGIN is on).
+            // Clamped at 0: a mode-1049 restore can legitimately leave the
+            // cursor ABOVE the top margin with DECOM still set, and an
+            // unclamped subtraction would emit `ESC [ -18 ; 1 R`. '-' is not a
+            // CSI parameter byte (ECMA-48 5.4), so the application would drop
+            // the whole reply and any app blocking on CPR would hang. xterm
+            // gets away with it via unsigned ParmType; we clamp, as xterm does
+            // in the adjacent DSR branch.
+            const int reportRow =
+                grid.originMode ? std::max(0, grid.row - grid.scrollTop) : grid.row;
             if (limiter.allow()) {
-                out += std::format("\x1B[{};{}R", grid.row + 1, grid.col + 1);
+                out += std::format("\x1B[{};{}R", reportRow + 1, grid.col + 1);
             }
             return true;
         }

@@ -78,6 +78,24 @@ EXPECT reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n rep
 IN \x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n\x1B[5n
 EXPECT reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n reply:\x1B[0n
 
+# ---- CPR under origin mode (T18) ----
+
+# With DECOM set, CPR reports the row the application ADDRESSED — margin
+# relative — or the save/restore round trip every full-screen app does drifts.
+IN \x1B[5;10r\x1B[?6h\x1B[3;4H\x1B[6n
+EXPECT reply:\x1B[3;4R
+
+# DECOM reset: CPR is absolute again, even with a region set
+IN \x1B[5;10r\x1B[8;4H\x1B[6n
+EXPECT reply:\x1B[8;4R
+
+# CPR must never emit a NEGATIVE parameter. A mode-1049 restore can leave the
+# cursor above the top margin with DECOM still set; '-' is not a CSI parameter
+# byte (ECMA-48 5.4), so an unclamped `row - scrollTop` would produce a reply
+# the application silently drops — and anything blocking on CPR would hang.
+IN \x1B[?6h\x1B[?1049h\x1B[20;24r\x1B[?1049l\x1B[6n
+EXPECT reply:\x1B[1;1R
+
 # 8-bit C1 CSI introducer works for reports too (7-bit reply; S8C1T not implemented)
 MODE c1
 IN \x9B5n

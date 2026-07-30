@@ -180,6 +180,26 @@ jobs:
           # green having tidied nothing.
           if ($LASTEXITCODE -ne 0) { throw "git failed to enumerate changed files" }
           if (-not $changed) { Write-Host 'no C++ sources changed'; exit 0 }
+          # A file with no entry in compile_commands.json gets clang-tidy's
+          # DEFAULT flags — C++17, no /std:c++23preview — so every std::span in
+          # it becomes a fatal clang-diagnostic-error that has nothing to do
+          # with the code. tests/fuzz/*.cpp is the real case: it is built only
+          # by the fuzz presets, never by dev. Skip those here (the fuzz presets
+          # compile them with /W4 /WX, so they are not unchecked) and SAY so —
+          # a silent skip is how the fuzz TU went untidied unnoticed.
+          $db = Get-Content build/dev/compile_commands.json -Raw | ConvertFrom-Json
+          if (-not $db) { throw "could not read build/dev/compile_commands.json" }
+          $known = [System.Collections.Generic.HashSet[string]]::new(
+            [System.StringComparer]::OrdinalIgnoreCase)
+          foreach ($e in $db) { [void]$known.Add(((Resolve-Path -LiteralPath $e.file).Path)) }
+          $tidy = @(); $skipped = @()
+          foreach ($f in $changed) {
+            $full = (Resolve-Path -LiteralPath $f).Path
+            if ($known.Contains($full)) { $tidy += $f } else { $skipped += $f }
+          }
+          if ($skipped) { Write-Host "NOT in compile_commands.json, skipped: $($skipped -join ', ')" }
+          if (-not $tidy) { Write-Host 'no changed source has a compile command'; exit 0 }
+          $changed = $tidy
           Write-Host "tidying: $($changed -join ', ')"
           # /Zc:preprocessor and friends are cl-only spellings that clang-tidy's
           # driver reports as unused/unknown; they are not findings.

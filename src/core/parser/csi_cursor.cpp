@@ -60,12 +60,23 @@ bool handleCsiCursor(Grid& grid, const Params& params, std::span<const std::uint
         }
     }
     switch (final) {
-    case 'A':  // CUU: stops at top (margins land with DECSTBM)
-        grid.row = std::max(0, grid.row - param(params, 0));
+    case 'A': {  // CUU
+        // Margins bound vertical motion even when DECOM is RESET — xterm
+        // cursor.c CursorUp reads the margins and never looks at the flags:
+        // `min = ((cur_row < top_marg) ? 0 : top_marg)`. A cursor that starts
+        // ABOVE the region is outside it and may walk all the way to row 0.
+        const int min = grid.row < grid.scrollTop ? 0 : grid.scrollTop;
+        grid.row = std::max(min, grid.row - param(params, 0));
         break;
-    case 'B':  // CUD
-        grid.row = std::min(grid.rows - 1, grid.row + param(params, 0));
+    }
+    case 'B': {  // CUD
+        // Mirror of CUU: `max = (cur_row > bot_marg ? max_row : bot_marg)`. So
+        // a cursor above the region walks INTO it and stops at the bottom
+        // margin — the top margin is never a barrier to downward motion.
+        const int max = grid.row > grid.scrollBottom ? grid.rows - 1 : grid.scrollBottom;
+        grid.row = std::min(max, grid.row + param(params, 0));
         break;
+    }
     case 'C':  // CUF
         grid.col = std::min(grid.cols - 1, grid.col + param(params, 0));
         break;
@@ -75,13 +86,15 @@ bool handleCsiCursor(Grid& grid, const Params& params, std::span<const std::uint
     case 'G':  // CHA: column absolute
         grid.col = std::clamp(param(params, 0) - 1, 0, grid.cols - 1);
         break;
-    case 'd':  // VPA: row absolute
-        grid.row = std::clamp(param(params, 0) - 1, 0, grid.rows - 1);
+    case 'd':  // VPA: row absolute, origin-mode relative
+        // xterm passes the CURRENT (absolute) column straight back through
+        // CursorSet. Harmless for us: with no DECSLRM there is no left margin
+        // for CursorSet to re-add.
+        grid.cursorSet(param(params, 0) - 1, grid.col);
         break;
     case 'H':  // CUP
     case 'f':  // HVP (identical semantics)
-        grid.row = std::clamp(param(params, 0) - 1, 0, grid.rows - 1);
-        grid.col = std::clamp(param(params, 1) - 1, 0, grid.cols - 1);
+        grid.cursorSet(param(params, 0) - 1, param(params, 1) - 1);
         break;
     default:
         return false;
