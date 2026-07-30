@@ -10,6 +10,8 @@ find_package(tomlplusplus CONFIG REQUIRED)
 set(CMAKE_AUTOMOC ON)
 
 add_library(krait-settings STATIC
+    paths.cpp
+    paths.h
     registry.cpp
     registry.h
     schema.cpp

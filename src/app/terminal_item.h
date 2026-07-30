@@ -11,6 +11,7 @@
 #include "render/ime_metrics.h"
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
+#include "settings/registry.h"
 #include <rhi/qrhi.h>
 
 #include <QElapsedTimer>
@@ -66,6 +67,11 @@ class TerminalItem : public QQuickRhiItem {
     // Dumps the atlas to a PNG for the golden-image gate.
     Q_INVOKABLE void dumpAtlas(const QString& path) const;
 
+    // Hands over the settings registry (T31). Borrowed, and it outlives us:
+    // main() owns it so every tab reads the same live values rather than each
+    // caching its own copy and missing the next hot reload.
+    void setSettings(settings::Registry* registry);
+
     // Paste, guarded (T28). Reads the clipboard, sanitises it, and either sends
     // it or raises pasteConfirmRequested. QML calls this from the paste action.
     Q_INVOKABLE void paste();
@@ -105,6 +111,9 @@ class TerminalItem : public QQuickRhiItem {
     // is a font change: the glyphs are baked at a fixed pixel size, so anything
     // short of re-rasterising them is a scaled bitmap, i.e. blur.
     void applyDevicePixelRatio(qreal dpr);
+    // Pulls every wired setting out of the registry and applies it. Called once
+    // at startup and again on each hot reload.
+    void applySettings();
     // Re-derives the grid from the colour buffer size and the cell metrics.
     // Shared by a resize and a DPI change, which differ only in what moved.
     void updateGrid();
@@ -132,7 +141,8 @@ class TerminalItem : public QQuickRhiItem {
     std::unique_ptr<render::GlyphAtlas> m_atlas;
     std::unique_ptr<render::FrameBuilder> m_builder;
     std::unique_ptr<core::vt::Session> m_session;
-    net::ConptyBackend* m_backend = nullptr;  // owned by this (QObject parent)
+    settings::Registry* m_settings = nullptr;  // borrowed; owned by main()
+    net::ConptyBackend* m_backend = nullptr;   // owned by this (QObject parent)
 
     render::RasterFn m_raster;
     std::string m_family;

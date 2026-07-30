@@ -6,6 +6,7 @@
 #include "input/mouse.h"
 #include "input/paste.h"
 #include "render/shaper/run_splitter.h"
+#include "settings/registry.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -24,6 +25,7 @@
 #include <array>
 #include <chrono>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -100,7 +102,23 @@ bool TerminalItem::ensureFont() {
         qWarning("render: DirectWrite unavailable; cannot resolve a font");
         return false;
     }
-    const auto family = m_fonts->firstInstalled(kFontCandidates);
+    // The configured family first, then the built-in candidates. A family that
+    // is set but not installed falls back rather than failing: someone syncing
+    // one config across machines should get a working terminal on the machine
+    // that lacks the font, not an empty window.
+    std::string configured;
+    if (m_settings != nullptr) {
+        configured = m_settings->text("font.family");
+    }
+    std::optional<std::string> family;
+    if (!configured.empty() && m_fonts->firstInstalled(std::array{std::string_view{configured}})) {
+        family = configured;
+    } else {
+        if (!configured.empty()) {
+            qWarning("render: font family '%s' is not installed; falling back", configured.c_str());
+        }
+        family = m_fonts->firstInstalled(kFontCandidates);
+    }
     if (!family.has_value()) {
         qWarning("render: none of the candidate monospace families are installed");
         return false;
@@ -217,6 +235,66 @@ void TerminalItem::itemChange(ItemChange change, const ItemChangeData& value) {
         // and every glyph is stretched for the life of the window.
         applyDevicePixelRatio(value.window->effectiveDevicePixelRatio());
     }
+}
+
+void TerminalItem::setSettings(settings::Registry* registry) {
+    m_settings = registry;
+    if (m_settings == nullptr) {
+        return;
+    }
+    // reloaded(), not changed(): a hot reload can move several settings at once
+    // and applying them one signal at a time would rebuild the font stack
+    // repeatedly and, worse, reflow the grid against a half-applied state.
+    connect(m_settings, &settings::Registry::reloaded, this, &TerminalItem::applySettings);
+    applySettings();
+}
+
+void TerminalItem::applySettings() {
+    if (m_settings == nullptr) {
+        return;
+    }
+    const std::string family = m_settings->text("font.family");
+    const int size = static_cast<int>(m_settings->integer("font.size"));
+    const bool ligatures = m_settings->boolean("font.ligatures");
+    const auto ambiguous = m_settings->text("unicode.eastAsianAmbiguous") == "wide"
+                               ? core::unicode::Ambiguous::Wide
+                               : core::unicode::Ambiguous::Narrow;
+    const auto scrollback = static_cast<int>(m_settings->integer("scrollback.lines"));
+
+    // The east-asian-ambiguous setting changes how many CELLS existing text
+    // occupies, so it is a reflow, not a repaint. Applied to the live grid
+    // because every width the grid measures from here reads it (grid.h).
+    if (m_session && m_session->grid().ambiguous != ambiguous) {
+        m_session->grid().ambiguous = ambiguous;
+        if (m_builder) {
+            m_builder->invalidate();
+        }
+    }
+    if (m_session) {
+        // Two caps, both real: a line cap the user set, and a cell cap that
+        // bounds MEMORY. One 100k-column line is not 1/10000th of the budget,
+        // so a line count alone does not bound anything (T21).
+        constexpr std::size_t kCellsPerLineBudget = 200;
+        m_session->grid().scrollback().setCaps(static_cast<std::size_t>(std::max(0, scrollback)),
+                                               static_cast<std::size_t>(std::max(0, scrollback)) *
+                                                   kCellsPerLineBudget);
+    }
+
+    const bool fontChanged =
+        family != m_family || size != m_basePxHeight || ligatures != m_ligatures;
+    m_ligatures = ligatures;
+    m_basePxHeight = size;
+    if (fontChanged) {
+        // Same path a DPI change takes: the glyphs are baked at a fixed pixel
+        // size, so a new family or size means re-rasterising the whole stack
+        // and reflowing the grid to the new cell size.
+        const qreal dpr = m_dpr;
+        m_dpr = 0.0;  // force applyDevicePixelRatio past its no-change exit
+        applyDevicePixelRatio(dpr);
+        return;
+    }
+    rebuildFrame();
+    update();
 }
 
 void TerminalItem::applyDevicePixelRatio(qreal dpr) {

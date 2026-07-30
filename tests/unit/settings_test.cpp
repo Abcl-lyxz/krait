@@ -2,6 +2,7 @@
 // migration + hot-reload test", and each of those is a way a config file can
 // eat a user's configuration rather than a feature to demo.
 
+#include "app/settings/paths.h"
 #include "app/settings/registry.h"
 #include "app/settings/schema.h"
 #include <catch2/catch_test_macros.hpp>
@@ -249,4 +250,76 @@ TEST_CASE("an unknown id is refused, not invented", "[settings]") {
     CHECK(find("font.size") != nullptr);
     CHECK(find("font.colour") == nullptr);
     CHECK_FALSE(registry.set("font.colour", std::string{"red"}));
+}
+
+// ---- T34: the config-directory resolution order ----------------------------
+//
+// The plan's verification is "unit: resolution order table", and this is that
+// table. Every input is injected, so the order is asserted without a real
+// install, a real filesystem, or an environment variable set in one test that
+// leaks into the next.
+
+TEST_CASE("config resolution: the order table", "[settings][paths]") {
+    using krait::app::settings::ConfigSource;
+    using krait::app::settings::PathInputs;
+    using krait::app::settings::portableMarkerName;
+    using krait::app::settings::resolveConfigDir;
+
+    const PathInputs all{.envOverride = "/env", .exeDir = "/exe", .userConfigDir = "/profile"};
+    const auto markerPresent = [](const QString&) { return true; };
+    const auto noMarker = [](const QString&) { return false; };
+
+    SECTION("the environment override wins over everything") {
+        const auto resolved = resolveConfigDir(all, markerPresent);
+        CHECK(resolved.dir == "/env");
+        CHECK(resolved.source == ConfigSource::EnvOverride);
+    }
+
+    SECTION("portable wins over the user profile") {
+        PathInputs inputs = all;
+        inputs.envOverride.clear();
+        const auto resolved = resolveConfigDir(inputs, markerPresent);
+        CHECK(resolved.dir == "/exe");
+        CHECK(resolved.source == ConfigSource::Portable);
+    }
+
+    SECTION("without a marker it is the user profile, even next to the exe") {
+        // A MARKER decides portable mode, not the presence of a config file.
+        // An installed copy in a writable directory would otherwise become
+        // portable the first time it saved, orphaning the real config.
+        PathInputs inputs = all;
+        inputs.envOverride.clear();
+        const auto resolved = resolveConfigDir(inputs, noMarker);
+        CHECK(resolved.dir == "/profile");
+        CHECK(resolved.source == ConfigSource::UserProfile);
+    }
+
+    SECTION("the override is honoured even when it does not exist yet") {
+        // Falling through to the profile here would silently ignore an explicit
+        // instruction — the one thing an override must never do.
+        PathInputs inputs{.envOverride = "/nowhere", .exeDir = "/exe", .userConfigDir = "/profile"};
+        const auto resolved = resolveConfigDir(inputs, noMarker);
+        CHECK(resolved.dir == "/nowhere");
+        CHECK(resolved.source == ConfigSource::EnvOverride);
+    }
+
+    SECTION("the marker is looked for beside the executable, by name") {
+        PathInputs inputs = all;
+        inputs.envOverride.clear();
+        QString probed;
+        const auto record = [&probed](const QString& path) {
+            probed = path;
+            return false;
+        };
+        resolveConfigDir(inputs, record);
+        CHECK(probed.contains(portableMarkerName()));
+        CHECK(probed.startsWith("/exe"));
+    }
+}
+
+TEST_CASE("the config file sits inside the resolved directory", "[settings][paths]") {
+    using krait::app::settings::configFilePath;
+    const QString path = configFilePath("/somewhere");
+    CHECK(path.startsWith("/somewhere"));
+    CHECK(path.endsWith("krait.toml"));
 }

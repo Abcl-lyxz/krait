@@ -1,10 +1,15 @@
 #include "gpu_policy.h"
+#include "settings/paths.h"
+#include "settings/registry.h"
+#include "terminal_item.h"
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
 // macros land in scope for the whole translation unit.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 
+#include <QDir>
+#include <QFile>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -42,6 +47,24 @@ int main(int argc, char* argv[]) {
     app.setApplicationName("Krait");
     qInfo("krait starting");
 
+    // Settings before the window: the GPU adapter choice below reads one, and
+    // QQuickGraphicsConfiguration has to be set before the scene graph starts.
+    namespace ks = krait::app::settings;
+    const ks::Resolution configDir = ks::resolveConfigDir(
+        ks::systemPathInputs(), [](const QString& path) { return QFile::exists(path); });
+    QDir().mkpath(configDir.dir);
+    ks::Registry registry;
+    registry.load(ks::configFilePath(configDir.dir));
+    // Write it back on first run so there is a file to edit. A settings system
+    // whose file only appears after you change something in the UI is one
+    // nobody discovers.
+    if (!QFile::exists(ks::configFilePath(configDir.dir))) {
+        registry.save();
+    }
+    registry.setWatching(true);
+    qInfo("settings: %s (%s)", qPrintable(ks::configFilePath(configDir.dir)),
+          qPrintable(ks::describeSource(configDir.source)));
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("benchMode", qEnvironmentVariableIsSet("KRAIT_BENCH"));
     QObject::connect(
@@ -50,6 +73,14 @@ int main(int argc, char* argv[]) {
     engine.loadFromModule("Krait", "Main");
     if (engine.rootObjects().isEmpty()) {
         return 1;
+    }
+
+    // Every terminal reads the same live registry rather than caching its own
+    // copy, so a hot reload reaches all of them.
+    for (QObject* root : engine.rootObjects()) {
+        for (krait::app::TerminalItem* item : root->findChildren<krait::app::TerminalItem*>()) {
+            item->setSettings(&registry);
+        }
     }
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
@@ -63,7 +94,13 @@ int main(int argc, char* argv[]) {
         // on some hosts fails to create at all. KRAIT_BENCH_WARP stays honoured
         // so the WARP leg of the flood bench keeps working unchanged.
         const bool remote = GetSystemMetrics(SM_REMOTESESSION) != 0;
-        const QByteArray gpu = qgetenv("KRAIT_GPU").toLower();
+        // The environment wins over the setting: KRAIT_GPU is the escape hatch
+        // for a machine whose config cannot be edited because the app will not
+        // start on it, which is exactly when it is needed.
+        QByteArray gpu = qgetenv("KRAIT_GPU").toLower();
+        if (gpu.isEmpty()) {
+            gpu = QByteArray::fromStdString(registry.text("gpu.adapter"));
+        }
         const bool software = krait::app::preferSoftwareDevice(gpu.toStdString(), remote) ||
                               qEnvironmentVariableIsSet("KRAIT_BENCH_WARP");
         config.setPreferSoftwareDevice(software);
