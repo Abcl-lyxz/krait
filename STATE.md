@@ -109,8 +109,8 @@ max over EVERY glyph; `GetFirstMatchingFont` vs `MapCharacters` argument order;
 |---|---|
 | `cmake --build --preset dev` | pass |
 | `cmake --build --preset release` | pass (T35 added the preset) |
-| `ctest --preset dev` | **194/194** (was 125 at T25) |
-| `ctest --preset release` | **194/194** |
+| `ctest --preset dev` | **196/196** (was 125 at T25) |
+| `ctest --preset release` | **196/196** |
 | `tests\fuzz\run-smoke.cmd` | 60 s, zero crashes, 271 new units |
 | core-standalone (sacred rule 1) | builds with no Qt, no vcpkg toolchain |
 | clang-format, whole tree | clean |
@@ -120,8 +120,18 @@ max over EVERY glyph; `GetFirstMatchingFont` vs `MapCharacters` argument order;
 | Release flood, WARP, 60 fps budget | **PASS** — >=180 fps (vsync-bound), cpu 5.56 ms |
 | Release flood vs T25, WARP | **PASS** — 139.9 -> >=180 fps, cpu 7.15 -> 5.56 ms |
 | Locales | lupdate 21 strings, lrelease 21 finished / 0 unfinished, both load |
+| `cpp-reviewer`, whole branch | 3 blocking + 11 others, all fixed on this branch |
 
 Baseline: `bench/baselines/m1-wrap.json`.
+
+Reviewed by `cpp-reviewer` over the whole branch. Three blocking findings, all
+real and all fixed here: an active IME composition suppressed every atlas upload
+for that frame; the clipboard was read with no size cap on the UI thread; and
+Banner.qml rendered hostile clipboard text as RICH text, so a pasted tag could
+restyle the warning that was about it. Eleven more findings down to Low, also
+fixed — the notable ones being stale glyph UVs after atlas growth (pre-existing
+from T25), unchecked `create()` calls in the device-lost rebuild, and plain
+Enter confirming a paste-guard banner that had just stolen focus.
 
 ## Open, not blocking
 
