@@ -188,8 +188,14 @@ bool Registry::save() const {
 
 void Registry::setWatching(bool watching) {
     if (!watching) {
+        // Both, not just the watcher. They are QObject children of `this`, so a
+        // half-teardown leaves the timer alive with its lambda still connected;
+        // switching watching back on would then create a SECOND timer and
+        // reload twice for every change.
         delete m_watcher;
         m_watcher = nullptr;
+        delete m_debounce;
+        m_debounce = nullptr;
         return;
     }
     if (m_watcher != nullptr || m_path.isEmpty()) {

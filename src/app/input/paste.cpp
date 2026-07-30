@@ -49,6 +49,13 @@ PasteResult preparePaste(const QString& text, bool bracketed) {
     const qsizetype before = normalised.size();
     normalised.replace(QLatin1String("\r\n"), QLatin1String("\n"));
     normalised.replace(u'\r', u'\n');
+    // Unicode's OTHER line breaks, normalised before anything looks at the
+    // text. This is a guard BYPASS otherwise, not a tidiness point: two commands
+    // joined with U+2028 count as ONE line to the risk classifier below, so a
+    // dangerous second half rides through as a harmless single-line paste.
+    normalised.replace(QChar(0x0085), u'\n');  // NEL
+    normalised.replace(QChar(0x2028), u'\n');  // LINE SEPARATOR
+    normalised.replace(QChar(0x2029), u'\n');  // PARAGRAPH SEPARATOR
     result.sanitised = normalised.size() != before;
 
     QString clean;
@@ -62,6 +69,15 @@ PasteResult preparePaste(const QString& text, bool bracketed) {
         // Everything else below 0x20, plus DEL. ESC is the one that matters,
         // but there is no C0 a paste has any business carrying.
         if (code < 0x20 || code == 0x7F) {
+            result.sanitised = true;
+            continue;
+        }
+        // C1, U+0080-U+009F. Defence in depth: our parser honours 8-bit C1 only
+        // when its policy flag is on, and it is off under UTF-8 — but U+009B IS
+        // CSI to a parser that does honour it, so a paste carrying one is an
+        // escape sequence waiting for a configuration change or a backend that
+        // transcodes. No legitimate pasted text contains C1 either way.
+        if (code >= 0x80 && code <= 0x9F) {
             result.sanitised = true;
             continue;
         }

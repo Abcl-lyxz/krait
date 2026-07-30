@@ -108,3 +108,32 @@ TEST_CASE("UTF-8 survives the guard intact", "[input][paste]") {
     CHECK(result.bytes == thai.toUtf8());
     CHECK_FALSE(result.sanitised);
 }
+
+TEST_CASE("Unicode line breaks cannot smuggle a second command past the guard", "[input][paste]") {
+    // The bypass: join two commands with U+2028 and the classifier sees ONE
+    // line, so a dangerous second half rides through as harmless. NEL and
+    // PARAGRAPH SEPARATOR are the same trick.
+    for (const char16_t separator : {char16_t{0x0085}, char16_t{0x2028}, char16_t{0x2029}}) {
+        const QString payload =
+            QStringLiteral("echo hi") + QChar(separator) + QStringLiteral("echo there");
+        INFO("separator U+" << QString::number(separator, 16).toStdString());
+        const auto result = preparePaste(payload, false);
+        CHECK(result.risk == PasteRisk::Multiline);
+        CHECK(result.bytes == "echo hi\recho there");
+    }
+    // ...and the dangerous half is still seen for what it is.
+    const QString sneaky = QStringLiteral("echo hi") + QChar(char16_t{0x2028}) +
+                           QStringLiteral("sudo apt install pwned");
+    CHECK(preparePaste(sneaky, false).risk == PasteRisk::DangerousCommand);
+}
+
+TEST_CASE("C1 controls are stripped from a paste", "[input][paste]") {
+    // U+009B IS CSI to a parser that honours 8-bit C1. Ours does not under
+    // UTF-8, but pasted text has no legitimate C1 in it and this is the
+    // cheapest possible defence in depth.
+    const QString payload = QStringLiteral("safe") + QChar(char16_t{0x009B}) +
+                            QStringLiteral("31m") + QChar(char16_t{0x0090}) + QStringLiteral("x");
+    const auto result = preparePaste(payload, false);
+    CHECK(result.bytes == "safe31mx");
+    CHECK(result.sanitised);
+}
