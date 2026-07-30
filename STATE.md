@@ -1,26 +1,15 @@
 # STATE
 
-Phase: **M1 in progress** — T17 merged, T18 and T19 built and awaiting merge
+Phase: **M1 in progress** — T17, T18, T19 merged. **Next task: T20 (reflow).**
 
 ## Now
 
-Two stacked branches are ahead of `main`, both fully built and tested locally:
+`main` is at the T19 merge with `fast-gate` green. No open PRs, nothing in
+flight, working tree clean. T17, T18 and T19 are all merged.
 
-| Branch | Contents | PR | State |
-|---|---|---|---|
-| `t18-scroll` | T18 complete: DECSTBM, IL/DL/SU/SD, DECOM, alt screen 1049 | **#15** | CI was red twice, both causes fixed, latest run pending at handoff |
-| `t19-width` | T19 complete: grapheme/width engine | none yet | branched off `t18-scroll`, **not pushed** |
-
-**First actions next session, in order:**
-
-1. `gh pr checks 15`. If green, `gh pr merge 15 --merge` (the stack has used
-   merge commits so far).
-2. `git push -u origin t19-width` and open its PR. **Retarget it to `main` with
-   `gh pr edit <N> --base main` before merging** — GitHub only auto-retargets a
-   stacked PR when the base branch is deleted, which bit this project during M0
-   closeout.
-3. Then T20 (reflow). See "T20 starts here" below — T19 deliberately left the
-   grid untouched, and T20 is where wide characters actually start rendering.
+**Next task: T20** (`docs/plan/02-m0-tasks.md` §M1) — reflow: resize re-wraps
+logical lines. Start at "T20 starts here" below; it carries the one open design
+decision T19 deliberately did not prejudge.
 
 ## What T18 and T19 landed
 
@@ -51,7 +40,7 @@ cells something occupies. Nothing consumes it yet, by design.
 
 ## Evidence, not assertion
 
-Re-run on the final `t19-width` tree:
+Re-run on the merged `main`, after T19:
 
 | Gate | Result |
 |---|---|
@@ -61,6 +50,7 @@ Re-run on the final `t19-width` tree:
 | standalone zero-dep proof, Qt blanked | pass, including utf8proc |
 | clang-tidy on every changed TU | clean (see the local-repro recipe below) |
 | clang-format | clean |
+| `fast-gate` on both PRs | green — #15 in 5m02s, #16 in 4m12s |
 
 Corpus grew by ~48 assertions: `csi/origin.case` (31 cases),
 `sgr/mode.case` (17), and three DECOM cases added to `reports/basic.case`,
