@@ -1,121 +1,156 @@
 # STATE
 
-Phase: **M1 in progress** — T17-T25 done. **Next task: T26 (device robustness).**
+Phase: **M1 COMPLETE** — T17-T35 done. **Next task: M2** (SSH backend), once
+PR #22 is merged.
 
 ## Now
 
-T23, T24 and T25 are on `t23-shaper` as **PR #21**, four commits:
+Everything from T26 to T35 is on `t26-device` as **PR #22**:
 
 | Commit | Task |
 |---|---|
-| `a33675b` | T23 shaper — run splitting, worker pool, shaped-run cache |
-| `f0ecd11` | T24 font stack — DirectWrite resolution, fallback, ligature toggle |
-| `749eb0c` | T25 (1/2) — glyph atlas with LRU eviction, damage-driven frame builder |
-| `4b1b3a8` | T25 (2/2) — the real renderer replaces the spike path |
+| `e12584e` | T26 + T27 — device-lost harness, WARP selection, DPI; the real input path |
+| `42f80f9` | T28 — paste guard and the per-tab banner |
+| `fe466f0` | T29 — IME composition, measured in cells |
+| `3bf9719` | T30 — settings registry v1 |
+| `a041e3f` | T31 + T34 — settings reach the subsystems; the config has a home |
+| `2bdca53` | T33 — backend errors as per-tab banners |
+| `7c16829` | T32 — EN and TH ship together |
+| _this one_ | T35 — M1 wrap |
 
-**PR #21 is not merged.** Merge it before starting T26, which builds directly on
-the renderer it adds.
+**PR #22 is not merged.** Merge it before starting M2.
 
-**Next task: T26** (`docs/plan/02-m0-tasks.md:50`) — device-lost fake harness +
-recovery, WARP fallback selection, per-monitor DPI change handling. Depends on
-T25. `TerminalRenderer::ensureResources` already resets every resource when
-`rhi()` changes and re-creates lazily, so the recovery *path* exists; T26 owes
-the fake-lost harness that proves it, plus the DPI script.
+## What landed in M1's second half
 
-## What landed
+**T26 — device robustness.** `render::GpuResources` exists so the device-lost
+path can be TESTED: a `QQuickRhiItemRenderer` takes its QRhi from Qt Quick and
+cannot be handed a fake one. The harness runs on the QRhi **Null backend**.
+DPI was broken outright — the shaders divided by the item's LOGICAL size while
+the render target is `size * dpr` — and the fix takes the viewport from
+`renderTarget()->pixelSize()` where the uniform is written, so the two agree by
+construction.
 
-**T23 — shaper (`src/render/shaper/`).** A Qt-free `krait-shaper` static library,
-so the plain Catch2 binary exercises real HarfBuzz shaping with no
-QGuiApplication. Run splitting breaks a row on shaping attrs, **script**, and
-unwritten cells. The script rule is the one a naive splitter skips: HarfBuzz
-shapes one script per buffer and guesses it from the first character, so
-`user@host:~$ สวัสดี` in one buffer is shaped as Latin and every Thai mark loses
-its positioning.
+**T27 — input.** `krait-input` is Qt6::Core-only so the keymap table is testable
+with no window, pty or session. Mouse reporting needed core state that did not
+exist: DECCKM, `?1000/?1002/?1003`, `?1006`.
 
-**T24 — font stack (`src/render/shaper/fontdb.*`).** DirectWrite answers *which
-file* covers some text; FreeType still does every raster. Fallback is per RUN,
-not per row, so a mixed Latin/Thai line keeps the user's font for the prompt.
+**T28 — paste guard.** The clipboard is remote input. C0 stripped, the
+bracketed-paste END marker neutralised, risk ORDERED not accumulated.
 
-**T25 — renderer (`src/render/atlas/`, `src/render/frame_builder.*`,
-`src/app/terminal_item.*`).** Two pipelines: solid rects then textured glyph
-quads. The atlas uses uniform slots with LRU eviction and height-only growth.
-`FrameBuilder` caches instances per row and rebuilds only damaged rows.
+**T29 — IME.** Positioning is a free function over `FaceMetrics`, so a font or
+DPI change cannot move the glyphs without moving the candidate window too.
+
+**T30/T31/T34 — settings.** One declaration in `schema.cpp`; the dotted id IS
+the TOML path. Resolution order: `KRAIT_CONFIG_DIR`, then a `krait.portable`
+marker, then `%APPDATA%`.
+
+**T32 — locales.** A test reads the `.ts` files and fails when a string lands
+without Thai. **T33 — errors.** `PeerClosed` joins the taxonomy; the ConPTY
+reader loop now tells a dead pty from a shell that ran `exit`.
 
 ## Verified API facts — do NOT re-derive these
 
-Each of these changed the design, and each is easy to get wrong from memory:
+Carried forward from T23-T25 (FreeType one-face-per-thread;
+`hb_ft_font_create_referenced` already installs the funcs; `max_advance` is the
+max over EVERY glyph; `GetFirstMatchingFont` vs `MapCharacters` argument order;
+`DWriteCreateFactory` needs the `reinterpret_cast`; FreeType has no COLRv1;
+`QQuickRhiItemRenderer::update()` asks for a re-RENDER), plus:
 
-- **FreeType allows ONE `FT_Face` on one thread at a time**, and even sharing an
-  `FT_Library` needs a mutex around face create/destroy. Hence a whole private
-  stack per worker.
-- **`hb_ft_font_create_referenced` already installs the FreeType funcs.** Calling
-  `hb_ft_font_set_funcs` after it builds HarfBuzz its OWN `FT_Face` and discards
-  yours. Do not add it.
-- **`size->metrics.max_advance` is the max over EVERY glyph**, so one CJK or
-  powerline glyph inflates it. Cell width comes from a real ASCII glyph's
-  advance. (`src/render/spike/glyph_atlas.cpp` still uses max_advance — spike
-  only.)
-- **`GetFirstMatchingFont` takes (weight, STRETCH, style)** while
-  **`MapCharacters` takes (weight, style, stretch)**. All enums, so a swap
-  compiles silently and only shows as the wrong face.
-- **`DWriteCreateFactory`'s out-param is `IUnknown**`** — `IID_PPV_ARGS` does not
-  type-check; the `reinterpret_cast` is the documented form.
-- **FreeType has NO COLRv1 rendering.** Colour emoji is out of scope, not
-  half-done: a non-grayscale pixel mode returns false. Segoe UI Emoji resolves as
-  a fallback face but renders monochrome.
-- **`QQuickRhiItemRenderer::update()` asks for a re-RENDER, not a re-SYNCHRONIZE.**
+- **There is NO `QWindow::devicePixelRatioChanged` signal.** The per-monitor DPI
+  hook for an item is `itemChange(ItemDevicePixelRatioHasChanged)`.
+  `QWindow::screenChanged` fires only when the window MOVES, not when the same
+  monitor is rescaled.
+- **`ItemSceneChange` is not a DPI change**, but it is where the initial ratio
+  comes from: an item born on a 200% monitor never receives a CHANGE event. It
+  also arrives BEFORE `componentComplete()`, so `anchors.fill: parent` has not
+  been applied and the item is still 0x0 — which spawned a 2x2 pseudoconsole
+  until it was guarded.
+- **An unconnected `QQuickWindow::sceneGraphError` makes Qt show a MESSAGE BOX
+  and terminate.** `ui.md` bans app-modal surfaces, so the slot is mandatory,
+  and it must be connected before `show()`.
+- **QRhi's FRONTEND rejects an empty `QShader`** ("Empty shader passed to
+  graphics pipeline") before any backend sees it — including the Null backend.
+  A stub shader cannot get a pipeline created.
+- **Catch2 runs a test binary at BUILD time to enumerate cases**, so a binary
+  needing Qt DLLs fails the build with "Error listing tests from executable"
+  long before ctest runs. `catch_discover_tests(... DL_PATHS ...)` is the fix.
+- **vcpkg's tomlplusplus is prebuilt WITH exceptions**, and `TOML_EXCEPTIONS=0`
+  moves the library into a different inline namespace (`toml::v3::noex`), so
+  linking its target while asking for the no-exceptions API fails with an
+  unresolved `toml::v3::noex::parse`. The port also sets its header-only choice
+  as compile OPTIONS, which land after ours. Use the include path only.
+- **lupdate cannot see through an indirection.** A local `translate(...)` lambda
+  wrapping `QCoreApplication::translate` hides every literal from extraction —
+  it cost eight strings in `error_banner.h`, and it was silent.
+- **toml++'s `value<T>()` is not strict**: it returns `true` for
+  `ligatures = 3`. Check `is_boolean()`/`is_integer()`/`is_string()` first.
 
 ## Watch out
 
 - **`render()` does NOT run with the GUI thread blocked; `synchronize()` does.**
-  Mutating the grid, atlas or frame vectors from `render()` races the GUI thread
-  and crashed only in a release build. Anything that touches item state belongs
-  in `synchronize()` or on the GUI thread.
-- **Never shape per row.** `FrameBuilder`'s callback is per row; shaping inside
-  it costs one blocking pool round trip per row and made the bench miss its
-  60 s watchdog entirely. Use `rowNeedsRebuild()` to pre-split every damaged row,
-  then shape the frame in ONE `shapeAll`.
-- **A bench that does not log its churn is not evidence.** The flood harness
-  reported ~2900 fps while re-drawing one static frame. `bench: step N ...
-  rowsRebuilt 63` exists to make that visible; keep it.
-- **Do not run clang-format on a CMakeLists.txt.** It mangles it into a parse
-  error. (Done once here, recovered with `git checkout`.)
+- **Never shape per row.** Pre-split every damaged row, then shape the frame in
+  ONE `shapeAll`.
+- **A bench that does not log its churn is not evidence.** `rowsRebuilt 63` is
+  what proves the flood ran.
+- **Do not run clang-format on a CMakeLists.txt.**
 - **Python heredoc edits bypass the clang-format hook** — run `clang-format -i`
-  on anything patched that way, or CI fails on formatting.
-- The shaped-run cache bound is an aggregate BYTE budget, not an entry count and
-  not a codepoint cap. A codepoint cap silently stopped caching Thai past ~170
-  columns, because a run holds up to `cols x kMaxClusterLen` = 3840 codepoints.
+  on anything patched that way.
+- The shaped-run cache bound is an aggregate BYTE budget.
+- **Destroying a QRhi before the resources built on it is undefined**, and it
+  made the suite fail intermittently rather than reproducibly. Qt's contract is
+  release resources, THEN destroy the device.
+- **A short atlas upload must stay pending.** `takeGrew()` consumes the flag, so
+  a frame can report a taller atlas with `atlasGrew` already false, and clearing
+  the pending flag left the new half of the atlas blank for the session.
 
 ## Evidence
 
 | Gate | Result |
 |---|---|
-| `cmake --build --preset dev` | pass, no warnings beyond known Qt D9025 |
-| `ctest --preset dev` | **125/125** (was 89 at T22) |
-| clang-format | clean |
-| clang-tidy, gating set (`bugprone-*`,`concurrency-*`) | clean |
-| T25 release flood, 60 fps budget | **PASS** — 140.7 fps dev GPU, 139.9 fps WARP, p99 8.7 ms |
-| T25 flood vs M0, WARP | **PASS** — 1.7x faster CPU, 2.4x faster GPU |
-| T25 flood vs M0, dev GPU | **FAIL as measured** — 140.7 vs 180.1 fps; M0's number was vsync-capped at the 180 Hz display, so re-measure both with vsync off before calling it a regression |
-| T25 Debug flood | 51.3 fps — under 60, but Debug is not the release gate |
+| `cmake --build --preset dev` | pass |
+| `cmake --build --preset release` | pass (T35 added the preset) |
+| `ctest --preset dev` | **194/194** (was 125 at T25) |
+| `ctest --preset release` | **194/194** |
+| `tests\fuzz\run-smoke.cmd` | 60 s, zero crashes, 271 new units |
+| core-standalone (sacred rule 1) | builds with no Qt, no vcpkg toolchain |
+| clang-format, whole tree | clean |
+| clang-tidy, changed files | clean |
+| `tools\vttest-check.cmd` | corpus green, ledger covers every corpus area |
+| `tools\dpi-check.cmd` | **PASS** — 20px cell 12x23 at 100%, 40px cell 23x46 at 200% |
+| Release flood, WARP, 60 fps budget | **PASS** — >=180 fps (vsync-bound), cpu 5.56 ms |
+| Release flood vs T25, WARP | **PASS** — 139.9 -> >=180 fps, cpu 7.15 -> 5.56 ms |
+| Locales | lupdate 21 strings, lrelease 21 finished / 0 unfinished, both load |
 
-Benches: `bench/baselines/t23-shaper.json`, `bench/baselines/t25-renderer.json`.
-A RelWithDebInfo build lives in `build/rel` (configure with
-`cmake --preset dev -B build/rel -DCMAKE_BUILD_TYPE=RelWithDebInfo`); there is
-still no release *preset*, which is worth adding since render.md's budgets are
-release gates.
+Baseline: `bench/baselines/m1-wrap.json`.
 
 ## Open, not blocking
 
-- **`src/core/grid/scrollback.cpp:47` calls `shrink_to_fit()` in the
-  continuation-append hot path.** Past the 200k-cell cap every push reallocates
-  ~4 MB, and one T21 test burns 41 of the suite's 44 seconds. Pre-existing from
-  T21 (`733b4c3`), confirmed not a regression from this branch. Deserves its own
-  ticket before scrollback sits in front of live ConPTY output.
-- Curly/dotted/dashed underlines draw as a single line; the styles are parsed and
-  stored (T17), so it is a pure render upgrade.
-- Fallback is ONE hop, and the whole run is re-shaped with the mapped face rather
-  than only the sub-span MapCharacters covered.
-- Selection rects exist but clipboard copy does not — that is T27.
-- Golden-image gate: the atlas PNG dump (`KRAIT_ATLAS_DUMP`) is in place and was
-  produced, but there is no committed reference image or comparison step yet.
+- **The hardware flood leg is UNMEASURED this session.** The renderer
+  initialises on the RTX 4060 and then never presents a frame — the machine had
+  no usable attached display (`qt.qpa.screen: Unable to open monitor interface
+  to DISPLAY1`) and a D3D11 present with nowhere to go blocks. That is the
+  condition T26's WARP fallback exists for, not a renderer regression, but the
+  last real hardware number is still T25's 140.7 fps. **Re-measure on a machine
+  with a display before M2 closes.**
+- **The manual gates have not been run by a human this session.**
+  `tools\ime-check.cmd`, `tools\paste-check.cmd` and `tools\backend-check.cmd`
+  are written and the logic behind each is unit-tested, but the parts only a
+  person can see — where the IME candidate window lands, that the banner is not
+  modal, that killing conhost produces the right banner — are unverified. Same
+  reason as above: no attached display.
+- **The M1 daily-drive checklist (01-milestones.md) has not been run.** Ten
+  items, all needing a person at a terminal.
+- `src/core/grid/scrollback.cpp:47` calls `shrink_to_fit()` in the
+  continuation-append hot path; one T21 test burns most of the suite's runtime.
+  Pre-existing from T21, deserves its own ticket.
+- Curly/dotted/dashed underlines draw as a single line; parsed and stored since
+  T17, so it is a pure render upgrade.
+- Font fallback is ONE hop, and the whole run is re-shaped with the mapped face.
+- Golden-image gate: the atlas PNG dump exists (`KRAIT_ATLAS_DUMP`) but there is
+  still no committed reference image or comparison step.
+- **The settings UI does not exist.** The registry, schema, EN+TH search
+  keywords and hot reload are all in place and the file is hand-editable; the
+  QML settings page and command palette `ui.md` describes are M2 work.
+- No migrations exist yet — `kSchemaVersion` is 1 and nothing has been renamed.
+  The mechanism and the future-version refusal are tested; the first real
+  migration will be the first exercise of the table.
