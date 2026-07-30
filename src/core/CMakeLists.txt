@@ -12,6 +12,8 @@ add_library(krait-core STATIC
     grid/cluster_pool.cpp
     grid/grid.cpp
     grid/reflow.cpp
+    grid/search.cpp
+    grid/search.h
     grid/scrollback.cpp
     parser/csi_cursor.cpp
     parser/csi_mode.cpp

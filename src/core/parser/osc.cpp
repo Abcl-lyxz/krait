@@ -56,7 +56,10 @@ OscAction OscHandler::end(bool aborted) {
         // A title is remote text that ends up in window chrome. The core hands
         // it over as-is and the app sanitises it — the same boundary every
         // other remote string crosses.
-        return {.kind = OscAction::Kind::Title, .text = std::string(rest)};
+        OscAction action;
+        action.kind = OscAction::Kind::Title;
+        action.text = std::string(rest);
+        return action;
     }
 
     if (code == "8") {
@@ -64,7 +67,9 @@ OscAction OscHandler::end(bool aborted) {
         std::string_view uri;
         const std::string_view params = upTo(rest, ';', &uri);
 
-        OscAction action{.kind = OscAction::Kind::Hyperlink, .text = std::string(uri)};
+        OscAction action;
+        action.kind = OscAction::Kind::Hyperlink;
+        action.text = std::string(uri);
         // id= is the only parameter anyone uses. Unknown ones are ignored
         // rather than rejected: the spec says a terminal must skip what it does
         // not recognise.
@@ -85,7 +90,8 @@ OscAction OscHandler::end(bool aborted) {
         std::string_view data;
         const std::string_view selection = upTo(rest, ';', &data);
 
-        OscAction action{.selection = std::string(selection)};
+        OscAction action;
+        action.selection = std::string(selection);
         if (data == "?") {
             action.kind = OscAction::Kind::ClipboardRead;
             return action;

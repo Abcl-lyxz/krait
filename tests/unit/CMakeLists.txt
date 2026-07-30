@@ -16,6 +16,7 @@ add_executable(krait-core-tests
     putty_import_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
+    search_test.cpp
     fontdb_test.cpp
     frame_builder_test.cpp
     session_test.cpp

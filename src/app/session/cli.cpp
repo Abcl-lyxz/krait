@@ -96,24 +96,35 @@ Launch parseCommandLine(const std::vector<std::string>& args) {
     }
 
     const auto fail = [](std::string message) {
-        return Launch{.kind = Launch::Kind::Message,
-                      .message = std::move(message) + "\n\n" + kUsage,
-                      .error = true};
+        Launch launch;
+        launch.kind = Launch::Kind::Message;
+        launch.message = std::move(message) + "\n\n" + kUsage;
+        launch.error = true;
+        return launch;
     };
 
     const std::vector<std::string> rest(args.begin() + 1, args.end());
 
     if (rest[0] == "--help" || rest[0] == "-h") {
-        return {.kind = Launch::Kind::Message, .message = kUsage};
+        Launch launch;
+        launch.kind = Launch::Kind::Message;
+        launch.message = kUsage;
+        return launch;
     }
     if (rest[0] == "--version") {
-        return {.kind = Launch::Kind::Message, .message = "krait\n"};
+        Launch launch;
+        launch.kind = Launch::Kind::Message;
+        launch.message = "krait\n";
+        return launch;
     }
     if (rest[0] == "--profile") {
         if (rest.size() < 2 || rest[1].empty()) {
             return fail("--profile needs a name");
         }
-        return {.kind = Launch::Kind::Profile, .profileName = rest[1]};
+        Launch launch;
+        launch.kind = Launch::Kind::Profile;
+        launch.profileName = rest[1];
+        return launch;
     }
 
     if (rest[0] != "ssh") {
@@ -127,7 +138,10 @@ Launch parseCommandLine(const std::vector<std::string>& args) {
         if (rest[0].starts_with('-')) {
             return fail("unknown option: " + rest[0]);
         }
-        return {.kind = Launch::Kind::Profile, .profileName = rest[0]};
+        Launch launch;
+        launch.kind = Launch::Kind::Profile;
+        launch.profileName = rest[0];
+        return launch;
     }
 
     Profile profile;
@@ -192,7 +206,10 @@ Launch parseCommandLine(const std::vector<std::string>& args) {
         return fail("ssh needs a host");
     }
     profile.id = slugify(profile.name);
-    return {.kind = Launch::Kind::Adhoc, .profile = std::move(profile)};
+    Launch launch;
+    launch.kind = Launch::Kind::Adhoc;
+    launch.profile = std::move(profile);
+    return launch;
 }
 
 }  // namespace krait::app::session
