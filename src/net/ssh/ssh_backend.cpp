@@ -7,11 +7,16 @@
 #define NOMINMAX
 #include "ssh_backend.h"
 
+#include "../reconnect.h"
 #include "../remote_text.h"
 #include "hostkey_art.h"
 #include <windows.h>
 
 #include <libssh/libssh.h>
+// ssh_send_keepalive is declared in server.h but works for a CLIENT session:
+// it sends the keepalive@openssh.com global request. libssh puts it there
+// because servers use it too, not because it is server-only.
+#include <libssh/server.h>
 
 #include <algorithm>
 #include <chrono>
@@ -62,6 +67,7 @@ SshBackend::~SshBackend() {
 }
 
 void SshBackend::fail(ErrorCode code, const QString& message) {
+    m_lastError = code;
     emit errorOccurred(errorCodeName(code), message);
 }
 
@@ -84,9 +90,44 @@ bool SshBackend::start(int cols, int rows) {
 }
 
 void SshBackend::run(int cols, int rows) {
-    if (!connectSession() || !verifyHostKey() || !authenticate() || !openShell(cols, rows)) {
-        // Every failure path has already emitted its own error, with the code
-        // that names what went wrong.
+    int attempt = 0;
+    for (;;) {
+        const Outcome outcome = runOnce(cols, rows);
+        if (outcome == Outcome::CleanExit || outcome == Outcome::Stopped) {
+            return;
+        }
+        // Failed. Whether that is worth another go is a policy question, and
+        // reconnect.h answers it: never a changed host key, a rejected key or a
+        // bad password, however many attempts are configured.
+        if (!isRetryable(m_lastError) || m_config.maxReconnectAttempts <= 0) {
+            return;
+        }
+        if (++attempt > m_config.maxReconnectAttempts) {
+            fail(ErrorCode::ConnectFailed, tr("Gave up reconnecting to %1 after %2 attempts.")
+                                               .arg(QString::fromStdString(m_config.host))
+                                               .arg(m_config.maxReconnectAttempts));
+            return;
+        }
+        const int delay = backoffDelayMs(attempt);
+        // Said out loud, with the numbers. A terminal that silently retries
+        // looks identical to one that has hung.
+        emit reconnecting(attempt, m_config.maxReconnectAttempts, delay);
+        if (!sleepInterruptible(delay)) {
+            return;
+        }
+    }
+}
+
+bool SshBackend::sleepInterruptible(int ms) {
+    std::unique_lock lock(m_mutex);
+    // Waits on the same condition variable stop() notifies, so closing a tab
+    // during a 30-second backoff does not hold the join for 30 seconds.
+    m_cv.wait_for(lock, std::chrono::milliseconds(ms), [this] { return m_shutdown.load(); });
+    return !m_shutdown.load();
+}
+
+SshBackend::Outcome SshBackend::runOnce(int cols, int rows) {
+    const auto teardown = [this] {
         if (m_impl->channel != nullptr) {
             ssh_channel_free(m_impl->channel);
             m_impl->channel = nullptr;
@@ -96,25 +137,26 @@ void SshBackend::run(int cols, int rows) {
             ssh_free(m_impl->session);
             m_impl->session = nullptr;
         }
-        return;
+    };
+
+    if (!connectSession() || !verifyHostKey() || !authenticate() || !openShell(cols, rows)) {
+        // Every failure path has already emitted its own error, with the code
+        // that names what went wrong; m_lastError carries it to run().
+        teardown();
+        return m_shutdown.load() ? Outcome::Stopped : Outcome::Failed;
     }
 
     m_connected = true;
     emit connected();
-    pump();
-
+    const Outcome outcome = pump();
     m_connected = false;
+
     if (m_impl->channel != nullptr) {
         ssh_channel_send_eof(m_impl->channel);
         ssh_channel_close(m_impl->channel);
-        ssh_channel_free(m_impl->channel);
-        m_impl->channel = nullptr;
     }
-    if (m_impl->session != nullptr) {
-        ssh_disconnect(m_impl->session);
-        ssh_free(m_impl->session);
-        m_impl->session = nullptr;
-    }
+    teardown();
+    return outcome;
 }
 
 bool SshBackend::connectSession() {
@@ -510,9 +552,13 @@ bool SshBackend::openShell(int cols, int rows) {
     return true;
 }
 
-void SshBackend::pump() {
+SshBackend::Outcome SshBackend::pump() {
     ssh_channel channel = m_impl->channel;
     std::vector<char> buffer(kReadChunk);
+    // Idle detection. An SSH session behind NAT dies silently otherwise, and
+    // the user finds out by typing into a connection that has been dead for
+    // twenty minutes.
+    auto lastTraffic = std::chrono::steady_clock::now();
 
     while (!m_shutdown.load()) {
         // Writes and resizes first: they are only allowed to touch the session
@@ -537,10 +583,13 @@ void SshBackend::pump() {
                 if (n == SSH_ERROR) {
                     fail(ErrorCode::IoFailed,
                          sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
-                    return;
+                    return Outcome::Failed;
                 }
                 written += n;
             }
+            // Our own traffic counts: a session someone is typing into does not
+            // need a keepalive on top of it.
+            lastTraffic = std::chrono::steady_clock::now();
         }
         if (resize) {
             ssh_channel_change_pty_size(channel, cols, rows);
@@ -550,9 +599,10 @@ void SshBackend::pump() {
             channel, buffer.data(), static_cast<std::uint32_t>(buffer.size()), 0, kPollMs);
         if (n == SSH_ERROR) {
             fail(ErrorCode::IoFailed, sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
-            return;
+            return Outcome::Failed;
         }
         if (n > 0) {
+            lastTraffic = std::chrono::steady_clock::now();
             emit outputReceived(QByteArray(buffer.data(), n));
         }
 
@@ -570,9 +620,25 @@ void SshBackend::pump() {
             // someone their connection "failed" when they typed exit is how a
             // banner trains people to ignore banners (error.h).
             emit exited(ssh_channel_get_exit_status(channel));
-            return;
+            return Outcome::CleanExit;
+        }
+
+        if (m_config.keepaliveSeconds > 0) {
+            const auto idle = std::chrono::steady_clock::now() - lastTraffic;
+            if (idle >= std::chrono::seconds(m_config.keepaliveSeconds)) {
+                // A failure here is the peer being gone, which is exactly what
+                // the keepalive is for: report it and let run() decide whether
+                // to reconnect.
+                if (ssh_send_keepalive(m_impl->session) != SSH_OK) {
+                    fail(ErrorCode::PeerClosed,
+                         tr("%1 stopped responding.").arg(QString::fromStdString(m_config.host)));
+                    return Outcome::Failed;
+                }
+                lastTraffic = std::chrono::steady_clock::now();
+            }
         }
     }
+    return Outcome::Stopped;
 }
 
 void SshBackend::writeInput(const QByteArray& bytes) {

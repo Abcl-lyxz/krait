@@ -41,6 +41,13 @@ struct SshConfig {
     // anyone would then do is set TERM by hand.
     std::string termType = "xterm-256color";
     int connectTimeoutSeconds = 15;
+    // Idle seconds before a keepalive goes out. An idle SSH session behind NAT
+    // dies silently otherwise, and the user finds out by typing into a
+    // connection that has been dead for twenty minutes. 0 disables it.
+    int keepaliveSeconds = 30;
+    // 0 disables reconnecting. Only failures isRetryable() allows are retried
+    // — never a changed host key, a rejected key, or a bad password.
+    int maxReconnectAttempts = 5;
 };
 
 // What ssh_session_is_known_server() answered, mapped to something the UI can
@@ -107,11 +114,26 @@ class SshBackend : public IBackend {
     // for keyboard-interactive, so the UI must render it as plain text.
     void credentialPrompt(const QString& prompt, bool echo);
     void connected();
+    // A retryable failure, and what happens next. The banner says "reconnecting
+    // in 4 s (2 of 5)" rather than leaving a dead terminal that looks alive.
+    void reconnecting(int attempt, int ofAttempts, int delayMs);
 
   private:
     struct Impl;  // libssh handles; defined in the .cpp so libssh.h stays there
 
+    // How a connection ENDED, which is what decides whether to try again.
+    enum class Outcome {
+        CleanExit,  // the remote shell exited: never reconnect
+        Failed,     // something the caller already reported; may be retryable
+        Stopped,    // stop() was called
+    };
+
     void run(int cols, int rows);
+    // One connect-to-disconnect cycle.
+    Outcome runOnce(int cols, int rows);
+    // Sleeps `ms`, waking early if stop() is called. False means stopped.
+    bool sleepInterruptible(int ms);
+
     // Each returns false with errorOccurred already emitted.
     bool connectSession();
     bool verifyHostKey();
@@ -128,7 +150,7 @@ class SshBackend : public IBackend {
     Secret askForSecret(const QString& prompt, bool echo, bool* remember);
 
     bool openShell(int cols, int rows);
-    void pump();
+    Outcome pump();
 
     void fail(ErrorCode code, const QString& message);
     // Blocks the worker until the GUI answers, `timeoutMs` passes, or stop() is
@@ -140,6 +162,10 @@ class SshBackend : public IBackend {
     std::unique_ptr<Impl> m_impl;
 
     std::thread m_worker;
+    // What fail() last reported. Written and read on the worker thread only —
+    // it exists so run() can ask isRetryable() about the actual failure rather
+    // than guessing from a bool.
+    ErrorCode m_lastError = ErrorCode::IoFailed;
     std::atomic<bool> m_shutdown{false};
     std::atomic<bool> m_connected{false};
     bool m_started = false;

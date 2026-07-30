@@ -17,6 +17,7 @@ set(CMAKE_AUTOMOC ON)
 add_library(krait-net STATIC
     error.h
     ibackend.h
+    reconnect.h
     remote_text.cpp
     remote_text.h
     conpty/conpty_backend.cpp
