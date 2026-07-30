@@ -178,9 +178,27 @@ void ConptyBackend::readerLoop() {
         return;  // user-initiated stop() owns process teardown/reporting
     }
     DWORD exitCode = 0;
+    bool childGone = true;
     if (m_process.hProcess != nullptr) {
-        WaitForSingleObject(m_process.hProcess, kProcessWaitMs);
+        // Whether the CHILD is gone decides which of these this was. A pipe
+        // that closed while the shell is still running means the pty died
+        // under us — conhost killed, or the handle broken from outside — and
+        // that is a failure the user has to be told about. A pipe that closed
+        // because the shell exited is not an error at all, and reporting one
+        // is how a banner teaches people to ignore banners.
+        childGone = WaitForSingleObject(m_process.hProcess, kProcessWaitMs) == WAIT_OBJECT_0;
         GetExitCodeProcess(m_process.hProcess, &exitCode);
+    }
+    if (!childGone) {
+        // Queued, like every other emission from this thread: fail() emits
+        // directly and its other callers are on the GUI thread, but this one
+        // is not.
+        const QString message =
+            tr("The console host closed unexpectedly. The session is over; the shell may "
+               "still be running.");
+        QMetaObject::invokeMethod(
+            this, [this, message] { fail(ErrorCode::PeerClosed, message); }, Qt::QueuedConnection);
+        return;
     }
     QMetaObject::invokeMethod(
         this, [this, exitCode] { emit exited(static_cast<int>(exitCode)); }, Qt::QueuedConnection);

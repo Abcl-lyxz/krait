@@ -30,6 +30,7 @@ catch_discover_tests(krait-core-tests)
 # QGuiApplication — linking even Qt6::Core into it costs that property, since
 # the binary then will not start without Qt6Core.dll beside it.
 add_executable(krait-qt-tests
+    error_banner_test.cpp
     gpu_resources_test.cpp
     ime_test.cpp
     keymap_test.cpp

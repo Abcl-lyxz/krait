@@ -43,6 +43,17 @@ Window {
             height: parent.height - banner.height
             focus: !benchMode && !banner.visible
 
+            // T33: a backend failure is a per-tab banner with no accept action —
+            // there is nothing to allow, only something to acknowledge.
+            onErrorRaised: (message, hint) => {
+                banner.severity = "error"
+                banner.showAccept = false
+                banner.rejectText = qsTr("Dismiss")
+                banner.detail = hint
+                banner.message = message
+                banner.forceActiveFocus()
+            }
+
             onPasteConfirmRequested: (message, detail) => {
                 banner.severity = "warning"
                 banner.showAccept = true

@@ -85,6 +85,10 @@ class TerminalItem : public QQuickRhiItem {
     // agreeing to without leaving the terminal.
     void pasteConfirmRequested(const QString& message, const QString& detail);
 
+    // A backend failure, already mapped to what the user reads (T33). Per-tab
+    // and never modal: rules/ui.md bans app-modal surfaces in session flows.
+    void errorRaised(const QString& message, const QString& hint);
+
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
     // ItemDevicePixelRatioHasChanged: the only hook Qt gives for a per-monitor

@@ -1,6 +1,7 @@
 #include "terminal_item.h"
 
 #include "core/unicode/width.h"
+#include "error_banner.h"
 #include "input/ime.h"
 #include "input/keymap.h"
 #include "input/mouse.h"
@@ -79,12 +80,24 @@ TerminalItem::TerminalItem() {
     m_backend = new net::ConptyBackend(this);  // owned by this
     connect(m_backend, &net::ConptyBackend::outputReceived, this, &TerminalItem::handleOutput);
     connect(m_backend, &net::ConptyBackend::errorOccurred, this,
-            [](const QString& code, const QString& message) {
-                // Per-tab banner UI is T33; until then the log is the banner.
+            [this](const QString& code, const QString& message) {
                 qWarning("backend error [%s]: %s", qPrintable(code), qPrintable(message));
+                const ErrorBanner banner = describeError(code);
+                // The backend's own message is the DETAIL, and the taxonomy
+                // supplies the headline: a raw Win32 string is not a sentence a
+                // user can act on, but it is exactly what a bug report needs.
+                const QString hint =
+                    banner.hint.isEmpty() ? message : banner.hint + QStringLiteral(" ") + message;
+                emit errorRaised(banner.message, hint);
             });
-    connect(m_backend, &net::ConptyBackend::exited, this,
-            [](int exitCode) { qInfo("shell exited (%d)", exitCode); });
+    connect(m_backend, &net::ConptyBackend::exited, this, [this](int exitCode) {
+        qInfo("shell exited (%d)", exitCode);
+        // A shell that ran `exit` is NOT an error. Raising a banner here is how
+        // a banner teaches people to ignore banners.
+        if (exitCode != 0) {
+            emit errorRaised(tr("The shell exited with code %1.").arg(exitCode), QString());
+        }
+    });
 }
 
 TerminalItem::~TerminalItem() {
