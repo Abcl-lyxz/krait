@@ -63,7 +63,8 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # API; its headers (rhi/qrhi.h) ship under the private include umbrella.
 # krait-shaper carries krait-core, HarfBuzz, FreeType and DirectWrite: the whole
 # T23/T24/T25 render pipeline the spike path was replaced with.
-target_link_libraries(krait-app PRIVATE krait-core krait-shaper Qt6::Quick Qt6::GuiPrivate freetype)
+target_link_libraries(krait-app
+    PRIVATE krait-core krait-render krait-input Qt6::Quick Qt6::GuiPrivate freetype)
 
 # ADR-0011: the bundled ConPTY rides next to the exe; the backend refuses
 # to run without it.

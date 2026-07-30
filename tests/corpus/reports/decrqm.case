@@ -69,10 +69,10 @@ EXPECT reply:\x1B[?25;3$y
 IN \x1B[?9999$p
 EXPECT reply:\x1B[?9999;0$y
 
-# Mouse reporting is not implemented (T27), so 0 — NOT 2. "Reset" would tell
-# an application it may enable it.
-IN \x1B[?1000$p
-EXPECT reply:\x1B[?1000;0$y
+# Mouse reporting answered 0 here until T27: T22 did not implement it, and
+# "reset" would have told an application it could enable it. T27 implements
+# 1000/1002/1003/1006 for real, so the honest answer moved to 1/2 — the block
+# further down is where these modes are covered now.
 
 # Mode 0 names nothing
 IN \x1B[?0$p
@@ -107,3 +107,58 @@ EXPECT -
 # A truncated request answers nothing at all
 IN \x1B[?2026$
 EXPECT -
+
+# ---- T27 input modes: DECCKM and mouse ----
+
+# DECCKM (?1). Changes only what the KEYS send, but it is a real toggle, so 1/2
+# and never 3/4 — an application that reads 3 stops trying to set it.
+IN \x1B[?1$p
+EXPECT reply:\x1B[?1;2$y
+IN \x1B[?1h\x1B[?1$p
+EXPECT reply:\x1B[?1;1$y
+IN \x1B[?1h\x1B[?1l\x1B[?1$p
+EXPECT reply:\x1B[?1;2$y
+
+# Mouse tracking 1000/1002/1003 share ONE variable, so at most one is ever set.
+IN \x1B[?1000$p
+EXPECT reply:\x1B[?1000;2$y
+IN \x1B[?1000h\x1B[?1000$p
+EXPECT reply:\x1B[?1000;1$y
+
+# Setting 1003 REPLACES 1000, and 1000 must then answer reset. Three
+# independent flags would answer 1 here and the application would believe both
+# are active.
+IN \x1B[?1000h\x1B[?1003h\x1B[?1000$p
+EXPECT reply:\x1B[?1000;2$y
+IN \x1B[?1000h\x1B[?1003h\x1B[?1003$p
+EXPECT reply:\x1B[?1003;1$y
+
+# Resetting a mode that is NOT the active one changes nothing.
+IN \x1B[?1003h\x1B[?1000l\x1B[?1003$p
+EXPECT reply:\x1B[?1003;1$y
+
+# Resetting the ACTIVE one turns tracking off.
+IN \x1B[?1003h\x1B[?1003l\x1B[?1003$p
+EXPECT reply:\x1B[?1003;2$y
+
+# 1002 is the middle mode and behaves the same way.
+IN \x1B[?1002h\x1B[?1002$p
+EXPECT reply:\x1B[?1002;1$y
+IN \x1B[?1002h\x1B[?1002$p
+EXPECT reply:\x1B[?1002;1$y
+
+# SGR encoding (?1006) is independent of tracking: settable before or after.
+IN \x1B[?1006$p
+EXPECT reply:\x1B[?1006;2$y
+IN \x1B[?1006h\x1B[?1006$p
+EXPECT reply:\x1B[?1006;1$y
+IN \x1B[?1006h\x1B[?1000h\x1B[?1006$p
+EXPECT reply:\x1B[?1006;1$y
+IN \x1B[?1006h\x1B[?1000l\x1B[?1006$p
+EXPECT reply:\x1B[?1006;1$y
+
+# 1005 (UTF-8 mouse) and 1015 (urxvt mouse) are NOT implemented. Honest 0.
+IN \x1B[?1005$p
+EXPECT reply:\x1B[?1005;0$y
+IN \x1B[?1015$p
+EXPECT reply:\x1B[?1015;0$y

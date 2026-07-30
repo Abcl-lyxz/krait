@@ -2,8 +2,10 @@
 
 #include "../net/conpty/conpty_backend.h"
 #include "core/terminal/session.h"
+#include "input/mouse.h"
 #include "render/atlas/glyph_atlas.h"
 #include "render/frame_builder.h"
+#include "render/gpu_resources.h"
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
 #include <rhi/qrhi.h>
@@ -42,22 +44,7 @@ class TerminalItem : public QQuickRhiItem {
     // Snapshot handed to the renderer in synchronize(). Copied rather than
     // shared: the render thread must not walk the grid while the GUI thread is
     // feeding bytes into it.
-    struct Frame {
-        std::vector<render::SolidInstance> solids;
-        std::vector<render::GlyphInstance> glyphs;
-        int atlasWidth = 0;
-        int atlasHeight = 0;
-        int atlasDirtyTop = 0;
-        int atlasDirtyBottom = 0;
-        bool atlasGrew = false;
-        int pixelWidth = 1;
-        int pixelHeight = 1;
-        float clearR = 0;
-        float clearG = 0;
-        float clearB = 0;
-    };
-
-    const Frame& frame() const { return m_frame; }
+    const render::FrameData& frame() const { return m_frame; }
 
     // The atlas pixels, for the renderer to upload. Borrowed, valid until the
     // next rebuildFrame() on the GUI thread — synchronize() runs with the GUI
@@ -78,20 +65,41 @@ class TerminalItem : public QQuickRhiItem {
 
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
+    // ItemDevicePixelRatioHasChanged: the only hook Qt gives for a per-monitor
+    // DPI change (there is no QWindow::devicePixelRatioChanged signal).
+    void itemChange(ItemChange change, const ItemChangeData& value) override;
     void keyPressEvent(QKeyEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
   private:
     void handleOutput(const QByteArray& bytes);
     void ensureStarted();
     bool ensureFont();
     void rebuildFrame();
+    // Re-rasterises the font stack at `dpr` and reflows the grid. A DPI change
+    // is a font change: the glyphs are baked at a fixed pixel size, so anything
+    // short of re-rasterising them is a scaled bitmap, i.e. blur.
+    void applyDevicePixelRatio(qreal dpr);
+    // Re-derives the grid from the colour buffer size and the cell metrics.
+    // Shared by a resize and a DPI change, which differ only in what moved.
+    void updateGrid();
+    // The colour buffer's size in device pixels — what the shaders divide by.
+    int bufferWidth() const;
+    int bufferHeight() const;
     // Viewport row/col under a widget-space point, clamped into the grid.
     void cellAt(const QPointF& pos, int& row, int& col) const;
+    // Sends a mouse report if the application asked for one. Returns whether it
+    // did — false means the event is still OURS (selection, viewport scroll).
+    bool reportMouse(input::MouseAction action, Qt::MouseButton button,
+                     Qt::MouseButtons buttonsDown, Qt::KeyboardModifiers mods, const QPointF& pos,
+                     int wheelSteps);
+    // Puts the current selection on the clipboard. No-op without one.
+    void copySelection();
 
     std::unique_ptr<render::FontDb> m_fonts;
     std::unique_ptr<render::ShapePool> m_pool;
@@ -103,7 +111,11 @@ class TerminalItem : public QQuickRhiItem {
     render::RasterFn m_raster;
     std::string m_family;
     std::uint32_t m_primaryFace = 0;
+    // Logical (DPI-independent) font size; m_pxHeight is that scaled to the
+    // current device pixel ratio, and is what FreeType actually rasterises at.
+    int m_basePxHeight = 20;
     int m_pxHeight = 20;
+    qreal m_dpr = 1.0;
     bool m_ligatures = false;
 
     // Scratch reused across frames so a steady-state frame allocates little.
@@ -115,7 +127,7 @@ class TerminalItem : public QQuickRhiItem {
     // that were not rebuilt this frame keep {0, 0}.
     std::vector<std::pair<std::size_t, std::size_t>> m_rowRanges;
 
-    Frame m_frame;
+    render::FrameData m_frame;
     render::Selection m_selection;
     bool m_dragging = false;
     int m_cols = 0;
@@ -135,17 +147,14 @@ class TerminalRenderer : public QQuickRhiItemRenderer {
     void render(QRhiCommandBuffer* cb) override;
 
   private:
-    void ensureResources(QRhiCommandBuffer* cb);
     void reportBench();
 
-    QRhi* m_rhi = nullptr;  // borrowed; detects device change
-    bool m_failed = false;
+    // Every GPU object lives here (T26), so the device-lost reset is one
+    // testable place rather than a block inside a class Qt Quick constructs.
+    render::GpuResources m_gpu;
+    bool m_shadersLoaded = false;
 
-    TerminalItem::Frame m_frame;
-    std::vector<std::uint8_t> m_atlasPixels;  // copied in synchronize
-    bool m_atlasNeedsUpload = false;
-    int m_texWidth = 0;
-    int m_texHeight = 0;
+    render::FrameData m_frame;
 
     TerminalItem* m_item = nullptr;  // borrowed via synchronize; outlives us
     int m_benchFrames = 0;
@@ -154,19 +163,6 @@ class TerminalRenderer : public QQuickRhiItemRenderer {
     QElapsedTimer m_timer;
     std::vector<double> m_cpuMs;
     std::vector<double> m_gpuMs;
-
-    std::unique_ptr<QRhiTexture> m_atlasTex;
-    std::unique_ptr<QRhiSampler> m_sampler;
-    std::unique_ptr<QRhiBuffer> m_cornerBuf;
-    std::unique_ptr<QRhiBuffer> m_solidBuf;
-    std::unique_ptr<QRhiBuffer> m_glyphBuf;
-    std::unique_ptr<QRhiBuffer> m_ubuf;
-    std::unique_ptr<QRhiShaderResourceBindings> m_solidSrb;
-    std::unique_ptr<QRhiShaderResourceBindings> m_glyphSrb;
-    std::unique_ptr<QRhiGraphicsPipeline> m_solidPipeline;
-    std::unique_ptr<QRhiGraphicsPipeline> m_glyphPipeline;
-    quint32 m_solidCapacity = 0;
-    quint32 m_glyphCapacity = 0;
 };
 
 }  // namespace krait::app

@@ -105,6 +105,87 @@ bool selectionContains(const Selection& selection, int row, int col) {
     return true;  // a whole row in the middle
 }
 
+namespace {
+
+// One codepoint to UTF-8. src/core/unicode/utf8.h only decodes — nothing in the
+// tree encodes yet, and this is four lines rather than a new module.
+void appendUtf8(std::string& out, char32_t code) {
+    const auto value = static_cast<std::uint32_t>(code);
+    if (value < 0x80) {
+        out += static_cast<char>(value);
+    } else if (value < 0x800) {
+        out += static_cast<char>(0xC0U | (value >> 6));
+        out += static_cast<char>(0x80U | (value & 0x3FU));
+    } else if (value < 0x10000) {
+        out += static_cast<char>(0xE0U | (value >> 12));
+        out += static_cast<char>(0x80U | ((value >> 6) & 0x3FU));
+        out += static_cast<char>(0x80U | (value & 0x3FU));
+    } else {
+        out += static_cast<char>(0xF0U | (value >> 18));
+        out += static_cast<char>(0x80U | ((value >> 12) & 0x3FU));
+        out += static_cast<char>(0x80U | ((value >> 6) & 0x3FU));
+        out += static_cast<char>(0x80U | (value & 0x3FU));
+    }
+}
+
+}  // namespace
+
+std::string selectionText(std::span<const core::vt::Line> viewport, const Selection& selection,
+                          const core::vt::ClusterPool& clusters) {
+    std::string out;
+    if (!selection.active) {
+        return out;
+    }
+    for (int row = 0; row < static_cast<int>(viewport.size()); ++row) {
+        const core::vt::Line& line = viewport[static_cast<std::size_t>(row)];
+        std::string rowText;
+        std::size_t lastNonBlank = 0;
+        bool any = false;
+        for (int col = 0; col < static_cast<int>(line.cells.size()); ++col) {
+            if (!selectionContains(selection, row, col)) {
+                continue;
+            }
+            any = true;
+            const char32_t ch = line.cells[static_cast<std::size_t>(col)].ch;
+            if (ch == 0) {
+                // An unwritten cell, and the continuation half of a wide glyph
+                // (which stores 0 in the second cell). Both are one space here;
+                // trailing runs of them are trimmed below.
+                rowText += ' ';
+                continue;
+            }
+            const auto cluster = clusters.lookup(ch);
+            if (cluster.empty()) {
+                appendUtf8(rowText, ch);  // a literal codepoint, not interned
+            } else {
+                for (const char32_t part : cluster) {
+                    appendUtf8(rowText, part);
+                }
+            }
+            lastNonBlank = rowText.size();
+        }
+        if (!any) {
+            continue;
+        }
+        // Trailing blanks are padding, not content: copying them is how a
+        // pasted command ends up with a screen's worth of spaces after it.
+        rowText.resize(lastNonBlank);
+        out += rowText;
+
+        // A wrapped continuation is the SAME logical line. Breaking it here is
+        // what turns one copied command into two broken ones on paste.
+        const int next = row + 1;
+        const bool lastSelectedRow =
+            next >= static_cast<int>(viewport.size()) || !selectionContains(selection, next, 0);
+        const bool nextWraps = next < static_cast<int>(viewport.size()) &&
+                               viewport[static_cast<std::size_t>(next)].wrappedFromPrev;
+        if (!lastSelectedRow && !nextWraps) {
+            out += '\n';
+        }
+    }
+    return out;
+}
+
 FrameBuilder::FrameBuilder(FaceMetrics metrics, Theme theme) : m_metrics(metrics), m_theme(theme) {}
 
 void FrameBuilder::invalidate() {

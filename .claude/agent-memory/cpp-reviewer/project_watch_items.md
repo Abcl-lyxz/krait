@@ -136,3 +136,27 @@ Watch items from past reviews (verify still true before flagging):
   closes the T11/T12 watch item. Spike sources still live in src/render/spike/
   and are compiled by krait-app, so no collision. `target_include_directories
   (krait-shaper PUBLIC src/)` repeats the T3 include-hygiene item.
+
+## T26 device robustness (t26-device, staged at review — 2 BLOCKING)
+- Blocked on: (1) terminal_item.cpp itemChange(ItemSceneChange) -> updateGrid()
+  -> ensureStarted() runs at width()==0, so ConPTY is created 2x2 and the shell
+  banner wraps at 2 columns; (2) gpu_resources.cpp sync() clears
+  m_atlasNeedsUpload after a clamp-truncated upload, and synchronize()'s
+  handover condition can leave m_atlasPixels shorter than the new texture ->
+  permanently blank atlas rows. Verify both before T27 builds on this.
+- Accepted latent / re-check later:
+  - bufferWidth()/bufferHeight() re-derive QQuickRhiItem::effectiveColorBufferSize().
+    Divergence from Qt's own rounding shows up only on fractional item sizes at
+    125/150% scaling. Re-flag if any DPI bug report mentions blur.
+  - The fake-lost harness exercises a branch production never takes (Qt destroys
+    the renderer on scene-graph invalidation). render.md's "device-lost tested"
+    is only nominally satisfied.
+  - applyDevicePixelRatio's px-unchanged early-out skips updateGrid() after
+    already writing m_dpr.
+  - tools/dpi-check.cmd tests startup scale, not the mid-session DPI change
+    render.md actually names; not wired into ctest or CI.
+  - The two changed atlas-upload branches (|| newTexture, the rowsHeld clamp)
+    have no test — gpu_resources_test.cpp only ever passes atlasGrew=true with
+    an exactly-matching pixel buffer.
+  - main.cpp includes <windows.h> without WIN32_LEAN_AND_MEAN/NOMINMAX, unlike
+    fontdb.cpp/shape_pool.cpp.

@@ -104,6 +104,25 @@ ModeReport decrqmState(const Grid& grid, const Capabilities& caps, std::uint16_t
     case 1049:
         return grid.onAlternateScreen() ? ModeReport::Set : ModeReport::Reset;
 
+    case 1:  // DECCKM, application cursor keys
+        return grid.appCursorKeys ? ModeReport::Set : ModeReport::Reset;
+
+    // The three mouse tracking modes share one variable (grid.h), so each
+    // answers Set only when it is the ACTIVE one. Reporting 1000 as set while
+    // 1003 is active would be a lie an application acts on.
+    case 1000:
+        return grid.mouseTracking == Grid::MouseTracking::Normal ? ModeReport::Set
+                                                                 : ModeReport::Reset;
+    case 1002:
+        return grid.mouseTracking == Grid::MouseTracking::ButtonEvent ? ModeReport::Set
+                                                                      : ModeReport::Reset;
+    case 1003:
+        return grid.mouseTracking == Grid::MouseTracking::AnyEvent ? ModeReport::Set
+                                                                   : ModeReport::Reset;
+
+    case 1006:  // mouse: SGR encoding
+        return grid.sgrMouse ? ModeReport::Set : ModeReport::Reset;
+
     case 2004:
         return grid.bracketedPaste ? ModeReport::Set : ModeReport::Reset;
 

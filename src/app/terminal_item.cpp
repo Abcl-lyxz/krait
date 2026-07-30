@@ -1,13 +1,19 @@
 #include "terminal_item.h"
 
+#include "input/keymap.h"
+#include "input/mouse.h"
 #include "render/shaper/run_splitter.h"
 
+#include <QClipboard>
 #include <QCoreApplication>
 #include <QFile>
+#include <QGuiApplication>
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QQuickWindow>
 #include <QTimer>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <array>
@@ -18,13 +24,6 @@
 
 namespace krait::app {
 namespace {
-
-constexpr std::array<float, 8> kCorners{
-    0.0F, 0.0F,  //
-    1.0F, 0.0F,  //
-    0.0F, 1.0F,  //
-    1.0F, 1.0F,  //
-};
 
 // Tried in order. The first that DirectWrite reports installed wins, so nothing
 // is hardcoded to a font that may be absent (T31 makes this a setting).
@@ -123,8 +122,11 @@ bool TerminalItem::ensureFont() {
     m_raster = [this](std::uint32_t face, std::uint32_t glyph, render::GlyphBitmap& out) {
         return m_pool->rasterize(face, glyph, out);
     };
-    qInfo("render: %s %dpx, cell %dx%d, %u shaping workers", m_family.c_str(), m_pxHeight,
-          metrics->cellWidth, metrics->lineHeight, m_pool->workerCount());
+    // Machine-readable on purpose: tools/dpi-check.cmd reads px= and cell= back
+    // out, and a family name is a variable number of words, so anything
+    // positional breaks the moment the font changes.
+    qInfo("render: px=%d cell=%dx%d dpr=%.2f workers=%u family='%s'", m_pxHeight,
+          metrics->cellWidth, metrics->lineHeight, m_dpr, m_pool->workerCount(), m_family.c_str());
     return true;
 }
 
@@ -171,21 +173,97 @@ void TerminalItem::ensureStarted() {
     }
 }
 
+int TerminalItem::bufferWidth() const {
+    // Qt: "texture size = item size * device pixel ratio", unless pinned. This
+    // is what renderTarget()->pixelSize() will be, and the shaders divide by it
+    // — feeding them the LOGICAL width stretches every glyph on a scaled
+    // display, which is the blur rules/render.md forbids.
+    if (fixedColorBufferWidth() > 0) {
+        return fixedColorBufferWidth();
+    }
+    return std::max(1, static_cast<int>(std::lround(width() * m_dpr)));
+}
+
+int TerminalItem::bufferHeight() const {
+    if (fixedColorBufferHeight() > 0) {
+        return fixedColorBufferHeight();
+    }
+    return std::max(1, static_cast<int>(std::lround(height() * m_dpr)));
+}
+
 void TerminalItem::geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) {
     QQuickRhiItem::geometryChange(newGeometry, oldGeometry);
+    updateGrid();
+}
+
+void TerminalItem::itemChange(ItemChange change, const ItemChangeData& value) {
+    QQuickRhiItem::itemChange(change, value);
+    // The only per-monitor DPI hook Qt offers an item: there is no
+    // QWindow::devicePixelRatioChanged signal, and QWindow::screenChanged fires
+    // only when the window moves, not when the same monitor is rescaled.
+    if (change == ItemDevicePixelRatioHasChanged) {
+        applyDevicePixelRatio(value.realValue);
+    } else if (change == ItemSceneChange && value.window != nullptr) {
+        // Startup is not a CHANGE: an item born on a 200% monitor never gets
+        // the ratio event, so without this the first font is rasterised at 100%
+        // and every glyph is stretched for the life of the window.
+        applyDevicePixelRatio(value.window->effectiveDevicePixelRatio());
+    }
+}
+
+void TerminalItem::applyDevicePixelRatio(qreal dpr) {
+    if (dpr <= 0.0) {
+        return;
+    }
+    const int px = std::max(4, static_cast<int>(std::lround(m_basePxHeight * dpr)));
+    m_dpr = dpr;
+    if (m_builder && px == m_pxHeight) {
+        // e.g. 100% -> 110%, which rounds to the same font size. The FONT is
+        // unchanged, but the colour buffer is not: fall through to updateGrid
+        // rather than returning, or the grid and the pty keep the column count
+        // derived from the old buffer size. updateGrid has its own no-op exit.
+        updateGrid();
+        return;
+    }
+    m_pxHeight = px;
+    qInfo("render: device pixel ratio %.2f, font %dpx", dpr, m_pxHeight);
+    // A DPI change is a FONT change. Glyphs are baked into the atlas at a fixed
+    // pixel size, so anything short of re-rasterising them is a scaled bitmap —
+    // exactly the blur "DPI change without restart or blur" rules out. The
+    // whole stack goes because the cell metrics it was built from are stale.
+    m_builder.reset();
+    m_atlas.reset();
+    m_pool.reset();
+    m_fonts.reset();
+    m_runs.clear();
+    m_shaped.clear();
+    m_faces.clear();
+    m_rowRanges.clear();
+    m_cols = 0;  // force updateGrid() past its no-change early out
+    m_rows = 0;
+    updateGrid();
+}
+
+void TerminalItem::updateGrid() {
+    // ItemSceneChange is delivered from setParentItem during QML construction,
+    // BEFORE componentComplete applies `anchors.fill: parent` — so the item is
+    // still 0x0 here. Without this guard the grid comes out 2x2 and, because
+    // ensureStarted() runs below, PowerShell is spawned into a two-column
+    // pseudoconsole: its banner and first prompt are hard-wrapped at 2 columns
+    // and that is permanently in scrollback. geometryChange calls back with the
+    // real size a moment later.
+    if (m_benchCols == 0 && (width() <= 0.0 || height() <= 0.0)) {
+        return;
+    }
     if (!ensureFont()) {
         return;
     }
     const render::FaceMetrics& metrics = m_builder->metrics();
     // A 4K bench run pins the grid so the workload matches the M0 baseline
     // rather than whatever the window happens to be.
-    const int cols = m_benchCols > 0
-                         ? m_benchCols
-                         : std::max(2, static_cast<int>(newGeometry.width()) / metrics.cellWidth);
+    const int cols = m_benchCols > 0 ? m_benchCols : std::max(2, bufferWidth() / metrics.cellWidth);
     const int rows =
-        m_benchRows > 0
-            ? m_benchRows
-            : std::max(2, static_cast<int>(newGeometry.height()) / m_builder->cellHeight());
+        m_benchRows > 0 ? m_benchRows : std::max(2, bufferHeight() / m_builder->cellHeight());
     if (cols == m_cols && rows == m_rows) {
         return;
     }
@@ -273,8 +351,6 @@ void TerminalItem::rebuildFrame() {
     m_frame.atlasDirtyTop = m_atlas->dirtyTop();
     m_frame.atlasDirtyBottom = m_atlas->dirtyBottom();
     m_frame.atlasGrew = m_atlas->takeGrew();
-    m_frame.pixelWidth = std::max(1, static_cast<int>(width()));
-    m_frame.pixelHeight = std::max(1, static_cast<int>(height()));
     render::unpackColor(m_builder->theme().bg, m_frame.clearR, m_frame.clearG, m_frame.clearB);
     m_atlas->clearDirty();
 }
@@ -359,11 +435,49 @@ void TerminalItem::cellAt(const QPointF& pos, int& row, int& col) const {
     }
     const int cellW = std::max(1, m_builder->metrics().cellWidth);
     const int cellH = std::max(1, m_builder->cellHeight());
-    col = std::clamp(static_cast<int>(pos.x()) / cellW, 0, std::max(0, m_cols - 1));
-    row = std::clamp(static_cast<int>(pos.y()) / cellH, 0, std::max(0, m_rows - 1));
+    // The event is in LOGICAL pixels; the cell metrics are in device pixels.
+    // Without the ratio a click lands on the wrong cell on any scaled display.
+    const int x = static_cast<int>(pos.x() * m_dpr);
+    const int y = static_cast<int>(pos.y() * m_dpr);
+    col = std::clamp(x / cellW, 0, std::max(0, m_cols - 1));
+    row = std::clamp(y / cellH, 0, std::max(0, m_rows - 1));
+}
+
+bool TerminalItem::reportMouse(input::MouseAction action, Qt::MouseButton button,
+                               Qt::MouseButtons buttonsDown, Qt::KeyboardModifiers mods,
+                               const QPointF& pos, int wheelSteps) {
+    if (!m_session || !m_started) {
+        return false;
+    }
+    int row = 0;
+    int col = 0;
+    cellAt(pos, row, col);
+    const QByteArray report = input::encodeMouse(input::MouseEvent{.action = action,
+                                                                   .button = button,
+                                                                   .buttonsDown = buttonsDown,
+                                                                   .mods = mods,
+                                                                   .row = row,
+                                                                   .col = col,
+                                                                   .wheelSteps = wheelSteps},
+                                                 m_session->grid());
+    if (report.isEmpty()) {
+        return false;  // not tracked, or not expressible: the event stays ours
+    }
+    m_backend->writeInput(report);
+    return true;
 }
 
 void TerminalItem::mousePressEvent(QMouseEvent* event) {
+    // Shift is the universal override: it lets a user select text inside a
+    // full-screen application that has grabbed the mouse. Without it there is
+    // no way to copy from vim or htop.
+    if (!event->modifiers().testFlag(Qt::ShiftModifier) &&
+        reportMouse(input::MouseAction::Press, event->button(), event->buttons(),
+                    event->modifiers(), event->position(), 0)) {
+        forceActiveFocus();
+        event->accept();
+        return;
+    }
     if (event->button() != Qt::LeftButton) {
         QQuickRhiItem::mousePressEvent(event);
         return;
@@ -382,6 +496,11 @@ void TerminalItem::mousePressEvent(QMouseEvent* event) {
 
 void TerminalItem::mouseMoveEvent(QMouseEvent* event) {
     if (!m_dragging) {
+        if (reportMouse(input::MouseAction::Move, Qt::NoButton, event->buttons(),
+                        event->modifiers(), event->position(), 0)) {
+            event->accept();
+            return;
+        }
         QQuickRhiItem::mouseMoveEvent(event);
         return;
     }
@@ -399,62 +518,85 @@ void TerminalItem::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void TerminalItem::mouseReleaseEvent(QMouseEvent* event) {
+    if (!m_dragging && reportMouse(input::MouseAction::Release, event->button(), event->buttons(),
+                                   event->modifiers(), event->position(), 0)) {
+        event->accept();
+        return;
+    }
+    const bool wasDragging = m_dragging;
     m_dragging = false;
-    // Clipboard copy is T27's job; the rects are what T25 owes.
+    // Copy-on-select, like every X terminal: a selection that needs a menu to
+    // reach is a selection nobody uses.
+    if (wasDragging && m_selection.active) {
+        copySelection();
+    }
     QQuickRhiItem::mouseReleaseEvent(event);
 }
 
-void TerminalItem::keyPressEvent(QKeyEvent* event) {
-    QByteArray bytes;
-    switch (event->key()) {
-    case Qt::Key_Return:
-    case Qt::Key_Enter:
-        bytes = "\r";
-        break;
-    case Qt::Key_Backspace:
-        bytes = "\x7f";
-        break;
-    case Qt::Key_Tab:
-        bytes = "\t";
-        break;
-    case Qt::Key_Escape:
-        bytes = "\x1b";
-        break;
-    case Qt::Key_Up:
-        bytes = "\x1b[A";
-        break;
-    case Qt::Key_Down:
-        bytes = "\x1b[B";
-        break;
-    case Qt::Key_Right:
-        bytes = "\x1b[C";
-        break;
-    case Qt::Key_Left:
-        bytes = "\x1b[D";
-        break;
-    default:
-        if ((event->modifiers() & Qt::ControlModifier) != 0 && event->key() >= Qt::Key_A &&
-            event->key() <= Qt::Key_Z) {
-            bytes = QByteArray(1, static_cast<char>(event->key() - Qt::Key_A + 1));
-        } else {
-            bytes = event->text().toUtf8();  // printable text incl. Thai IME
-        }
-        break;
+void TerminalItem::wheelEvent(QWheelEvent* event) {
+    const int steps = event->angleDelta().y() > 0 ? 1 : -1;
+    if (reportMouse(input::MouseAction::Press, Qt::NoButton, event->buttons(), event->modifiers(),
+                    event->position(), steps)) {
+        event->accept();
+        return;
     }
-    if (!bytes.isEmpty() && m_started) {
-        // Any keypress snaps the viewport back to the live screen and drops the
-        // selection, which is what every terminal does.
-        if (m_session) {
-            m_session->grid().scrollViewToBottom();
-        }
-        m_selection.active = false;
-        m_backend->writeInput(bytes);
+    if (m_session) {
+        // Not tracked: the wheel scrolls OUR viewport. Three rows a notch is
+        // what the platform reports as one detent.
+        m_session->grid().scrollView(steps * 3);
         rebuildFrame();
         update();
         event->accept();
         return;
     }
-    QQuickRhiItem::keyPressEvent(event);
+    QQuickRhiItem::wheelEvent(event);
+}
+
+void TerminalItem::keyPressEvent(QKeyEvent* event) {
+    if (!m_started || !m_session) {
+        QQuickRhiItem::keyPressEvent(event);
+        return;
+    }
+    // Ctrl+Shift+C copies rather than sending ^C. Checked before translation
+    // because the terminal would otherwise swallow it as ETX.
+    if (event->matches(QKeySequence::Copy) ||
+        (event->modifiers().testFlag(Qt::ControlModifier) &&
+         event->modifiers().testFlag(Qt::ShiftModifier) && event->key() == Qt::Key_C)) {
+        copySelection();
+        event->accept();
+        return;
+    }
+
+    const core::vt::Grid& grid = m_session->grid();
+    const QByteArray bytes =
+        input::translateKey(event->key(), event->modifiers(), event->text(),
+                            input::KeyModes{.appCursorKeys = grid.appCursorKeys});
+    if (bytes.isEmpty()) {
+        // Not ours. Leaving it unaccepted is what lets the QML chrome see it.
+        QQuickRhiItem::keyPressEvent(event);
+        return;
+    }
+    // Any keypress snaps the viewport back to the live screen and drops the
+    // selection, which is what every terminal does.
+    m_session->grid().scrollViewToBottom();
+    m_selection.active = false;
+    m_backend->writeInput(bytes);
+    rebuildFrame();
+    update();
+    event->accept();
+}
+
+void TerminalItem::copySelection() {
+    if (!m_session || !m_selection.active) {
+        return;
+    }
+    const std::string text =
+        render::selectionText(m_viewport, m_selection, m_session->grid().clusters());
+    if (text.empty()) {
+        return;
+    }
+    QGuiApplication::clipboard()->setText(
+        QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())));
 }
 
 QQuickRhiItemRenderer* TerminalItem::createRenderer() {
@@ -482,230 +624,48 @@ void TerminalRenderer::synchronize(QQuickRhiItem* item) {
     }
     m_frame = term->frame();  // a copy: the render thread must not walk the grid
     if (const std::vector<std::uint8_t>* pixels = term->atlasPixels()) {
-        // Copy only when something actually changed. A steady-state frame
+        // Hand over only when something actually changed. A steady-state frame
         // touches no new glyph and so uploads nothing.
+        // The size check is not redundant with atlasGrew: the atlas can grow
+        // twice between two presented frames, and takeGrew() consumes the flag
+        // on the first rebuild, so the frame that gets here reports the new
+        // height with atlasGrew false. Without this the GPU keeps the old,
+        // smaller buffer and the upload can never complete.
         if (m_frame.atlasGrew || m_frame.atlasDirtyBottom > m_frame.atlasDirtyTop ||
-            m_atlasPixels.empty()) {
-            m_atlasPixels = *pixels;
-            m_atlasNeedsUpload = true;
+            !m_gpu.hasAtlas() || pixels->size() != m_gpu.atlasBytes()) {
+            m_gpu.setAtlasPixels(*pixels);
         }
     }
 }
 
 void TerminalRenderer::initialize(QRhiCommandBuffer* cb) {
-    ensureResources(cb);
-}
-
-void TerminalRenderer::ensureResources(QRhiCommandBuffer* cb) {
-    if (m_rhi != rhi()) {
-        // A device change invalidates every resource. T26 turns this into a
-        // tested device-lost path; the reset itself already belongs here.
-        m_solidPipeline.reset();
-        m_glyphPipeline.reset();
-        m_solidSrb.reset();
-        m_glyphSrb.reset();
-        m_ubuf.reset();
-        m_solidBuf.reset();
-        m_glyphBuf.reset();
-        m_cornerBuf.reset();
-        m_sampler.reset();
-        m_atlasTex.reset();
-        m_solidCapacity = 0;
-        m_glyphCapacity = 0;
-        m_texWidth = 0;
-        m_texHeight = 0;
-        m_atlasNeedsUpload = true;
-        m_failed = false;
-        m_rhi = rhi();
-    }
-    if (m_failed || m_rhi == nullptr || m_frame.atlasWidth == 0) {
-        return;
-    }
-
-    QRhiResourceUpdateBatch* batch = m_rhi->nextResourceUpdateBatch();
-
-    // The atlas texture is recreated only when the atlas GREW; otherwise the
-    // dirty row range is uploaded into the existing one.
-    if (!m_atlasTex || m_texWidth != m_frame.atlasWidth || m_texHeight != m_frame.atlasHeight) {
-        m_atlasTex.reset(
-            m_rhi->newTexture(QRhiTexture::R8, QSize(m_frame.atlasWidth, m_frame.atlasHeight), 1));
-        if (!m_atlasTex->create()) {
-            qWarning("render: atlas texture create() failed");
-            m_atlasTex.reset();
-            m_failed = true;
-            return;
-        }
-        m_texWidth = m_frame.atlasWidth;
-        m_texHeight = m_frame.atlasHeight;
-        m_atlasNeedsUpload = true;
-        m_glyphSrb.reset();  // the binding points at the old texture
-    }
-
-    if (m_atlasNeedsUpload && !m_atlasPixels.empty()) {
-        const int top = m_frame.atlasGrew ? 0 : std::max(0, m_frame.atlasDirtyTop);
-        const int bottom =
-            m_frame.atlasGrew ? m_texHeight : std::min(m_texHeight, m_frame.atlasDirtyBottom);
-        if (bottom > top) {
-            const auto offset = static_cast<qsizetype>(top) * m_texWidth;
-            const auto length = static_cast<qsizetype>(bottom - top) * m_texWidth;
-            QRhiTextureSubresourceUploadDescription sub(
-                reinterpret_cast<const char*>(m_atlasPixels.data()) + offset, length);
-            sub.setDataStride(static_cast<quint32>(m_texWidth));
-            sub.setDestinationTopLeft(QPoint(0, top));
-            sub.setSourceSize(QSize(m_texWidth, bottom - top));
-            batch->uploadTexture(m_atlasTex.get(), QRhiTextureUploadDescription({0, 0, sub}));
-        }
-        m_atlasNeedsUpload = false;
-    }
-
-    if (!m_sampler) {
-        // Nearest: glyphs are placed at integer pixels, and blurring them is the
-        // single most common way a terminal ends up looking wrong.
-        m_sampler.reset(m_rhi->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest,
-                                          QRhiSampler::None, QRhiSampler::ClampToEdge,
-                                          QRhiSampler::ClampToEdge));
-        m_sampler->create();
-    }
-    if (!m_cornerBuf) {
-        m_cornerBuf.reset(
-            m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(kCorners)));
-        m_cornerBuf->create();
-        batch->uploadStaticBuffer(m_cornerBuf.get(), kCorners.data());
-    }
-    if (!m_ubuf) {
-        m_ubuf.reset(
-            m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 4 * sizeof(float)));
-        m_ubuf->create();
-    }
-    const std::array<float, 4> ubufData{static_cast<float>(m_frame.pixelWidth),
-                                        static_cast<float>(m_frame.pixelHeight), 0.0F, 0.0F};
-    batch->updateDynamicBuffer(m_ubuf.get(), 0, sizeof(ubufData), ubufData.data());
-
-    // Instance buffers grow but never shrink: a terminal's instance count
-    // oscillates every frame and reallocating on each dip would churn.
-    const auto solidBytes = static_cast<quint32>(std::max<std::size_t>(1, m_frame.solids.size()) *
-                                                 sizeof(render::SolidInstance));
-    if (!m_solidBuf || m_solidCapacity < solidBytes) {
-        m_solidCapacity = solidBytes * 2;
-        m_solidBuf.reset(
-            m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, m_solidCapacity));
-        m_solidBuf->create();
-    }
-    if (!m_frame.solids.empty()) {
-        batch->updateDynamicBuffer(m_solidBuf.get(), 0, solidBytes, m_frame.solids.data());
-    }
-
-    const auto glyphBytes = static_cast<quint32>(std::max<std::size_t>(1, m_frame.glyphs.size()) *
-                                                 sizeof(render::GlyphInstance));
-    if (!m_glyphBuf || m_glyphCapacity < glyphBytes) {
-        m_glyphCapacity = glyphBytes * 2;
-        m_glyphBuf.reset(
-            m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, m_glyphCapacity));
-        m_glyphBuf->create();
-    }
-    if (!m_frame.glyphs.empty()) {
-        batch->updateDynamicBuffer(m_glyphBuf.get(), 0, glyphBytes, m_frame.glyphs.data());
-    }
-
-    cb->resourceUpdate(batch);
-
-    if (!m_solidSrb) {
-        m_solidSrb.reset(m_rhi->newShaderResourceBindings());
-        m_solidSrb->setBindings({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage,
-                                                     m_ubuf.get()),
+    if (!m_shadersLoaded) {
+        // Loaded once and injected: GpuResources never touches the resource
+        // system, which is what lets a plain test drive it.
+        m_gpu.setShaders({
+            .solidVert = loadShader(":/shaders/cell.vert.qsb"),
+            .solidFrag = loadShader(":/shaders/cell.frag.qsb"),
+            .glyphVert = loadShader(":/shaders/glyph.vert.qsb"),
+            .glyphFrag = loadShader(":/shaders/glyph.frag.qsb"),
         });
-        m_solidSrb->create();
-        m_solidPipeline.reset();
+        m_shadersLoaded = true;
     }
-    if (!m_glyphSrb) {
-        m_glyphSrb.reset(m_rhi->newShaderResourceBindings());
-        m_glyphSrb->setBindings({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage,
-                                                     m_ubuf.get()),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
-                                                      m_atlasTex.get(), m_sampler.get()),
-        });
-        m_glyphSrb->create();
-        m_glyphPipeline.reset();
-    }
-
-    // Premultiplied source: the shaders output colour * alpha, so the blend is
-    // One / OneMinusSrcAlpha rather than SrcAlpha / OneMinusSrcAlpha.
-    QRhiGraphicsPipeline::TargetBlend blend;
-    blend.enable = true;
-    blend.srcColor = QRhiGraphicsPipeline::One;
-    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
-    blend.srcAlpha = QRhiGraphicsPipeline::One;
-    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
-
-    if (!m_solidPipeline) {
-        m_solidPipeline.reset(m_rhi->newGraphicsPipeline());
-        m_solidPipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
-        m_solidPipeline->setTargetBlends({blend});
-        m_solidPipeline->setShaderStages({
-            {QRhiShaderStage::Vertex, loadShader(":/shaders/cell.vert.qsb")},
-            {QRhiShaderStage::Fragment, loadShader(":/shaders/cell.frag.qsb")},
-        });
-        QRhiVertexInputLayout layout;
-        layout.setBindings({
-            {2 * sizeof(float)},
-            {sizeof(render::SolidInstance), QRhiVertexInputBinding::PerInstance},
-        });
-        layout.setAttributes({
-            {0, 0, QRhiVertexInputAttribute::Float2, 0},
-            {1, 1, QRhiVertexInputAttribute::Float4, 0},
-            {1, 2, QRhiVertexInputAttribute::Float4, 4 * sizeof(float)},
-        });
-        m_solidPipeline->setVertexInputLayout(layout);
-        m_solidPipeline->setShaderResourceBindings(m_solidSrb.get());
-        m_solidPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-        m_solidPipeline->setSampleCount(renderTarget()->sampleCount());
-        if (!m_solidPipeline->create()) {
-            qWarning("render: solid pipeline create() FAILED");
-            m_solidPipeline.reset();
-            m_failed = true;
-            return;
-        }
-    }
-    if (!m_glyphPipeline) {
-        m_glyphPipeline.reset(m_rhi->newGraphicsPipeline());
-        m_glyphPipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
-        m_glyphPipeline->setTargetBlends({blend});
-        m_glyphPipeline->setShaderStages({
-            {QRhiShaderStage::Vertex, loadShader(":/shaders/glyph.vert.qsb")},
-            {QRhiShaderStage::Fragment, loadShader(":/shaders/glyph.frag.qsb")},
-        });
-        QRhiVertexInputLayout layout;
-        layout.setBindings({
-            {2 * sizeof(float)},
-            {sizeof(render::GlyphInstance), QRhiVertexInputBinding::PerInstance},
-        });
-        layout.setAttributes({
-            {0, 0, QRhiVertexInputAttribute::Float2, 0},
-            {1, 1, QRhiVertexInputAttribute::Float4, 0},
-            {1, 2, QRhiVertexInputAttribute::Float4, 4 * sizeof(float)},
-            {1, 3, QRhiVertexInputAttribute::Float4, 8 * sizeof(float)},
-        });
-        m_glyphPipeline->setVertexInputLayout(layout);
-        m_glyphPipeline->setShaderResourceBindings(m_glyphSrb.get());
-        m_glyphPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-        m_glyphPipeline->setSampleCount(renderTarget()->sampleCount());
-        if (!m_glyphPipeline->create()) {
-            qWarning("render: glyph pipeline create() FAILED");
-            m_glyphPipeline.reset();
-            m_failed = true;
-            return;
-        }
-        qInfo("render: pipelines ready (atlas %dx%d, adapter %s)", m_frame.atlasWidth,
-              m_frame.atlasHeight, m_rhi->driverInfo().deviceName.constData());
-    }
+    m_gpu.sync(rhi(), renderTarget()->renderPassDescriptor(), renderTarget()->sampleCount(), cb,
+               m_frame, renderTarget()->pixelSize());
 }
 
 void TerminalRenderer::render(QRhiCommandBuffer* cb) {
-    ensureResources(cb);  // no active pass yet at this point
+    // No render pass is active here, which is what sync() needs for its
+    // uploads. A changed rhi() IS the device-lost path: Qt tears the scene
+    // graph down on FrameOpDeviceLost and comes back with a new QRhi, and
+    // GpuResources drops every resource and rebuilds against it.
+    const bool ok =
+        m_gpu.sync(rhi(), renderTarget()->renderPassDescriptor(), renderTarget()->sampleCount(), cb,
+                   m_frame, renderTarget()->pixelSize());
     const QColor clear = QColor::fromRgbF(m_frame.clearR, m_frame.clearG, m_frame.clearB);
-    if (!m_solidPipeline || !m_glyphPipeline) {
+    if (!ok) {
+        // Still clear the target: a skipped pass shows whatever the last device
+        // left in it, which after a device loss is garbage.
         cb->beginPass(renderTarget(), clear, {1.0F, 0});
         cb->endPass();
         return;
@@ -726,28 +686,7 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb) {
     cb->beginPass(renderTarget(), clear, {1.0F, 0});
     cb->setViewport({0.0F, 0.0F, static_cast<float>(outputSize.width()),
                      static_cast<float>(outputSize.height())});
-
-    // Backgrounds, selection and the cursor first, then glyphs over them.
-    if (!m_frame.solids.empty()) {
-        cb->setGraphicsPipeline(m_solidPipeline.get());
-        cb->setShaderResources();
-        const QRhiCommandBuffer::VertexInput inputs[] = {
-            {m_cornerBuf.get(), 0},
-            {m_solidBuf.get(), 0},
-        };
-        cb->setVertexInput(0, 2, inputs);
-        cb->draw(4, static_cast<quint32>(m_frame.solids.size()));
-    }
-    if (!m_frame.glyphs.empty()) {
-        cb->setGraphicsPipeline(m_glyphPipeline.get());
-        cb->setShaderResources();
-        const QRhiCommandBuffer::VertexInput inputs[] = {
-            {m_cornerBuf.get(), 0},
-            {m_glyphBuf.get(), 0},
-        };
-        cb->setVertexInput(0, 2, inputs);
-        cb->draw(4, static_cast<quint32>(m_frame.glyphs.size()));
-    }
+    m_gpu.draw(cb, m_frame);
     cb->endPass();
     // Deliberately NO update() here for the bench. The renderer driving itself
     // advances render() without a synchronize(), so the flood would re-draw one

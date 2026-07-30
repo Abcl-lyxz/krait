@@ -64,9 +64,40 @@ TEST_CASE("decrqm: unimplemented modes answer 0, not 2", "[modes]") {
     Grid g(4, 8);
     const Capabilities caps;
 
-    CHECK(decrqmState(g, caps, 1000) == ModeReport::NotRecognized);  // mouse, T27
+    // 1000 lived here until T27 implemented mouse tracking. 1005 (UTF-8 mouse)
+    // and 1015 (urxvt mouse) took its place: both are real xterm modes we
+    // deliberately do not implement, so they are the honest stand-ins.
+    CHECK(decrqmState(g, caps, 1005) == ModeReport::NotRecognized);
+    CHECK(decrqmState(g, caps, 1015) == ModeReport::NotRecognized);
     CHECK(decrqmState(g, caps, 9999) == ModeReport::NotRecognized);
     CHECK(decrqmState(g, caps, 0) == ModeReport::NotRecognized);
+}
+
+TEST_CASE("decrqm: the mouse tracking modes share one variable", "[modes]") {
+    // 1000/1002/1003 are mutually exclusive in xterm. Three independent flags
+    // would answer Set for two of them at once, and an application that
+    // disabled one would keep receiving the other's reports as keyboard input.
+    Grid g(4, 8);
+    const Capabilities caps;
+
+    CHECK(decrqmState(g, caps, 1000) == ModeReport::Reset);
+    CHECK(decrqmState(g, caps, 1002) == ModeReport::Reset);
+    CHECK(decrqmState(g, caps, 1003) == ModeReport::Reset);
+
+    g.mouseTracking = Grid::MouseTracking::AnyEvent;
+    CHECK(decrqmState(g, caps, 1003) == ModeReport::Set);
+    CHECK(decrqmState(g, caps, 1000) == ModeReport::Reset);
+    CHECK(decrqmState(g, caps, 1002) == ModeReport::Reset);
+
+    // The encoding is independent of the tracking mode.
+    CHECK(decrqmState(g, caps, 1006) == ModeReport::Reset);
+    g.sgrMouse = true;
+    CHECK(decrqmState(g, caps, 1006) == ModeReport::Set);
+
+    // DECCKM is a plain toggle and must never answer 3.
+    CHECK(decrqmState(g, caps, 1) == ModeReport::Reset);
+    g.appCursorKeys = true;
+    CHECK(decrqmState(g, caps, 1) == ModeReport::Set);
 }
 
 TEST_CASE("decrqm: toggleable modes track live state", "[modes]") {

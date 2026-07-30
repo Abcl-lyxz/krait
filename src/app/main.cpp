@@ -1,3 +1,10 @@
+#include "gpu_policy.h"
+// Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
+// macros land in scope for the whole translation unit.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -51,10 +58,31 @@ int main(int argc, char* argv[]) {
         // bench, and the WARP software adapter when benching that leg.
         QQuickGraphicsConfiguration config;
         config.setTimestamps(true);
-        if (qEnvironmentVariableIsSet("KRAIT_BENCH_WARP")) {
-            config.setPreferSoftwareDevice(true);
-        }
+        // T26 adapter selection. SM_REMOTESESSION is the documented RDP probe;
+        // a hardware D3D11 device inside an RDP session is emulated anyway, and
+        // on some hosts fails to create at all. KRAIT_BENCH_WARP stays honoured
+        // so the WARP leg of the flood bench keeps working unchanged.
+        const bool remote = GetSystemMetrics(SM_REMOTESESSION) != 0;
+        const QByteArray gpu = qgetenv("KRAIT_GPU").toLower();
+        const bool software = krait::app::preferSoftwareDevice(gpu.toStdString(), remote) ||
+                              qEnvironmentVariableIsSet("KRAIT_BENCH_WARP");
+        config.setPreferSoftwareDevice(software);
+        qInfo("gpu: remote session %s, KRAIT_GPU='%s' -> %s adapter", remote ? "yes" : "no",
+              gpu.constData(), software ? "software (WARP)" : "hardware");
         window->setGraphicsConfiguration(config);
+
+        // Without a slot here Qt prints the message, shows a MESSAGE BOX and
+        // terminates — and rules/ui.md bans app-modal surfaces outright. Must
+        // be connected before show(), same as the graphics configuration.
+        QObject::connect(window, &QQuickWindow::sceneGraphError, &app,
+                         [software](QQuickWindow::SceneGraphError, const QString& message) {
+                             qCritical("gpu: scene graph init failed: %s", qPrintable(message));
+                             if (!software) {
+                                 qCritical("gpu: retry with KRAIT_GPU=warp to force the software "
+                                           "adapter");
+                             }
+                             QCoreApplication::exit(3);
+                         });
         window->setVisible(true);  // deferred so the config precedes sg init
         // Queried on the GUI thread after the first frames; the
         // sceneGraphInitialized signal is emitted on the render thread and
