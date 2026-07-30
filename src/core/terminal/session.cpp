@@ -3,6 +3,7 @@
 #include "core/parser/csi_cursor.h"
 #include "core/parser/csi_mode.h"
 #include "core/parser/csi_scroll.h"
+#include "core/parser/kitty_keys.h"
 #include "core/parser/sgr.h"
 
 namespace krait::core::vt {
@@ -42,6 +43,16 @@ void Session::csiDispatch(const Params& params, std::span<const std::uint8_t> in
         if (!reply.empty() && onReply) {
             onReply(reply);
         }
+    } else if (final == 'u') {
+        // Kitty keyboard (T48). Selected by its private marker (> < = ?), so a
+        // bare CSI u — which belongs to no protocol we speak — falls through to
+        // the cursor handler and out the other side as silence.
+        std::string reply;
+        if (handleKittyKeys(m_grid, params, intermediates, final, m_limiter, reply)) {
+            if (!reply.empty() && onReply) {
+                onReply(reply);
+            }
+        }
     } else if (final == 'p') {
         // DECRQM is selected by its '?' '$' intermediates, not by 'p' alone —
         // handleDecrqm rejects every other 'p' form (DECSCL, DECSTR) so they
@@ -62,10 +73,28 @@ void Session::dcsPut(std::uint8_t) {}
 
 void Session::dcsUnhook(bool) {}
 
-void Session::oscStart() {}
+void Session::oscStart() {
+    m_osc.start();
+}
 
-void Session::oscPut(std::uint8_t) {}
+void Session::oscPut(std::uint8_t byte) {
+    m_osc.put(byte);
+}
 
-void Session::oscEnd(bool) {}
+void Session::oscEnd(bool aborted) {
+    const OscAction action = m_osc.end(aborted);
+    if (action.kind == OscAction::Kind::None) {
+        return;
+    }
+    if (action.kind == OscAction::Kind::ClipboardRead && !m_clipboardReadAllowed) {
+        // Silence, not a refusal reply. Answering "no" still tells a remote
+        // program that a clipboard exists and that asking is a thing it can do,
+        // and there is nothing useful it could do with that except ask again.
+        return;
+    }
+    if (onOsc) {
+        onOsc(action);
+    }
+}
 
 }  // namespace krait::core::vt

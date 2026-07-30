@@ -16,6 +16,7 @@
 #include "core/parser/csi_cursor.h"
 #include "core/parser/csi_mode.h"
 #include "core/parser/csi_scroll.h"
+#include "core/parser/kitty_keys.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
 #include "core/unicode/utf8.h"
@@ -244,6 +245,19 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             krait::core::vt::handleScroll(grid, params, intermediates, final);
         } else if (final == 'h' || final == 'l') {
             krait::core::vt::handleMode(grid, params, intermediates, final);
+        } else if (final == 'u') {
+            // Kitty keyboard (T48), routed exactly as Session::csiDispatch does
+            // — the corpus is only worth anything if it exercises the same
+            // dispatch the product uses.
+            std::string out;
+            krait::core::vt::handleKittyKeys(grid, params, intermediates, final, limiter, out);
+            if (!out.empty()) {
+                std::string tok = "reply:";
+                for (const char ch : out) {
+                    tok += escapeByte(static_cast<std::uint8_t>(ch));
+                }
+                replyTokens.push_back(tok);
+            }
         } else if (final == 'c' || final == 'n' || final == 'p') {
             std::string out;
             // 'p' is DECRQM, which handleDecrqm gates on its '?' '$'

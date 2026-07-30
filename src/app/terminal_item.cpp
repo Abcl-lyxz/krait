@@ -714,9 +714,9 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
     }
 
     const core::vt::Grid& grid = m_session->grid();
-    const QByteArray bytes =
-        input::translateKey(event->key(), event->modifiers(), event->text(),
-                            input::KeyModes{.appCursorKeys = grid.appCursorKeys});
+    const QByteArray bytes = input::translateKey(
+        event->key(), event->modifiers(), event->text(),
+        input::KeyModes{.appCursorKeys = grid.appCursorKeys, .kittyFlags = grid.kittyKeys.flags});
     if (bytes.isEmpty()) {
         // Not ours. Leaving it unaccepted is what lets the QML chrome see it.
         QQuickRhiItem::keyPressEvent(event);

@@ -32,6 +32,65 @@ QByteArray funcSs3(char final, int modParam) {
     return QByteArray("\x1BO") + final;
 }
 
+// CSI <codepoint> ; <mod> u — the kitty protocol's unambiguous form.
+QByteArray kittyKey(int codepoint, int modParam) {
+    QByteArray out = QByteArray("\x1B[") + QByteArray::number(codepoint);
+    if (modParam > 1) {
+        out += ';' + QByteArray::number(modParam);
+    }
+    return out + 'u';
+}
+
+// The disambiguation the baseline flag buys, and nothing more.
+//
+// Legacy encoding loses information in exactly two ways, and both are why
+// applications ask for this protocol:
+//
+//  - Escape is indistinguishable from the START of an escape sequence, so every
+//    editor guesses with a timeout, and a slow connection makes Esc land as
+//    Alt+something.
+//  - Ctrl+letter collapses onto the C0 controls: Ctrl+I and Tab are both 0x09,
+//    Ctrl+M and Enter are both 0x0D, so an application cannot bind them apart.
+//
+// Returns empty when the key is not one of those cases, and the caller falls
+// through to the legacy path. That matters: with only this flag set the
+// protocol says text-producing keys still send their TEXT, so an unmodified
+// letter must not come through here.
+QByteArray disambiguated(int key, Qt::KeyboardModifiers mods, const QString& text, int modParam) {
+    const bool ctrl = mods.testFlag(Qt::ControlModifier);
+    const bool alt = mods.testFlag(Qt::AltModifier);
+
+    switch (key) {
+    case Qt::Key_Escape:
+        return kittyKey(27, modParam);
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        return modParam > 1 ? kittyKey(13, modParam) : QByteArray{};
+    case Qt::Key_Tab:
+        return modParam > 1 ? kittyKey(9, modParam) : QByteArray{};
+    case Qt::Key_Backspace:
+        return modParam > 1 ? kittyKey(127, modParam) : QByteArray{};
+    default:
+        break;
+    }
+
+    // Ctrl or Alt plus something with a printable form. The codepoint reported
+    // is the UNSHIFTED key, which is what the protocol asks for and also what
+    // makes Ctrl+Shift+A distinguishable from Ctrl+A.
+    if ((ctrl || alt) && !text.isEmpty()) {
+        const char16_t base = text.at(0).toLower().unicode();
+        if (base >= 0x20 && base != 0x7F) {
+            return kittyKey(static_cast<int>(base), modParam);
+        }
+        // Ctrl+letter arrives from Qt as the CONTROL character rather than the
+        // letter, so recover the letter instead of reporting 0x01.
+        if (key >= Qt::Key_A && key <= Qt::Key_Z) {
+            return kittyKey(key - Qt::Key_A + 'a', modParam);
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 int modifierParam(Qt::KeyboardModifiers mods) {
@@ -53,6 +112,16 @@ QByteArray translateKey(int key, Qt::KeyboardModifiers mods, const QString& text
     const bool ctrl = mods.testFlag(Qt::ControlModifier);
     const bool alt = mods.testFlag(Qt::AltModifier);
     const int mod = modifierParam(mods);
+
+    // Before the legacy table, because the whole point is to send something
+    // DIFFERENT for the keys legacy encoding cannot tell apart. An empty answer
+    // means this key was never ambiguous and the legacy path is still right.
+    if ((modes.kittyFlags & 1) != 0) {
+        if (const QByteArray unambiguous = disambiguated(key, mods, text, mod);
+            !unambiguous.isEmpty()) {
+            return unambiguous;
+        }
+    }
 
     switch (key) {
     case Qt::Key_Up:

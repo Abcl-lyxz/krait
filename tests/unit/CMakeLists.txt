@@ -9,6 +9,7 @@ add_executable(krait-core-tests
     atlas_test.cpp
     grid_test.cpp
     modes_test.cpp
+    osc_test.cpp
     profile_test.cpp
     putty_import_test.cpp
     reflow_test.cpp
@@ -40,6 +41,7 @@ add_executable(krait-qt-tests
     i18n_test.cpp
     ime_test.cpp
     keymap_test.cpp
+    kitty_keys_test.cpp
     paste_test.cpp
     reconnect_test.cpp
     remote_text_test.cpp

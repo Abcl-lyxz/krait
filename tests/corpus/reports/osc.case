@@ -1,0 +1,70 @@
+# OSC strings (T49). EXPECT = replies only, and the answer is almost always
+# silence — which is the point.
+#
+# ST is written \ rather than \: the case reader takes a backslash
+# literally, so a doubled one is two bytes and leaves a stray backslash in the
+# stream.
+#
+# OSC 8 and OSC 52 do not reply to the terminal's output stream; they hand an
+# action to the app layer. What these cases pin is that nothing here ever
+# answers BACK to the remote side unless it has been permitted to, and that a
+# malformed or oversized string leaves the parser working.
+
+# A well-formed hyperlink is consumed, and says nothing to the server
+IN \x1B]8;id=42;https://example.test/a\x1B\x5C
+EXPECT -
+IN \x1B]8;;\x1B\x5C
+EXPECT -
+
+# A clipboard WRITE is consumed silently
+IN \x1B]52;c;aGVsbG8=\x1B\x5C
+EXPECT -
+
+# A clipboard READ is not answered. Permission is per session and off by
+# default (rules/net.md), and the refusal is SILENT: replying "no" still tells
+# a remote program that a clipboard is there to ask about.
+IN \x1B]52;c;?\x1B\x5C
+EXPECT -
+
+# Codes we have not implemented stay silent rather than half-handled
+IN \x1B]4;1;rgb:00/00/00\x1B\x5C
+EXPECT -
+IN \x1B]10;?\x1B\x5C
+EXPECT -
+IN \x1B]133;A\x1B\x5C
+EXPECT -
+IN \x1B]7;file:///tmp\x1B\x5C
+EXPECT -
+
+# Aborted mid-string (CAN). xterm discards these and so do we — and, more to
+# the point, the parser comes back cleanly afterwards.
+IN \x1B]52;c;aGVsbG8=\x18
+EXPECT -
+IN \x1B[c
+EXPECT reply:\x1B[?1;2c
+
+# Interrupted by a new introducer rather than a terminator
+IN \x1B]8;;https://example.test\x1B[c
+EXPECT reply:\x1B[?1;2c
+
+# BEL terminates an OSC as well as ST
+IN \x1B]0;title\x07
+EXPECT -
+IN \x1B[c
+EXPECT reply:\x1B[?1;2c
+
+# Empty and degenerate strings are not actions
+IN \x1B]\x1B\x5C
+EXPECT -
+IN \x1B];;;\x1B\x5C
+EXPECT -
+IN \x1B]52\x1B\x5C
+EXPECT -
+IN \x1B]52;\x1B\x5C
+EXPECT -
+
+# Invalid base64 is refused whole, never decoded as far as it goes
+IN \x1B]52;c;not base64!\x1B\x5C
+EXPECT -
+IN \x1B[c
+EXPECT reply:\x1B[?1;2c
