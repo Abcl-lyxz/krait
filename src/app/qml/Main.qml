@@ -6,7 +6,7 @@ Window {
     width: 960
     height: 540
     visible: false  // shown from main() after the graphics configuration
-    title: "Krait"
+    title: qsTr("Krait")
     color: "#0d0f17"
 
     // Bench runs keep the synthetic spike; normal runs are the terminal.

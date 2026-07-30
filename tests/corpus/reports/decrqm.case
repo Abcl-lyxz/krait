@@ -162,3 +162,46 @@ IN \x1B[?1005$p
 EXPECT reply:\x1B[?1005;0$y
 IN \x1B[?1015$p
 EXPECT reply:\x1B[?1015;0$y
+
+# ---- malformed / interrupted forms of the T27 input modes ----
+# rules/vt-core.md: an escape-sequence change lands with its corpus cases in the
+# same commit, and the malformed shapes matter more than the happy path — a
+# parser that half-accepts one leaves state nothing can explain later.
+
+# A mode list is malformed for DECRQM, which asks about exactly ONE mode.
+IN \x1B[?1000;1002$p
+EXPECT -
+
+# CAN mid-sequence aborts it; the tail is plain text, not a second request.
+IN \x1B[?1000\x18$p
+EXPECT -
+
+# SUB does the same.
+IN \x1B[?1006\x1A$p
+EXPECT -
+
+# Truncated: no final byte at all.
+IN \x1B[?1003$
+EXPECT -
+
+# Colon subparameters are SGR-only; not a mouse request.
+IN \x1B[?1000:2$p
+EXPECT -
+
+# The ANSI (non-'?') form is a different mode space entirely, and 1000 there is
+# not a mode we implement.
+IN \x1B[1000$p
+EXPECT -
+
+# A DECSET with no parameter must not be read as mode 0, and must not disturb
+# the mouse state a previous DECSET established.
+IN \x1B[?1003h\x1B[?h\x1B[?1003$p
+EXPECT reply:\x1B[?1003;1$y
+
+# An out-of-range parameter is consumed and ignored, and leaves state alone.
+IN \x1B[?1003h\x1B[?99999h\x1B[?1003$p
+EXPECT reply:\x1B[?1003;1$y
+
+# DECCKM interrupted mid-sequence leaves the mode untouched.
+IN \x1B[?1\x18h\x1B[?1$p
+EXPECT reply:\x1B[?1;2$y

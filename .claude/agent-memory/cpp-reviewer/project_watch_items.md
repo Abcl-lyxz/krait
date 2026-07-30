@@ -159,4 +159,37 @@ Watch items from past reviews (verify still true before flagging):
     have no test — gpu_resources_test.cpp only ever passes atlasGrew=true with
     an exactly-matching pixel buffer.
   - main.cpp includes <windows.h> without WIN32_LEAN_AND_MEAN/NOMINMAX, unlike
-    fontdb.cpp/shape_pool.cpp.
+    fontdb.cpp/shape_pool.cpp. T26 added the two defines but placed them AFTER
+    `#include "terminal_item.h"`, which pulls conpty_backend.h -> <windows.h>
+    unguarded, so both defines are dead and the comment is wrong.
+
+## T26-T35 M1 second half (t26-device, reviewed 2026-07-30 — 3 BLOCKING)
+- Blocked on: (1) terminal_item.cpp:777 appendComposition's `clearDirty()` runs
+  before rebuildFrame reads dirtyTop/Bottom at 451-452 -> with an IME
+  composition active NO glyph rasterised that frame is uploaded; (2) no cap on
+  clipboard size before preparePaste (net.md) — 5 copies + 8 regexes on the UI
+  thread; (3) Banner.qml detail Text is AutoText, so hostile clipboard renders
+  as rich text (banner spoofing).
+- Accepted latent / re-check later:
+  - frame_builder cached UVs vs atlas growth (see [[project-render-qt-patterns]]
+    shapes 6 and 7). PRE-EXISTING from T25, not introduced here.
+  - gpu_resources.cpp checks pipeline create() but NOT sampler/buffer/SRB
+    create() — the T11/T12 "real device-lost handling" debt is still partial.
+  - applySettings compares the CONFIGURED font family against the RESOLVED
+    m_family, so an uninstalled/empty family makes every hot reload tear down
+    and re-rasterise the whole font stack.
+  - Registry::reload() on a parse failure resets every setting to default with
+    only a qWarning; `previous` is already in hand and could be restored.
+  - Banner.qml Enter accepts a risky paste — the reflex keystroke after
+    Ctrl+Shift+V confirms a `sudo rm -rf`.
+  - paste.cpp's `[201~` -> `[201 ~` rewrite corrupts legitimate text and does
+    not set `sanitised`. ESC is already stripped so it is pure belt-and-braces.
+  - Verified CORRECT, do not re-flag: X10 mouse byte range (max 125) and the
+    col/row>223 drop; csi_mode/caps shared MouseTracking enum matches xterm and
+    DECRQM stays honest (1005/1015 answer 0); ShapePool::shapeAll always does
+    `out.assign(runs.size(), {})` so a timeout cannot produce a short span;
+    toml::table is std::map-backed so `save()`'s cached `target` pointer is
+    stable across later inserts.
+- Working-tree drift at review: paste.cpp + registry.cpp + paste_test.cpp had
+  UNCOMMITTED fixes (U+2028/2029/NEL normalisation, C1 strip, m_debounce
+  delete) not in HEAD. Re-check `git status` before trusting a branch diff.

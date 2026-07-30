@@ -104,7 +104,10 @@ PasteResult preparePaste(const QString& text, bool bracketed) {
         // can, and a future change to the sanitiser must not silently make this
         // exploitable again. Belt and braces on the one thing that turns a
         // paste into arbitrary keystrokes.
-        payload.replace("[201~", "[201 ~");
+        if (payload.contains("[201~")) {
+            payload.replace("[201~", "[201 ~");
+            result.sanitised = true;  // the text really was altered
+        }
         result.bytes = QByteArray("\x1B[200~") + payload + "\x1B[201~";
     } else {
         result.bytes = payload;

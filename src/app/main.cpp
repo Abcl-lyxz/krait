@@ -1,7 +1,17 @@
+// These two DEFINES must precede every include in this file, and that is what
+// the position here buys — terminal_item.h reaches <windows.h> through
+// conpty_backend.h, which does not guard it, so a define placed after them is
+// dead and the min/max macros land in scope for the whole translation unit.
+// Where clang-format then sorts the <windows.h> line below is irrelevant: the
+// header is include-guarded and the macros are already set by the time anything
+// pulls it in.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include "gpu_policy.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
 #include "terminal_item.h"
+#include <windows.h>
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
 // macros land in scope for the whole translation unit.
 #define WIN32_LEAN_AND_MEAN

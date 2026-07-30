@@ -121,8 +121,15 @@ bool Registry::reload() {
             }
         } else {
             parsed = false;
-            qWarning("settings: %s could not be parsed (%s); using defaults", qPrintable(m_path),
-                     std::string(result.error().description()).c_str());
+            // Keep what we had. Falling back to defaults on a parse error means
+            // one stray keystroke in an editor resets every setting, rebuilds
+            // the font stack and reflows the grid in front of the user — and
+            // then the NEXT save writes those defaults over their real config.
+            // On first load `previous` is the defaults anyway, so this is only
+            // ever more conservative.
+            m_values = previous;
+            qWarning("settings: %s could not be parsed (%s); keeping the previous values",
+                     qPrintable(m_path), std::string(result.error().description()).c_str());
         }
     }
 

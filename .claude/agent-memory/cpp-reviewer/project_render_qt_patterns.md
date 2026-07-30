@@ -33,6 +33,22 @@ comments in this codebase are long and persuasive and will anchor you.
    clamp that silently shortens an upload must leave the flag set.
 4. **`m_failed`-style sticky error state** with no path back except a device
    change. Repeated since T11/T12; check every new one.
+5. **Atlas bookkeeping written in two places in one function.** T29's
+   `appendComposition()` sets `m_frame.atlas*` and calls `clearDirty()` /
+   `takeGrew()`, then `rebuildFrame()` overwrites all of it from the live atlas
+   — so the composition's `clearDirty()` wipes the WHOLE frame's dirty range
+   before it is read. Rule: exactly one place reads atlas dirty/grew per
+   rebuild, and it is the last thing rebuildFrame does.
+6. **Normalised atlas UVs cached across a growth.** `GlyphAtlas::makeRoom()`
+   doubles HEIGHT only (no glyph moves), so `entry->y` stays valid but every
+   cached `v` computed with the old height is now 2x too big. `FrameBuilder`
+   caches per-row `GlyphInstance`s and nothing calls `invalidate()` on grew.
+   Also `atlasW/atlasH` are captured BEFORE the `atlas.get()` loop that can
+   grow. Check both on any frame_builder/atlas diff.
+7. **Dirty state overwritten, not accumulated, across multiple rebuildFrame()
+   per presented frame.** `handleOutput` rebuilds per pty chunk; the last
+   rebuild's (empty) dirty range is what `synchronize()` sees. Only the
+   `pixels->size() != atlasBytes()` check saves the grew case.
 
 ## Verified Qt 6.10.3 facts (from the installed headers, not memory)
 

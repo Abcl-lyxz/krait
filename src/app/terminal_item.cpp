@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <limits>
 #include <numeric>
 #include <optional>
 #include <span>
@@ -293,8 +294,14 @@ void TerminalItem::applySettings() {
                                                    kCellsPerLineBudget);
     }
 
+    // Against the CONFIGURED family, not the resolved one: ensureFont() writes
+    // its fallback into m_family, so comparing that made every hot reload of
+    // any unrelated setting look like a font change and tear the whole stack
+    // down — whenever font.family is unset (the default) or names a font this
+    // machine does not have.
     const bool fontChanged =
-        family != m_family || size != m_basePxHeight || ligatures != m_ligatures;
+        family != m_configuredFamily || size != m_basePxHeight || ligatures != m_ligatures;
+    m_configuredFamily = family;
     m_ligatures = ligatures;
     m_basePxHeight = size;
     if (fontChanged) {
@@ -448,15 +455,33 @@ void TerminalItem::rebuildFrame() {
     appendComposition();
     m_frame.atlasWidth = m_atlas->width();
     m_frame.atlasHeight = m_atlas->height();
-    m_frame.atlasDirtyTop = m_atlas->dirtyTop();
-    m_frame.atlasDirtyBottom = m_atlas->dirtyBottom();
-    m_frame.atlasGrew = m_atlas->takeGrew();
+    // ACCUMULATE, do not overwrite. rebuildFrame() runs once per pty chunk and
+    // several chunks land per presented frame, so only the last one's dirty
+    // range would otherwise reach synchronize(): a glyph first rasterised in an
+    // earlier rebuild, with nothing new in the last, was never uploaded.
+    // synchronize() clears these after it takes the pixels.
+    m_frame.atlasDirtyTop = std::min(m_frame.atlasDirtyTop, m_atlas->dirtyTop());
+    m_frame.atlasDirtyBottom = std::max(m_frame.atlasDirtyBottom, m_atlas->dirtyBottom());
+    if (m_atlas->takeGrew()) {
+        m_frame.atlasGrew = true;
+        // Growth doubles the atlas HEIGHT, so every normalised v coordinate
+        // already cached in a row is now half the value it should be. The rows
+        // that were not redrawn this frame would sample the wrong part of the
+        // texture until something else happened to touch them.
+        m_builder->invalidate();
+    }
     render::unpackColor(m_builder->theme().bg, m_frame.clearR, m_frame.clearG, m_frame.clearB);
     m_atlas->clearDirty();
 }
 
 const std::vector<std::uint8_t>* TerminalItem::atlasPixels() const {
     return m_atlas ? &m_atlas->pixels() : nullptr;
+}
+
+void TerminalItem::clearAtlasDirty() {
+    m_frame.atlasDirtyTop = std::numeric_limits<int>::max();
+    m_frame.atlasDirtyBottom = 0;
+    m_frame.atlasGrew = false;
 }
 
 void TerminalItem::stepBench(int frame) {
@@ -641,6 +666,13 @@ void TerminalItem::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void TerminalItem::wheelEvent(QWheelEvent* event) {
+    if (event->angleDelta().y() == 0) {
+        // A tilt wheel or a horizontal trackpad gesture. Treating it as a
+        // vertical delta made every horizontal flick scroll DOWN and send a
+        // button-5 report with it.
+        QQuickRhiItem::wheelEvent(event);
+        return;
+    }
     const int steps = event->angleDelta().y() > 0 ? 1 : -1;
     if (reportMouse(input::MouseAction::Press, Qt::NoButton, event->buttons(), event->modifiers(),
                     event->position(), steps)) {
@@ -766,15 +798,11 @@ void TerminalItem::appendComposition() {
                                   m_ligatures, shaped, std::chrono::milliseconds{8});
     m_builder->appendShapedRun(runs.front(), shaped.front(), faces.front(), theme.fg, m_raster,
                                *m_atlas, m_frame.glyphs);
-
-    // The atlas may have grown to hold glyphs the composition just introduced,
-    // and the renderer decides what to upload from these fields.
-    m_frame.atlasWidth = m_atlas->width();
-    m_frame.atlasHeight = m_atlas->height();
-    m_frame.atlasDirtyTop = std::min(m_frame.atlasDirtyTop, m_atlas->dirtyTop());
-    m_frame.atlasDirtyBottom = std::max(m_frame.atlasDirtyBottom, m_atlas->dirtyBottom());
-    m_frame.atlasGrew = m_frame.atlasGrew || m_atlas->takeGrew();
-    m_atlas->clearDirty();
+    // Deliberately NO atlas bookkeeping here. rebuildFrame() reads the dirty
+    // range and takeGrew() immediately after this returns; doing it here as
+    // well consumed both, so an active composition reported a clean atlas and
+    // suppressed the upload of every glyph rasterised that frame — its own
+    // preedit included.
 }
 
 void TerminalItem::sendPaste(const QByteArray& bytes) {
@@ -793,11 +821,30 @@ void TerminalItem::paste() {
     if (!m_session || !m_started) {
         return;
     }
-    const QString text = QGuiApplication::clipboard()->text();
+    QString text = QGuiApplication::clipboard()->text();
     if (text.isEmpty()) {
         return;
     }
-    const auto guarded = input::preparePaste(text, m_session->grid().bracketedPaste);
+    // Capped before anything walks it. rules/net.md: the clipboard is remote
+    // input, and a web page can put 100 MB on it — preparePaste makes several
+    // copies and runs eight regexes over the lot, on the UI thread. 1 MB is
+    // far past any command a person pastes and far short of a freeze.
+    constexpr qsizetype kMaxPasteChars = 1 << 20;
+    bool truncated = false;
+    if (text.size() > kMaxPasteChars) {
+        qWarning("paste: clipboard held %lld characters; truncated to %lld",
+                 static_cast<long long>(text.size()), static_cast<long long>(kMaxPasteChars));
+        text.truncate(kMaxPasteChars);
+        truncated = true;
+    }
+    auto guarded = input::preparePaste(text, m_session->grid().bracketedPaste);
+    if (truncated) {
+        // Never send a truncated paste without asking: half a command is its
+        // own hazard, and the user has to know they are not sending what they
+        // copied.
+        guarded.risk = input::PasteRisk::Multiline;
+        guarded.sanitised = true;
+    }
     if (!guarded.needsConfirm()) {
         sendPaste(guarded.bytes);
         return;
@@ -835,7 +882,11 @@ void TerminalItem::copySelection() {
 }
 
 void TerminalItem::inputMethodEvent(QInputMethodEvent* event) {
-    if (!m_started || !m_session) {
+    // m_builder too: applyDevicePixelRatio() resets it and updateGrid() can
+    // return before ensureFont() rebuilds it (zero geometry, or no usable
+    // font), all while m_started stays true. Composition arriving in that
+    // window would dereference null.
+    if (!m_started || !m_session || !m_builder) {
         QQuickRhiItem::inputMethodEvent(event);
         return;
     }
@@ -945,6 +996,11 @@ void TerminalRenderer::synchronize(QQuickRhiItem* item) {
             !m_gpu.hasAtlas() || pixels->size() != m_gpu.atlasBytes()) {
             m_gpu.setAtlasPixels(*pixels);
         }
+        // Consumed HERE, not in rebuildFrame(): this is the point the pixels
+        // actually reach the render thread, so it is the only point at which
+        // "everything dirty has been handed over" is true. Clearing it per
+        // rebuild is what lost the ranges of every rebuild but the last.
+        term->clearAtlasDirty();
     }
 }
 

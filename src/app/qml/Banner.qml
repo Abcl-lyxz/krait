@@ -17,7 +17,7 @@ Rectangle {
     // Optional second line: the detail a user needs in order to decide, e.g.
     // the first line of what is about to be pasted.
     property string detail: ""
-    property string acceptText: qsTr("Allow")
+    property string acceptText: qsTr("Allow (Ctrl+Enter)")
     property string rejectText: qsTr("Cancel")
     property bool showAccept: true
 
@@ -37,12 +37,23 @@ Rectangle {
     height: visible ? layout.implicitHeight + 20 : 0
     visible: message.length > 0
 
-    // Keyboard-first (rules/ui.md): Esc rejects, Enter accepts. A banner
-    // reachable only by mouse is incomplete work.
+    // Keyboard-first (rules/ui.md), but accept is CTRL+Enter and never plain
+    // Enter. The banner takes focus the instant Ctrl+Shift+V is pressed, and
+    // Enter is the reflex keystroke right after pasting a command — plain
+    // Enter here would confirm a `sudo` paste nobody read, which is the exact
+    // outcome the paste guard exists to prevent.
     focus: visible
     Keys.onEscapePressed: banner.rejected()
-    Keys.onReturnPressed: if (banner.showAccept) banner.accepted()
-    Keys.onEnterPressed: if (banner.showAccept) banner.accepted()
+    Keys.onReturnPressed: (event) => banner.handleConfirmKey(event)
+    Keys.onEnterPressed: (event) => banner.handleConfirmKey(event)
+
+    function handleConfirmKey(event) {
+        if (showAccept && (event.modifiers & Qt.ControlModifier)) {
+            accepted()
+        } else {
+            event.accepted = true  // swallow it: never fall through to the terminal
+        }
+    }
 
     Row {
         id: layout
@@ -59,6 +70,12 @@ Rectangle {
                 text: banner.message
                 color: banner.foreground
                 wrapMode: Text.WordWrap
+                // PlainText, not the AutoText default: `detail` below carries
+                // raw clipboard text, and AutoText would let a pasted <b> or
+                // <img src="http://..."> restyle the very warning that is about
+                // it, or fetch a remote resource. The message gets the same
+                // treatment so the two cannot drift.
+                textFormat: Text.PlainText
             }
             Text {
                 width: parent.width
@@ -69,6 +86,7 @@ Rectangle {
                 elide: Text.ElideRight
                 maximumLineCount: 2
                 wrapMode: Text.WrapAnywhere
+                textFormat: Text.PlainText  // see above: this is hostile input
                 font.family: "Cascadia Mono"
             }
         }

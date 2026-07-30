@@ -118,24 +118,46 @@ bool GpuResources::sync(QRhi* rhi, QRhiRenderPassDescriptor* renderPass, int sam
         }
     }
 
+    // Every create() below is checked. Only the pipelines and the texture used
+    // to be, and after a device-lost rebuild under memory pressure an uncreated
+    // buffer still reached updateDynamicBuffer and setVertexInput, and an
+    // uncreated SRB reached setShaderResources. Recovery is exactly when
+    // allocation fails, so the recovery path is the wrong place to assume it
+    // cannot.
+    const auto created = [this](auto& resource, const char* what) {
+        if (!resource->create()) {
+            qWarning("render: %s create() failed", what);
+            resource.reset();
+            m_failed = true;
+            return false;
+        }
+        return true;
+    };
+
     if (!m_sampler) {
         // Nearest: glyphs are placed at integer pixels, and blurring them is the
         // single most common way a terminal ends up looking wrong.
         m_sampler.reset(m_rhi->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest,
                                           QRhiSampler::None, QRhiSampler::ClampToEdge,
                                           QRhiSampler::ClampToEdge));
-        m_sampler->create();
+        if (!created(m_sampler, "sampler")) {
+            return false;
+        }
     }
     if (!m_cornerBuf) {
         m_cornerBuf.reset(
             m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(kCorners)));
-        m_cornerBuf->create();
+        if (!created(m_cornerBuf, "corner buffer")) {
+            return false;
+        }
         batch->uploadStaticBuffer(m_cornerBuf.get(), kCorners.data());
     }
     if (!m_ubuf) {
         m_ubuf.reset(
             m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 4 * sizeof(float)));
-        m_ubuf->create();
+        if (!created(m_ubuf, "uniform buffer")) {
+            return false;
+        }
     }
     const std::array<float, 4> ubufData{static_cast<float>(std::max(1, outputSize.width())),
                                         static_cast<float>(std::max(1, outputSize.height())), 0.0F,
@@ -150,7 +172,10 @@ bool GpuResources::sync(QRhi* rhi, QRhiRenderPassDescriptor* renderPass, int sam
         m_solidCapacity = solidBytes * 2;
         m_solidBuf.reset(
             m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, m_solidCapacity));
-        m_solidBuf->create();
+        if (!created(m_solidBuf, "solid instance buffer")) {
+            m_solidCapacity = 0;
+            return false;
+        }
     }
     if (!frame.solids.empty()) {
         batch->updateDynamicBuffer(m_solidBuf.get(), 0, solidBytes, frame.solids.data());
@@ -162,7 +187,10 @@ bool GpuResources::sync(QRhi* rhi, QRhiRenderPassDescriptor* renderPass, int sam
         m_glyphCapacity = glyphBytes * 2;
         m_glyphBuf.reset(
             m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, m_glyphCapacity));
-        m_glyphBuf->create();
+        if (!created(m_glyphBuf, "glyph instance buffer")) {
+            m_glyphCapacity = 0;
+            return false;
+        }
     }
     if (!frame.glyphs.empty()) {
         batch->updateDynamicBuffer(m_glyphBuf.get(), 0, glyphBytes, frame.glyphs.data());
@@ -176,7 +204,9 @@ bool GpuResources::sync(QRhi* rhi, QRhiRenderPassDescriptor* renderPass, int sam
             QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage,
                                                      m_ubuf.get()),
         });
-        m_solidSrb->create();
+        if (!created(m_solidSrb, "solid shader resource bindings")) {
+            return false;
+        }
         m_solidPipeline.reset();
     }
     if (!m_glyphSrb) {
@@ -187,7 +217,9 @@ bool GpuResources::sync(QRhi* rhi, QRhiRenderPassDescriptor* renderPass, int sam
             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
                                                       m_atlasTex.get(), m_sampler.get()),
         });
-        m_glyphSrb->create();
+        if (!created(m_glyphSrb, "glyph shader resource bindings")) {
+            return false;
+        }
         m_glyphPipeline.reset();
     }
 

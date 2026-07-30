@@ -55,6 +55,11 @@ class TerminalItem : public QQuickRhiItem {
     // thread blocked, which is the whole reason that is safe.
     const std::vector<std::uint8_t>* atlasPixels() const;
 
+    // Marks the accumulated atlas dirty range as handed over. Called from
+    // synchronize(), which runs with the GUI thread blocked — the one place
+    // where touching item state from the render thread is safe.
+    void clearAtlasDirty();
+
     int benchFrames() const { return m_benchFrames; }
 
     // Called (queued) from the renderer when a flood bench completes.
@@ -149,7 +154,8 @@ class TerminalItem : public QQuickRhiItem {
     net::ConptyBackend* m_backend = nullptr;   // owned by this (QObject parent)
 
     render::RasterFn m_raster;
-    std::string m_family;
+    std::string m_family;            // what ensureFont() actually resolved
+    std::string m_configuredFamily;  // what the settings asked for
     std::uint32_t m_primaryFace = 0;
     // Logical (DPI-independent) font size; m_pxHeight is that scaled to the
     // current device pixel ratio, and is what FreeType actually rasterises at.
