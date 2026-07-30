@@ -136,6 +136,18 @@ class FrameBuilder {
 
     const FaceMetrics& metrics() const { return m_metrics; }
 
+    // Appends one already-shaped run's glyphs at a fixed colour (plan T29).
+    //
+    // The IME composition needs this: a preedit is NOT grid content — it
+    // belongs to the IME until it commits — so it has no cells to read colours
+    // from, and build() cannot draw it. Sharing the placement code is the
+    // point: glyph position is cluster column + shaper offset + font bearing,
+    // and a second copy of that arithmetic is how a composition ends up
+    // drawing one pixel off from the text it commits to.
+    void appendShapedRun(const Run& run, const ShapedRun& shaped, std::uint32_t faceId,
+                         std::uint32_t fg, const RasterFn& raster, GlyphAtlas& atlas,
+                         std::vector<GlyphInstance>& out) const;
+
     void setTheme(Theme theme);
 
     const Theme& theme() const { return m_theme; }

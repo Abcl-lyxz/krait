@@ -29,6 +29,7 @@ catch_discover_tests(krait-core-tests)
 # the binary then will not start without Qt6Core.dll beside it.
 add_executable(krait-qt-tests
     gpu_resources_test.cpp
+    ime_test.cpp
     keymap_test.cpp
     paste_test.cpp
 )

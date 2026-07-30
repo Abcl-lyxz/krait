@@ -9,6 +9,7 @@ find_package(freetype CONFIG REQUIRED)
 add_library(krait-shaper STATIC
     atlas/glyph_atlas.cpp
     frame_builder.cpp
+    ime_metrics.cpp
     shaper/fontdb.cpp
     shaper/run_splitter.cpp
     shaper/shape_pool.cpp

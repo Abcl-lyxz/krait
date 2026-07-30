@@ -397,6 +397,42 @@ void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& 
     }
 }
 
+void FrameBuilder::appendShapedRun(const Run& run, const ShapedRun& shaped, std::uint32_t faceId,
+                                   std::uint32_t fg, const RasterFn& raster, GlyphAtlas& atlas,
+                                   std::vector<GlyphInstance>& out) const {
+    const float cellW = static_cast<float>(m_metrics.cellWidth);
+    const float top = static_cast<float>(run.row) * static_cast<float>(cellHeight());
+    const float atlasW = static_cast<float>(atlas.width());
+    const float atlasH = static_cast<float>(atlas.height());
+
+    for (const ShapedGlyph& glyph : shaped.glyphs) {
+        if (glyph.cluster >= run.clusters.size()) {
+            continue;  // defensive: a mismatched run/shaped pair
+        }
+        const ClusterRef& cluster = run.clusters[glyph.cluster];
+        const AtlasEntry* entry =
+            atlas.get(GlyphKey{.faceId = faceId, .glyphId = glyph.glyphId}, raster);
+        if (entry == nullptr || entry->width == 0 || entry->height == 0) {
+            continue;  // no ink (a space), or refused by the atlas
+        }
+
+        GlyphInstance inst;
+        inst.x = (static_cast<float>(cluster.col) * cellW) +
+                 (static_cast<float>(glyph.xOffset) * kFixedScale) +
+                 static_cast<float>(entry->bearingX);
+        inst.y = top + static_cast<float>(m_metrics.ascent) - static_cast<float>(entry->bearingY) -
+                 (static_cast<float>(glyph.yOffset) * kFixedScale);
+        inst.w = static_cast<float>(entry->width);
+        inst.h = static_cast<float>(entry->height);
+        inst.u0 = static_cast<float>(entry->x) / atlasW;
+        inst.v0 = static_cast<float>(entry->y) / atlasH;
+        inst.u1 = static_cast<float>(entry->x + entry->width) / atlasW;
+        inst.v1 = static_cast<float>(entry->y + entry->height) / atlasH;
+        unpackColor(fg, inst.r, inst.g, inst.b);
+        out.push_back(inst);
+    }
+}
+
 void FrameBuilder::appendSelection(const FrameParams& params, int rowCount) {
     if (!params.selection.active) {
         return;

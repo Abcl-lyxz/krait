@@ -2,11 +2,13 @@
 
 #include "../net/conpty/conpty_backend.h"
 #include "core/terminal/session.h"
+#include "input/ime.h"
 #include "input/mouse.h"
 #include "input/paste.h"
 #include "render/atlas/glyph_atlas.h"
 #include "render/frame_builder.h"
 #include "render/gpu_resources.h"
+#include "render/ime_metrics.h"
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
 #include <rhi/qrhi.h>
@@ -89,6 +91,10 @@ class TerminalItem : public QQuickRhiItem {
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    // T29. inputMethodQuery answers WHERE the candidate window goes; without it
+    // the IME guesses, and on Windows that means the top-left of the screen.
+    void inputMethodEvent(QInputMethodEvent* event) override;
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 
   private:
     void handleOutput(const QByteArray& bytes);
@@ -116,6 +122,10 @@ class TerminalItem : public QQuickRhiItem {
     void copySelection();
     // Sends already-sanitised paste bytes and snaps the viewport back.
     void sendPaste(const QByteArray& bytes);
+    // Appends the in-flight composition to the frame. A preedit is not grid
+    // content — it belongs to the IME until it commits — so it is drawn OVER
+    // the frame rather than written into the grid.
+    void appendComposition();
 
     std::unique_ptr<render::FontDb> m_fonts;
     std::unique_ptr<render::ShapePool> m_pool;
@@ -145,6 +155,7 @@ class TerminalItem : public QQuickRhiItem {
 
     render::FrameData m_frame;
     render::Selection m_selection;
+    input::Composition m_composition;
     // A paste held back pending confirmation. Already sanitised — what is
     // stored is exactly what will be sent, so an "allow" cannot re-run the
     // guard against different text than the banner described.

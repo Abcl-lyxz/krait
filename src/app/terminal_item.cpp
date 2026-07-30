@@ -1,5 +1,7 @@
 #include "terminal_item.h"
 
+#include "core/unicode/width.h"
+#include "input/ime.h"
 #include "input/keymap.h"
 #include "input/mouse.h"
 #include "input/paste.h"
@@ -10,6 +12,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QImage>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMouseEvent>
@@ -44,6 +47,9 @@ QShader loadShader(const QString& path) {
 
 TerminalItem::TerminalItem() {
     setAcceptedMouseButtons(Qt::AllButtons);
+    // Without this Qt never routes composition to us and Thai or Japanese input
+    // silently falls back to whatever the IME does with an unaware widget.
+    setFlag(ItemAcceptsInputMethod, true);
     setFlag(ItemIsFocusScope, false);
     setFocus(true);
 
@@ -348,6 +354,7 @@ void TerminalItem::rebuildFrame() {
 
     m_frame.solids.assign(m_builder->solids().begin(), m_builder->solids().end());
     m_frame.glyphs.assign(m_builder->glyphs().begin(), m_builder->glyphs().end());
+    appendComposition();
     m_frame.atlasWidth = m_atlas->width();
     m_frame.atlasHeight = m_atlas->height();
     m_frame.atlasDirtyTop = m_atlas->dirtyTop();
@@ -602,6 +609,83 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
     event->accept();
 }
 
+void TerminalItem::appendComposition() {
+    if (!m_composition.active() || !m_builder || !m_session) {
+        return;
+    }
+    const core::vt::Grid& grid = m_session->grid();
+    const render::FaceMetrics& metrics = m_builder->metrics();
+    const int columns = m_composition.columns(grid.ambiguous);
+    const int cells = render::preeditCells(grid.col, columns, m_cols);
+    if (cells <= 0) {
+        return;
+    }
+    const render::CellRect area =
+        render::preeditRect(metrics, grid.row, grid.col, columns, m_cols, m_rows);
+
+    // Background first: the composition covers whatever the grid has in those
+    // cells, and drawing the preedit glyphs over live text without clearing it
+    // leaves both readable and neither legible.
+    const render::Theme& theme = m_builder->theme();
+    render::SolidInstance background{.x = static_cast<float>(area.x),
+                                     .y = static_cast<float>(area.y),
+                                     .w = static_cast<float>(area.w),
+                                     .h = static_cast<float>(area.h)};
+    render::unpackColor(theme.selectionBg, background.r, background.g, background.b);
+    m_frame.solids.push_back(background);
+
+    // The underline every platform's IME convention uses to say "not committed
+    // yet". Without it a preedit is indistinguishable from typed text, and the
+    // user cannot tell what Enter is about to do.
+    const int thickness = std::max(1, metrics.lineHeight / 12);
+    render::SolidInstance underline{.x = static_cast<float>(area.x),
+                                    .y = static_cast<float>(area.y + area.h - thickness),
+                                    .w = static_cast<float>(area.w),
+                                    .h = static_cast<float>(thickness)};
+    render::unpackColor(theme.fg, underline.r, underline.g, underline.b);
+    m_frame.solids.push_back(underline);
+
+    // The preedit text itself, shaped through the same pool as everything else
+    // — a second shaping path is how a composition ends up looking different
+    // from the text it commits to.
+    render::Run run;
+    run.row = grid.row;
+    run.col = grid.col;
+    int column = grid.col;
+    for (const std::u32string& cluster : m_composition.clusters()) {
+        const int cellsUsed = core::unicode::clusterWidth(cluster, grid.ambiguous);
+        render::ClusterRef ref;
+        ref.col = column;
+        ref.cells = static_cast<std::uint8_t>(std::max(1, cellsUsed));
+        ref.offset = static_cast<std::uint32_t>(run.text.size());
+        ref.len = static_cast<std::uint8_t>(cluster.size());
+        run.text += cluster;
+        run.clusters.push_back(ref);
+        // A zero-width mark shares its base's column, which is what puts a Thai
+        // tone mark over the vowel rather than in the next cell.
+        column += cellsUsed;
+    }
+    if (run.clusters.empty()) {
+        return;
+    }
+    std::vector<render::Run> runs{std::move(run)};
+    std::vector<render::ShapedRun> shaped;
+    const auto faces =
+        render::shapeWithFallback(*m_pool, *m_fonts, runs, m_primaryFace, m_family, m_pxHeight,
+                                  m_ligatures, shaped, std::chrono::milliseconds{8});
+    m_builder->appendShapedRun(runs.front(), shaped.front(), faces.front(), theme.fg, m_raster,
+                               *m_atlas, m_frame.glyphs);
+
+    // The atlas may have grown to hold glyphs the composition just introduced,
+    // and the renderer decides what to upload from these fields.
+    m_frame.atlasWidth = m_atlas->width();
+    m_frame.atlasHeight = m_atlas->height();
+    m_frame.atlasDirtyTop = std::min(m_frame.atlasDirtyTop, m_atlas->dirtyTop());
+    m_frame.atlasDirtyBottom = std::max(m_frame.atlasDirtyBottom, m_atlas->dirtyBottom());
+    m_frame.atlasGrew = m_frame.atlasGrew || m_atlas->takeGrew();
+    m_atlas->clearDirty();
+}
+
 void TerminalItem::sendPaste(const QByteArray& bytes) {
     if (bytes.isEmpty() || !m_started) {
         return;
@@ -657,6 +741,81 @@ void TerminalItem::copySelection() {
     }
     QGuiApplication::clipboard()->setText(
         QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size())));
+}
+
+void TerminalItem::inputMethodEvent(QInputMethodEvent* event) {
+    if (!m_started || !m_session) {
+        QQuickRhiItem::inputMethodEvent(event);
+        return;
+    }
+    // A commit is finished text and goes down the same path as a keystroke.
+    // The preedit does NOT: it belongs to the IME until it commits, so it never
+    // reaches the parser and never lands in scrollback.
+    const QString commit = event->commitString();
+    if (!commit.isEmpty()) {
+        m_composition.clear();
+        m_session->grid().scrollViewToBottom();
+        m_backend->writeInput(commit.toUtf8());
+    }
+
+    auto cursorInChars = static_cast<int>(event->preeditString().size());
+    for (const QInputMethodEvent::Attribute& attr : event->attributes()) {
+        if (attr.type == QInputMethodEvent::Cursor) {
+            cursorInChars = attr.start;
+        }
+    }
+    m_composition.setPreedit(event->preeditString(), cursorInChars);
+
+    // The composition sits on cells the grid still owns, so those rows have to
+    // be redrawn when it changes — including when it disappears.
+    m_builder->invalidate();
+    rebuildFrame();
+    update();
+    // Tells the IME its anchor moved. Skipping this is why candidate windows
+    // stay parked where the composition STARTED.
+    updateInputMethod(Qt::ImCursorRectangle | Qt::ImAnchorRectangle);
+    event->accept();
+}
+
+QVariant TerminalItem::inputMethodQuery(Qt::InputMethodQuery query) const {
+    switch (query) {
+    case Qt::ImEnabled:
+        return m_started;
+    case Qt::ImHints:
+        // No autocorrect, no predictive text, no capitalisation: a shell is not
+        // a message box, and an IME that "helps" corrupts commands.
+        return static_cast<int>(Qt::ImhNoAutoUppercase | Qt::ImhNoPredictiveText |
+                                Qt::ImhMultiLine);
+    case Qt::ImCursorRectangle:
+    case Qt::ImAnchorRectangle: {
+        if (!m_builder || !m_session) {
+            return {};
+        }
+        const core::vt::Grid& grid = m_session->grid();
+        // The candidate window anchors at the CARET inside the composition, not
+        // at its start — the IME draws its list under the character being
+        // converted.
+        const int caret = m_composition.active() ? m_composition.cursorColumns(grid.ambiguous) : 0;
+        const render::CellRect rect =
+            render::cursorRect(m_builder->metrics(), grid.row, grid.col + caret, m_cols, m_rows);
+        // Back to LOGICAL coordinates: the metrics are device pixels, and Qt
+        // wants item coordinates. On a 200% display, handing over device pixels
+        // puts the candidate window at twice the offset — off the bottom-right
+        // of the window for anything but the first row.
+        const qreal scale = m_dpr > 0.0 ? m_dpr : 1.0;
+        return QRectF(rect.x / scale, rect.y / scale, rect.w / scale, rect.h / scale);
+    }
+    case Qt::ImFont:
+        return QFont(QString::fromStdString(m_family), m_basePxHeight);
+    case Qt::ImSurroundingText:
+        // Deliberately empty. An IME uses surrounding text for reconversion,
+        // and handing it the screen contents would leak whatever is on it —
+        // including output from a command the user did not type.
+        return QString();
+    default:
+        break;
+    }
+    return QQuickRhiItem::inputMethodQuery(query);
 }
 
 QQuickRhiItemRenderer* TerminalItem::createRenderer() {
