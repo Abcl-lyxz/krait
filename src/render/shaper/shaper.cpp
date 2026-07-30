@@ -134,6 +134,45 @@ const Shaper::FaceSlot* Shaper::find(std::uint32_t faceId) const {
     return it == m_faces.end() ? nullptr : &*it;
 }
 
+bool Shaper::rasterize(std::uint32_t faceId, std::uint32_t glyphId, GlyphBitmap& out) {
+    const FaceSlot* slot = find(faceId);
+    if (slot == nullptr) {
+        return false;
+    }
+    if (FT_Load_Glyph(slot->face, static_cast<FT_UInt>(glyphId),
+                      FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT) != 0) {
+        return false;
+    }
+    const FT_GlyphSlot glyph = slot->face->glyph;
+    const FT_Bitmap& bitmap = glyph->bitmap;
+    if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY) {
+        // A colour (CBDT/sbix) or monochrome strike. FreeType has no COLRv1
+        // rendering at all, so colour emoji is honestly out of scope here
+        // rather than half-supported; the caller draws nothing for this glyph.
+        return false;
+    }
+
+    out.width = static_cast<int>(bitmap.width);
+    out.height = static_cast<int>(bitmap.rows);
+    out.bearingX = glyph->bitmap_left;
+    out.bearingY = glyph->bitmap_top;
+    out.gray.assign(static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height), 0);
+
+    // Copy NOW: FreeType documents that "the address and content of the bitmap
+    // buffer can change between calls", so this must not be referenced later.
+    // A negative pitch means the rows run bottom-up.
+    const int pitch = bitmap.pitch;
+    for (int row = 0; row < out.height; ++row) {
+        const unsigned char* src =
+            pitch >= 0
+                ? bitmap.buffer + (static_cast<std::ptrdiff_t>(row) * pitch)
+                : bitmap.buffer + (static_cast<std::ptrdiff_t>(out.height - 1 - row) * -pitch);
+        std::copy_n(src, out.width,
+                    out.gray.begin() + (static_cast<std::ptrdiff_t>(row) * out.width));
+    }
+    return true;
+}
+
 ShapedRun Shaper::shape(const Run& run, std::uint32_t faceId, bool ligatures) {
     ShapedRun out;
     out.faceId = faceId;

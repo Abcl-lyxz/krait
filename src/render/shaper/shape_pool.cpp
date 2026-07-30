@@ -161,6 +161,11 @@ std::optional<FaceMetrics> ShapePool::metrics(std::uint32_t faceId) const {
     return m_local.metrics(faceId);
 }
 
+bool ShapePool::rasterize(std::uint32_t faceId, std::uint32_t glyphId, GlyphBitmap& out) {
+    const std::lock_guard lock(m_mutex);
+    return m_local.rasterize(faceId, glyphId, out);
+}
+
 const FaceSpec* ShapePool::specFor(std::uint32_t faceId) const {
     return faceId < m_specs.size() ? &m_specs[faceId] : nullptr;
 }

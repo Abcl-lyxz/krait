@@ -130,6 +130,12 @@ class ShapePool {
                   std::vector<ShapedRun>& out,
                   std::chrono::milliseconds timeout = std::chrono::milliseconds{8});
 
+    // Rasterises one glyph for the atlas, on the CALLING thread via the pool's
+    // own Shaper. Deliberately not a worker job: the atlas is owned by the
+    // renderer's prepare step and filling it is synchronous with the frame that
+    // needs the glyph, so a round trip would only add latency.
+    bool rasterize(std::uint32_t faceId, std::uint32_t glyphId, GlyphBitmap& out);
+
     unsigned workerCount() const { return static_cast<unsigned>(m_workers.size()); }
 
     std::size_t cacheSize() const;

@@ -1,11 +1,13 @@
 find_package(Catch2 3 CONFIG REQUIRED)
 
 add_executable(krait-core-tests
+    atlas_test.cpp
     grid_test.cpp
     modes_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
     fontdb_test.cpp
+    frame_builder_test.cpp
     session_test.cpp
     shaper_test.cpp
     smoke_test.cpp

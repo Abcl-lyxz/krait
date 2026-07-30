@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/atlas/glyph_atlas.h"  // GlyphBitmap
 #include "render/shaper/shaped_run.h"
 
 #include <cstdint>
@@ -69,6 +70,16 @@ class Shaper {
     // it is what actually produces the arrows in Fira Code and friends, and it
     // is on by default, so a toggle that only touched liga would look broken.
     ShapedRun shape(const Run& run, std::uint32_t faceId, bool ligatures);
+
+    // Rasterises one glyph into `out` for the atlas. False if the face is not
+    // loaded or FreeType cannot render the glyph.
+    //
+    // Hinting is LIGHT, which hints vertically only and leaves horizontal
+    // metrics alone. That is the pairing this design needs, not a preference:
+    // hb-ft reports UNHINTED advances (it loads with FT_LOAD_NO_HINTING), so a
+    // fully hinted raster would disagree with the positions the shaper already
+    // produced.
+    bool rasterize(std::uint32_t faceId, std::uint32_t glyphId, GlyphBitmap& out);
 
   private:
     struct FaceSlot {
