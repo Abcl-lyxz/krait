@@ -1,9 +1,8 @@
 #include "schema.h"
 
-#include <string>
-
 #include <algorithm>
 #include <array>
+#include <string>
 #include <type_traits>
 
 namespace krait::app::settings {

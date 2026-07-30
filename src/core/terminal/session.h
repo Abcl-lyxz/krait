@@ -45,6 +45,7 @@ class Session final : public ParserEvents {
     // because it only ever costs the user a paste they did not expect; read
     // costs them a secret they never sent.
     void allowClipboardRead(bool allow) noexcept { m_clipboardReadAllowed = allow; }
+
     bool clipboardReadAllowed() const noexcept { return m_clipboardReadAllowed; }
 
     // ParserEvents

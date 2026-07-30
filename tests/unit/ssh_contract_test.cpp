@@ -98,12 +98,15 @@ TEST_CASE("connect, authenticate, echo, and stop", "[net][ssh][contract]") {
     // prompt answer was thrown away and the connection hung for the full
     // five-minute timeout. The app's real path is queued through QML, where the
     // same race is just less likely rather than impossible.
-    QObject::connect(&backend, &SshBackend::hostKeyPrompt, &backend,
-                     [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
-    QObject::connect(&backend, &SshBackend::credentialPrompt, &backend,
-                     [&backend](const QString&, bool) {
-                         backend.respondCredential(QStringLiteral("correct-horse"), false);
-                     }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::hostKeyPrompt, &backend,
+        [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::credentialPrompt, &backend,
+        [&backend](const QString&, bool) {
+            backend.respondCredential(QStringLiteral("correct-horse"), false);
+        },
+        Qt::DirectConnection);
 
     REQUIRE(seam.start(80, 24));
     // Wait on EITHER outcome, then report the failure text. Waiting only on
@@ -155,12 +158,15 @@ TEST_CASE("a refused password lands on auth-failed, not a retry", "[net][ssh][co
 
     QSignalSpy errors(&backend, &IBackend::errorOccurred);
     QSignalSpy retries(&backend, &SshBackend::reconnecting);
-    QObject::connect(&backend, &SshBackend::hostKeyPrompt, &backend,
-                     [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
-    QObject::connect(&backend, &SshBackend::credentialPrompt, &backend,
-                     [&backend](const QString&, bool) {
-                         backend.respondCredential(QStringLiteral("wrong"), false);
-                     }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::hostKeyPrompt, &backend,
+        [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::credentialPrompt, &backend,
+        [&backend](const QString&, bool) {
+            backend.respondCredential(QStringLiteral("wrong"), false);
+        },
+        Qt::DirectConnection);
 
     REQUIRE(backend.start(80, 24));
     REQUIRE(waitFor([&] { return errors.count() > 0; }));
@@ -182,8 +188,10 @@ TEST_CASE("a changed host key blocks and never reconnects", "[net][ssh][contract
         SshTestServer server;
         REQUIRE(server.start({}));
         SshBackend backend(configFor(server, hosts), nullptr);
-        QObject::connect(&backend, &SshBackend::hostKeyPrompt, &backend,
-                         [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
+        QObject::connect(
+            &backend, &SshBackend::hostKeyPrompt, &backend,
+            [&backend](int, const QString&) { backend.respondHostKey(true); },
+            Qt::DirectConnection);
         QObject::connect(&backend, &SshBackend::credentialPrompt, &backend,
                          [&backend](const QString&, bool) {
                              backend.respondCredential(QStringLiteral("correct-horse"), false);
@@ -209,8 +217,9 @@ TEST_CASE("a changed host key blocks and never reconnects", "[net][ssh][contract
     QSignalSpy prompts(&backend, &SshBackend::hostKeyPrompt);
     QSignalSpy retries(&backend, &SshBackend::reconnecting);
     // Answering "yes" must not matter. There is no answer that continues.
-    QObject::connect(&backend, &SshBackend::hostKeyPrompt, &backend,
-                     [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::hostKeyPrompt, &backend,
+        [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
 
     REQUIRE(backend.start(80, 24));
     REQUIRE(waitFor([&] { return errors.count() > 0; }));
@@ -246,12 +255,15 @@ TEST_CASE("a peer that vanishes is retried, with the numbers said out loud",
     QSignalSpy errors(&backend, &IBackend::errorOccurred);
     QSignalSpy exits(&backend, &IBackend::exited);
     QSignalSpy retries(&backend, &SshBackend::reconnecting);
-    QObject::connect(&backend, &SshBackend::hostKeyPrompt, &backend,
-                     [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
-    QObject::connect(&backend, &SshBackend::credentialPrompt, &backend,
-                     [&backend](const QString&, bool) {
-                         backend.respondCredential(QStringLiteral("correct-horse"), false);
-                     }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::hostKeyPrompt, &backend,
+        [&backend](int, const QString&) { backend.respondHostKey(true); }, Qt::DirectConnection);
+    QObject::connect(
+        &backend, &SshBackend::credentialPrompt, &backend,
+        [&backend](const QString&, bool) {
+            backend.respondCredential(QStringLiteral("correct-horse"), false);
+        },
+        Qt::DirectConnection);
 
     REQUIRE(backend.start(80, 24));
     REQUIRE(waitFor([&] { return retries.count() > 0; }, 25000));

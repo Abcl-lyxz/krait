@@ -6,9 +6,9 @@
 #include <QObject>
 #include <QString>
 #include <QVariantList>
+#include <QtQml/qqmlregistration.h>
 
 #include <span>
-#include <QtQml/qqmlregistration.h>
 
 namespace krait::app {
 
