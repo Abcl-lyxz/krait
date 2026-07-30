@@ -137,7 +137,7 @@ TEST_CASE("scrollback: a flood keeps O(cap) memory", "[scrollback]") {
     }
 
     CHECK(sb.lineCount() == 64);
-    CHECK(sb.cellCount() <= 64 * 10);
+    CHECK(sb.cellCount() <= std::size_t{64} * 10);  // widen BEFORE multiplying
 }
 
 TEST_CASE("scrollback: one endless line cannot outgrow the cell budget", "[scrollback]") {
