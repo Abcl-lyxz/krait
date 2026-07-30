@@ -11,12 +11,15 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickGraphicsConfiguration>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QTimer>
+#include <QTranslator>
 
 namespace {
 
@@ -64,6 +67,33 @@ int main(int argc, char* argv[]) {
     registry.setWatching(true);
     qInfo("settings: %s (%s)", qPrintable(ks::configFilePath(configDir.dir)),
           qPrintable(ks::describeSource(configDir.source)));
+
+    // Language (T32). "system" follows the OS; "en"/"th" pin it. Installed
+    // BEFORE the QML engine loads, because qsTr() bindings evaluate as objects
+    // are created and a translator installed afterwards leaves the first window
+    // in English until something re-evaluates.
+    const std::string language = registry.text("ui.language");
+    const QLocale locale = language == "system" || language.empty()
+                               ? QLocale()
+                               : QLocale(QString::fromStdString(language));
+    QTranslator appTranslator;
+    const bool translationsLoaded = appTranslator.load(
+        locale, QStringLiteral("krait"), QStringLiteral("_"), QStringLiteral(":/i18n"));
+    if (translationsLoaded) {
+        QGuiApplication::installTranslator(&appTranslator);
+    }
+    // Qt's own strings (standard dialogs, shortcuts) come from a separate
+    // catalogue; without it a Thai UI is Thai with English scattered through it.
+    QTranslator qtTranslator;
+    if (qtTranslator.load(locale, QStringLiteral("qtbase"), QStringLiteral("_"),
+                          QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
+        QGuiApplication::installTranslator(&qtTranslator);
+    }
+    // Says whether the catalogue actually loaded, not just which locale was
+    // asked for. A missing .qm is silent otherwise: the UI is simply in English
+    // and nothing anywhere says why.
+    qInfo("locale: %s (setting '%s'), krait translations %s", qPrintable(locale.name()),
+          language.c_str(), translationsLoaded ? "loaded" : "NOT FOUND");
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("benchMode", qEnvironmentVariableIsSet("KRAIT_BENCH"));

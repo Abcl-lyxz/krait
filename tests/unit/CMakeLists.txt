@@ -3,7 +3,7 @@ find_package(Catch2 3 CONFIG REQUIRED)
 # Qt6::Gui visible here — and the DL_PATHS below needs it by name.
 # Qt6::Test is for QSignalSpy only — the settings tests assert which signals
 # fired, and hand-rolling that is more code than the dependency.
-find_package(Qt6 6.8 REQUIRED COMPONENTS Gui ShaderTools Test)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Gui ShaderTools Test Xml)
 
 add_executable(krait-core-tests
     atlas_test.cpp
@@ -32,13 +32,14 @@ catch_discover_tests(krait-core-tests)
 add_executable(krait-qt-tests
     error_banner_test.cpp
     gpu_resources_test.cpp
+    i18n_test.cpp
     ime_test.cpp
     keymap_test.cpp
     paste_test.cpp
     settings_test.cpp
 )
 target_link_libraries(krait-qt-tests
-    PRIVATE krait-render krait-input krait-settings Qt6::Test Catch2::Catch2WithMain)
+    PRIVATE krait-render krait-input krait-settings Qt6::Test Qt6::Xml Catch2::Catch2WithMain)
 
 # The real shaders, not stubs: QRhi's FRONTEND rejects an empty QShader
 # ("Empty shader passed to graphics pipeline") before any backend sees it, even
@@ -60,4 +61,10 @@ qt_add_shaders(krait-qt-tests "krait-qt-test-shaders"
 # DL_PATHS, not a PATH set on the tests: Catch2 RUNS the binary at build time to
 # enumerate cases, so without Qt6Gui.dll findable then, the build fails with
 # "Error listing tests from executable" long before ctest gets a turn.
+# The i18n gate reads the .ts files from the SOURCE tree, the same way the
+# corpus harness reads its .case files: the rule is about what is committed,
+# not about what a build happened to generate.
+target_compile_definitions(krait-qt-tests
+    PRIVATE KRAIT_I18N_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../src/app/i18n")
+
 catch_discover_tests(krait-qt-tests DL_PATHS "$<TARGET_FILE_DIR:Qt6::Gui>")

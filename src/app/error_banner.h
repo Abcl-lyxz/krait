@@ -28,37 +28,44 @@ struct ErrorBanner {
 };
 
 inline ErrorBanner describeError(net::ErrorCode code) {
-    const auto translate = [](const char* text) {
-        return QCoreApplication::translate("ErrorBanner", text);
-    };
+    // QCoreApplication::translate is called DIRECTLY at each site, not through
+    // a local helper. lupdate extracts string literals passed straight to the
+    // call and cannot see through one more level of indirection — with a
+    // `translate(...)` lambda every one of these silently never reaches the
+    // .ts file, and ships untranslated with nothing to show that it did.
     switch (code) {
     case net::ErrorCode::PtyCreateFailed:
         return {
             .severity = QStringLiteral("error"),
-            .message = translate("Could not create the pseudoconsole."),
-            .hint = translate("The bundled OpenConsole may be missing from the openconsole "
-                              "folder beside Krait."),
+            .message =
+                QCoreApplication::translate("ErrorBanner", "Could not create the pseudoconsole."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner", "The bundled OpenConsole may be missing from the openconsole "
+                               "folder beside Krait."),
             .sessionEnded = true,
         };
     case net::ErrorCode::SpawnFailed:
         return {
             .severity = QStringLiteral("error"),
-            .message = translate("Could not start the shell."),
-            .hint = translate("Check that the configured shell exists and is executable."),
+            .message = QCoreApplication::translate("ErrorBanner", "Could not start the shell."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner", "Check that the configured shell exists and is executable."),
             .sessionEnded = true,
         };
     case net::ErrorCode::IoFailed:
         return {
             .severity = QStringLiteral("error"),
-            .message = translate("Lost contact with the shell."),
+            .message = QCoreApplication::translate("ErrorBanner", "Lost contact with the shell."),
             .hint = {},
             .sessionEnded = true,
         };
     case net::ErrorCode::PeerClosed:
         return {
             .severity = QStringLiteral("error"),
-            .message = translate("The session ended unexpectedly."),
-            .hint = translate("The console host closed while the shell was still running."),
+            .message =
+                QCoreApplication::translate("ErrorBanner", "The session ended unexpectedly."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner", "The console host closed while the shell was still running."),
             .sessionEnded = true,
         };
     }
@@ -67,7 +74,7 @@ inline ErrorBanner describeError(net::ErrorCode code) {
     // at COMPILE time rather than land here at runtime with a vague message.
     return {
         .severity = QStringLiteral("error"),
-        .message = translate("The session failed."),
+        .message = QCoreApplication::translate("ErrorBanner", "The session failed."),
         .hint = {},
         .sessionEnded = true,
     };

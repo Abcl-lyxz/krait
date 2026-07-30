@@ -2,7 +2,7 @@
 # preset). Pin is 6.11.1 (ADR-0001); floor is 6.7 (QQuickRhiItem) so the
 # spike also builds against the machine's 6.10.3 while the 6.11.1 mirror
 # download is flaky — flip CMAKE_PREFIX_PATH when it lands.
-find_package(Qt6 6.8 REQUIRED COMPONENTS Gui GuiPrivate Quick ShaderTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Gui GuiPrivate Quick ShaderTools LinguistTools)
 find_package(freetype CONFIG REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.8)
@@ -67,6 +67,28 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # T23/T24/T25 render pipeline the spike path was replaced with.
 target_link_libraries(krait-app
     PRIVATE krait-core krait-render krait-input krait-settings Qt6::Quick Qt6::GuiPrivate freetype)
+
+# Translations (plan T32). EN and TH ship together: rules/ui.md makes Thai a
+# first-class locale, not an afterthought, so a string that lands without both
+# is incomplete work.
+#
+# SOURCE_TARGETS is explicit rather than left to automatic collection: the
+# automatic path scans every target in the project, which would sweep in the
+# test binaries and put Catch2 assertion text in the translator's file.
+#
+# The .qm files are embedded under ":/i18n", so a portable copy carries its own
+# translations instead of depending on files next to the exe.
+qt_add_translations(krait-app
+    SOURCE_TARGETS krait-app krait-input krait-settings
+    TS_FILES
+        i18n/krait_en.ts
+        i18n/krait_th.ts
+    # error_banner.h is header-only, so it belongs to no target's source list
+    # and lupdate would never see it — every backend error message would ship
+    # untranslated with nothing to show for it.
+    SOURCES error_banner.h
+    RESOURCE_PREFIX "/i18n"
+)
 
 # ADR-0011: the bundled ConPTY rides next to the exe; the backend refuses
 # to run without it.
