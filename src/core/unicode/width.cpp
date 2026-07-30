@@ -116,6 +116,33 @@ bool ClusterIterator::next(Cluster& out) noexcept {
     return true;
 }
 
+bool ClusterBreaker::startsNewCluster(char32_t cp) noexcept {
+    if (!m_hasPrev) {
+        m_prev = cp;
+        m_hasPrev = true;
+        return true;  // nothing to extend
+    }
+    bool breaks = true;
+    if (isScalarValue(m_prev) && isScalarValue(cp)) {
+        breaks =
+            utf8proc_grapheme_break_stateful(static_cast<utf8proc_int32_t>(m_prev),
+                                             static_cast<utf8proc_int32_t>(cp), &m_breakState) != 0;
+    } else {
+        // Never hand utf8proc a non-scalar. It is a boundary, and the state
+        // built up across it describes codepoints that are no longer adjacent
+        // to anything — carrying it forward would mis-arm GB12/13.
+        m_breakState = 0;
+    }
+    m_prev = cp;
+    return breaks;
+}
+
+void ClusterBreaker::reset() noexcept {
+    m_prev = 0;
+    m_hasPrev = false;
+    m_breakState = 0;
+}
+
 const char* unicodeVersion() noexcept {
     return utf8proc_unicode_version();
 }

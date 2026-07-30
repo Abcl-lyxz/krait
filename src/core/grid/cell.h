@@ -51,6 +51,35 @@ struct Attr {
     friend bool operator==(const Attr&, const Attr&) = default;
 };
 
+// Unicode's scalar range stops at U+10FFFF, so the top of char32_t's 32 bits is
+// permanently unreachable by any legal codepoint. T20 spends two of those spare
+// bits rather than growing Cell, which is what keeps the T17 ponytail note below
+// achievable: cluster storage and wide cells cost ZERO extra bytes, so T21 can
+// still pack Color and land Cell at 20.
+//
+// The three states a written `ch` can be in:
+//   ch <= 0x10FFFF      a literal single-codepoint cluster (the common case)
+//   ch == kWideTrailing the right-hand cell of a 2-column cluster. Owns nothing;
+//                       the cluster itself lives in the cell to its LEFT.
+//   ch &  kClusterTag   a multi-codepoint cluster; the low bits index the
+//                       Grid's ClusterPool.
+// Zero still means "never written" and is none of the three.
+inline constexpr char32_t kWideTrailing = 0x8000'0000U;
+inline constexpr char32_t kClusterTag = 0x4000'0000U;
+inline constexpr char32_t kClusterMask = 0x3FFF'FFFFU;
+
+constexpr bool isWideTrailing(char32_t ch) noexcept {
+    return ch == kWideTrailing;
+}
+
+constexpr bool isClusterRef(char32_t ch) noexcept {
+    return (ch & kClusterTag) != 0;
+}
+
+constexpr std::uint32_t clusterRefIndex(char32_t ch) noexcept {
+    return static_cast<std::uint32_t>(ch & kClusterMask);
+}
+
 // One grid cell. ch == 0 means "never written / erased" (erasure resets the
 // cell to defaults; BCE is undecided until the real grid, see conformance).
 //

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "core/grid/cell.h"
+#include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
 #include "core/grid/line.h"
+#include "core/unicode/width.h"
 
 #include <array>
 #include <cstddef>
@@ -44,6 +46,12 @@ class Grid {
     int bells = 0;
     Attr pen;
     DamageList damage;
+
+    // East-Asian-Ambiguous resolution for every width this grid measures.
+    // There is no right default, only a per-session setting (width.h): T31
+    // wires it to the settings registry and mode 2027 is how an application
+    // negotiates it. Never guess per-codepoint at a call site.
+    unicode::Ambiguous ambiguous = unicode::Ambiguous::Narrow;
 
     // Scrolling region (DECSTBM), 0-based and INCLUSIVE. Defaults to the whole
     // screen. DEC VT510: "You cannot perform scrolling outside the margins."
@@ -108,7 +116,21 @@ class Grid {
     const Line& lineAt(int r) const;
 
     // Writes at the cursor with the current pen, honoring deferred wrap.
+    //
+    // Takes ONE codepoint because that is what the parser produces, but the
+    // unit it stores is a grapheme CLUSTER (rules/vt-core.md). A codepoint that
+    // continues the cluster already under the cursor — a combining mark, a
+    // variation selector, a ZWJ join, the second half of a flag — extends that
+    // cell instead of claiming a new one, and a 2-column cluster claims a
+    // second cell marked kWideTrailing. Both are why the cursor can advance by
+    // 0, 1 or 2 columns for a single call.
     void putChar(char32_t ch);
+
+    // The table behind cells whose ch carries kClusterTag. Exposed so the
+    // renderer (and tests) can resolve a cell back to its codepoints without
+    // this class having to hand out spans with a lifetime attached.
+    const ClusterPool& clusters() const { return m_clusters; }
+
     // Cursor down one row; scrolls (into scrollback) at the bottom.
     void linefeed();
 
@@ -116,14 +138,37 @@ class Grid {
 
     const Line& scrollbackAt(std::size_t i) const { return m_scrollback[i]; }
 
-    // Naive until M1 reflow: rows shrink pushes top lines into scrollback,
-    // growth appends blank rows; column changes truncate/pad each row in
-    // place (wrap flags kept, content NOT rewrapped). Cursor clamped.
+    // Rows: shrinking retires lines off the TOP (into scrollback for the
+    // active buffer), growth appends blank rows at the bottom.
+    //
+    // Columns: the NORMAL screen is rewrapped (reflow.h) — logical lines are
+    // rejoined and re-split, and the cursor rides along. The alternate screen
+    // is only truncated/padded: a full-screen application owns that viewport
+    // and redraws it on SIGWINCH, so rewrapping it would fight the redraw.
     void resize(int newRows, int newCols);
 
   private:
     // Retires a line off the top of the screen into scrollback.
     void pushToScrollback(Line&& line);
+
+    // putChar's three phases, split out because the wrap rules differ between
+    // starting a cluster and extending one.
+    void wrapToNextRow();
+    void beginCluster(char32_t ch);
+    void appendToCluster(char32_t ch);
+    void advanceCursor(int width);
+
+    // Forgets which cell the current cluster lives in, without disturbing the
+    // break state. Anything that moves CONTENT under a settled cursor must call
+    // this — a scroll, an erase, a buffer swap — or a following combining mark
+    // lands on whatever moved into that cell.
+    void resetClusterAnchor();
+
+    // Bound on one cell's cluster. Hostile input can emit combining marks
+    // forever; past this the tail is dropped rather than allowed to grow a
+    // per-cell allocation without limit. Well past any real Thai syllable or
+    // ZWJ emoji sequence.
+    static constexpr std::size_t kMaxClusterLen = 16;
 
     std::vector<Line> m_screen;
     std::deque<Line> m_scrollback;
@@ -132,6 +177,24 @@ class Grid {
     std::vector<Line> m_altScreen;
     std::array<SavedCursor, 2> m_saved{};  // [0] normal, [1] alternate
     bool m_onAlt = false;
+
+    ClusterPool m_clusters;
+    unicode::ClusterBreaker m_breaker;
+
+    // The cluster currently being built, and the cell that owns it.
+    std::array<char32_t, kMaxClusterLen> m_cluster{};
+    std::size_t m_clusterLen = 0;
+    int m_clusterRow = -1;
+    int m_clusterCol = -1;
+
+    // Where putChar left the cursor last time. A cluster cannot span a cursor
+    // jump, and rather than reset the breaker at every site that moves the
+    // cursor — CUP, CR, BS, tabs, DECRC, and every one added later — putChar
+    // notices the cursor is no longer where it left it. Self-healing, and
+    // impossible for a new sequence handler to forget.
+    int m_lastRow = -1;
+    int m_lastCol = -1;
+    bool m_lastWrap = false;
 };
 
 }  // namespace krait::core::vt
