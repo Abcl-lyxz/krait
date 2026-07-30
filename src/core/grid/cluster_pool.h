@@ -30,6 +30,16 @@ class ClusterPool {
   public:
     static constexpr std::uint32_t kMaxClusters = 65'536;
 
+    ClusterPool() = default;
+    // Non-copyable on purpose: m_index's keys are views into m_clusters, and a
+    // copy would carry keys pointing into the ORIGINAL's strings — dangling the
+    // moment it outlives them. Moving is fine, deque hands over its buffer
+    // without relocating elements.
+    ClusterPool(const ClusterPool&) = delete;
+    ClusterPool& operator=(const ClusterPool&) = delete;
+    ClusterPool(ClusterPool&&) = default;
+    ClusterPool& operator=(ClusterPool&&) = default;
+
     // Returns the char32_t to store in a Cell. Single-codepoint clusters are
     // returned as-is and never occupy a slot, so the common case allocates
     // nothing at all.

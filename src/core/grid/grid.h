@@ -184,6 +184,11 @@ class Grid {
     // The cluster currently being built, and the cell that owns it.
     std::array<char32_t, kMaxClusterLen> m_cluster{};
     std::size_t m_clusterLen = 0;
+    // What we last STORED in the anchored cell. The cursor check below cannot
+    // see ED/EL: they rewrite cells without moving the cursor, so the position
+    // triple still matches and a following mark would resurrect an erased cell.
+    // Re-reading the cell and comparing is the check that actually holds.
+    char32_t m_clusterCh = 0;
     int m_clusterRow = -1;
     int m_clusterCol = -1;
 

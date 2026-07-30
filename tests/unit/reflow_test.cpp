@@ -258,6 +258,41 @@ TEST_CASE("grid: a wide cluster wraps whole rather than straddling the edge", "[
     CHECK(isWideTrailing(g.cellAt(1, 1).ch));
 }
 
+TEST_CASE("grid: an erased cell does not come back as a cluster", "[reflow][cluster]") {
+    // ED/EL rewrite cells WITHOUT moving the cursor, so putChar's position
+    // check cannot see them. Found by review, not by the cursor-jump test
+    // above: appending anyway resurrected the erased glyph.
+    Grid g(2, 8);
+    g.putChar(U'a');
+    g.cellAt(0, 0) = {};  // what ED/EL do to the cell
+    g.putChar(0x0301);
+
+    CHECK(g.cellAt(0, 0).ch == 0);
+}
+
+TEST_CASE("reflow: places a cursor parked on a wide trailing half", "[reflow]") {
+    // k steps by 2 over a pair, so an offset landing on the trailing half
+    // never equals k and used to fall through to the past-content branch.
+    Line row(8);
+    for (std::size_t i = 0; i < 8; i += 2) {
+        row.cells[i].ch = 0x4E00;
+        row.cells[i + 1].ch = kWideTrailing;
+    }
+    std::vector<Line> rows{std::move(row)};
+
+    const ReflowResult out = reflow(rows, 4, 0, 3);  // cursor on a trailing half
+    CHECK(out.cursorRow == 0);
+    CHECK(out.cursorCol == 3);
+}
+
+TEST_CASE("reflow: keeps row 0's wrap flag when its head is already history", "[reflow]") {
+    std::vector<Line> rows{makeLine(U"tail.", 5, true)};
+
+    const ReflowResult out = reflow(rows, 5, -1, 0);
+    REQUIRE(out.lines.size() == 1);
+    CHECK(out.lines[0].wrappedFromPrev);
+}
+
 TEST_CASE("grid: a stored cluster survives a resize", "[reflow][cluster]") {
     Grid g(3, 6);
     for (char32_t ch : {U'a', U'b', U'c', U'd'}) {

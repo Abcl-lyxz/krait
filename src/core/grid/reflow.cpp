@@ -62,7 +62,10 @@ ReflowResult reflow(std::span<const Line> rows, int newCols, int cursorRow, int 
 
         std::vector<Cell> pending;
         pending.reserve(ucols);
-        bool continuation = false;
+        // Screen row 0 may legitimately continue a line whose head already
+        // scrolled into history. We cannot rejoin it, but clearing its flag
+        // would destroy the wrap point T8 recorded for T21 to join against.
+        bool continuation = first == 0 && rows[0].wrappedFromPrev;
 
         auto flushRow = [&]() {
             Line line(cols);
@@ -87,10 +90,18 @@ ReflowResult reflow(std::span<const Line> rows, int newCols, int cursorRow, int 
                 flushRow();
                 continuation = true;
             }
+            // Match the whole cluster, not just its lead: k steps by 2 over a
+            // wide pair, so a cursor parked on the TRAILING half would never
+            // equal k and would fall through to the past-content branch below.
+            const auto step = static_cast<long long>(wide ? 2 : 1);
             if (joined.cursorOffset >= 0 && !cursorPlaced &&
-                static_cast<long long>(k) == joined.cursorOffset) {
+                joined.cursorOffset >= static_cast<long long>(k) &&
+                joined.cursorOffset < static_cast<long long>(k) + step) {
                 out.cursorRow = static_cast<int>(out.lines.size());
-                out.cursorCol = static_cast<int>(pending.size());
+                out.cursorCol =
+                    static_cast<int>(pending.size()) +
+                    (keepPair ? static_cast<int>(joined.cursorOffset - static_cast<long long>(k))
+                              : 0);
                 cursorPlaced = true;
             }
             pending.push_back(joined.cells[k]);
@@ -106,13 +117,13 @@ ReflowResult reflow(std::span<const Line> rows, int newCols, int cursorRow, int 
         if (joined.cursorOffset >= 0 && !cursorPlaced) {
             long long pos = static_cast<long long>(pending.size()) +
                             (joined.cursorOffset - static_cast<long long>(contentEnd));
-            auto rowIndex = static_cast<long long>(out.lines.size());
-            while (pos >= cols) {
-                pos -= cols;
-                ++rowIndex;
-            }
-            out.cursorRow = static_cast<int>(rowIndex);
-            out.cursorCol = static_cast<int>(std::max(0LL, pos));
+            // Clamp into the row this logical line actually ends on. Spilling
+            // onto rows we never emit would report the cursor inside the NEXT
+            // logical line, and would inflate the caller's "keep at least this
+            // many rows" floor enough to disable blank-row absorption.
+            pos = std::clamp(pos, 0LL, static_cast<long long>(cols) - 1);
+            out.cursorRow = static_cast<int>(out.lines.size());
+            out.cursorCol = static_cast<int>(pos);
             cursorPlaced = true;
         }
 

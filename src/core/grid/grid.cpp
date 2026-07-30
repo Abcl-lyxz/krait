@@ -103,6 +103,7 @@ void Grid::resetClusterAnchor() {
     m_clusterRow = -1;
     m_clusterCol = -1;
     m_clusterLen = 0;
+    m_clusterCh = 0;
 }
 
 void Grid::wrapToNextRow() {
@@ -158,6 +159,7 @@ void Grid::beginCluster(char32_t ch) {
     m_clusterCol = col;
     m_cluster[0] = ch;
     m_clusterLen = 1;
+    m_clusterCh = ch;
     advanceCursor(width);
 }
 
@@ -165,11 +167,20 @@ void Grid::appendToCluster(char32_t ch) {
     if (m_clusterLen >= kMaxClusterLen) {
         return;  // bounded; see kMaxClusterLen
     }
+    // ED/EL rewrite cells without moving the cursor, so putChar's position
+    // check cannot see them. If the anchored cell no longer holds what we put
+    // there, it was erased or overwritten and this mark has nothing to join —
+    // appending anyway would resurrect an erased cell with a stale glyph.
+    Cell& lead = cellAt(m_clusterRow, m_clusterCol);
+    if (lead.ch != m_clusterCh) {
+        resetClusterAnchor();
+        return;
+    }
     m_cluster[m_clusterLen] = ch;
     ++m_clusterLen;
 
-    Cell& lead = cellAt(m_clusterRow, m_clusterCol);
-    lead.ch = m_clusters.intern({m_cluster.data(), m_clusterLen});
+    m_clusterCh = m_clusters.intern({m_cluster.data(), m_clusterLen});
+    lead.ch = m_clusterCh;
     damage.mark(m_clusterRow, m_clusterCol, m_clusterCol);
 
     // A continuation can WIDEN what it joins: VS16 promotes a text-presentation
@@ -359,6 +370,14 @@ void Grid::resize(int newRows, int newCols) {
     // a resize taken while a full-screen app owns the alternate one.
     if (!m_altScreen.empty()) {
         while (m_altScreen.size() > static_cast<std::size_t>(newRows)) {
+            // When the alternate screen is up, THIS vector holds the normal
+            // buffer — and a narrowing rewrap can have just grown it past the
+            // screen. Those are real scrollback lines: dropping them would eat
+            // the top of the user's shell output the moment they resized a
+            // window inside vim. Only genuine alternate-screen rows are lost.
+            if (m_onAlt) {
+                pushToScrollback(std::move(m_altScreen.front()));
+            }
             m_altScreen.erase(m_altScreen.begin());
         }
         while (m_altScreen.size() < static_cast<std::size_t>(newRows)) {
