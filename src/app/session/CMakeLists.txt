@@ -8,10 +8,14 @@
 find_package(tomlplusplus CONFIG REQUIRED)
 
 add_library(krait-session STATIC
+    actions.cpp
+    actions.h
     cli.cpp
     cli.h
     fuzzy.cpp
     fuzzy.h
+    palette.cpp
+    palette.h
     profile.cpp
     profile.h
     putty_import.cpp

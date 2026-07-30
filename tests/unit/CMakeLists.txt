@@ -10,6 +10,7 @@ add_executable(krait-core-tests
     cli_test.cpp
     grid_test.cpp
     modes_test.cpp
+    palette_test.cpp
     osc_test.cpp
     profile_test.cpp
     putty_import_test.cpp
