@@ -4,6 +4,7 @@
 
 using krait::core::vt::Grid;
 using krait::core::vt::isWideTrailing;
+using krait::core::vt::Scrollback;
 
 TEST_CASE("grid: deferred wrap at the right margin", "[grid]") {
     Grid g(4, 10);
@@ -336,12 +337,14 @@ TEST_CASE("grid: resize clamps to at least 1x1", "[grid]") {
     CHECK(g.cellAt(0, 0).ch == U'a');
 }
 
-TEST_CASE("grid: scrollback caps at kMaxScrollback", "[grid]") {
+TEST_CASE("grid: scrollback caps at the ring's line limit", "[grid]") {
+    // T21 moved the cap onto Scrollback, which counts LOGICAL lines and also
+    // bounds total cells — see scrollback_test.cpp for the second bound.
     Grid g(2, 2);
-    for (std::size_t i = 0; i < Grid::kMaxScrollback + 50; ++i) {
+    for (std::size_t i = 0; i < Scrollback::kDefaultMaxLines + 50; ++i) {
         g.linefeed();
     }
-    CHECK(g.scrollbackSize() == Grid::kMaxScrollback);
+    CHECK(g.scrollbackSize() == Scrollback::kDefaultMaxLines);
 }
 
 TEST_CASE("grid: naive resize keeps content near the cursor", "[grid]") {
