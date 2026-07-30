@@ -146,7 +146,7 @@ void Grid::scrollRegionUp(int n) {
         // no visual character attributes") and no wrap flag.
         for (int r = scrollTop; r < scrollBottom; ++r) {
             m_screen[static_cast<std::size_t>(r)] =
-                std::move(m_screen[static_cast<std::size_t>(r + 1)]);
+                std::move(m_screen[static_cast<std::size_t>(r) + 1]);
         }
         m_screen[static_cast<std::size_t>(scrollBottom)] = Line(cols);
     }
@@ -167,14 +167,18 @@ void Grid::scrollRegionDown(int n) {
         // above the screen, never below it.
         for (int r = scrollBottom; r > scrollTop; --r) {
             m_screen[static_cast<std::size_t>(r)] =
-                std::move(m_screen[static_cast<std::size_t>(r - 1)]);
+                std::move(m_screen[static_cast<std::size_t>(r) - 1]);
         }
         m_screen[static_cast<std::size_t>(scrollTop)] = Line(cols);
     }
     // A blank line was inserted at the top of the region, so the row below the
     // inserted block must not claim to continue it.
     if (scrollTop + n <= scrollBottom) {
-        m_screen[static_cast<std::size_t>(scrollTop + n)].wrappedFromPrev = false;
+        // Widen each operand BEFORE adding, not the sum: clang-tidy's
+        // bugprone-misplaced-widening-cast gates the build, and it is right that
+        // int arithmetic overflowing before a widening cast is a real bug class.
+        m_screen[static_cast<std::size_t>(scrollTop) + static_cast<std::size_t>(n)]
+            .wrappedFromPrev = false;
     }
     damage.markAll();
 }
