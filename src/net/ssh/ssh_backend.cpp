@@ -39,7 +39,7 @@ namespace {
 // nothing measurable. The alternative is an ssh_event loop woken by a socket
 // pair — real code, for latency nobody can feel.
 constexpr int kPollMs = 20;
-constexpr std::size_t kReadChunk = 16 * 1024;
+constexpr std::size_t kReadChunk = std::size_t{16} * 1024;
 
 // A human has this long to answer a host-key or password prompt before the
 // connection gives up. rules/cpp.md: every wait has a timeout.

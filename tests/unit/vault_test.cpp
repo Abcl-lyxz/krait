@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -21,7 +22,13 @@ class TempFile {
     explicit TempFile(std::string name)
         : m_path((std::filesystem::temp_directory_path() / std::move(name)).string()) {}
 
-    ~TempFile() { std::filesystem::remove(m_path); }
+    ~TempFile() {
+        // The error_code overload: the throwing one makes this destructor a
+        // throwing destructor, and a temp file that will not delete is not
+        // worth terminating a test run over.
+        std::error_code ignored;
+        std::filesystem::remove(m_path, ignored);
+    }
 
     TempFile(const TempFile&) = delete;
     TempFile& operator=(const TempFile&) = delete;

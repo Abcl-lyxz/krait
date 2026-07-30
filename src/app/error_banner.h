@@ -68,6 +68,54 @@ inline ErrorBanner describeError(net::ErrorCode code) {
                 "ErrorBanner", "The console host closed while the shell was still running."),
             .sessionEnded = true,
         };
+    case net::ErrorCode::ConnectFailed:
+        return {
+            .severity = QStringLiteral("error"),
+            .message = QCoreApplication::translate("ErrorBanner", "Could not reach the server."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner", "Check the host name and port, and that the network is up."),
+            .sessionEnded = true,
+        };
+    case net::ErrorCode::HostKeyChanged:
+        // The one banner in the app that is a WARNING rather than a report.
+        // rules/net.md: a changed host key is blocking, and the explanation is
+        // in plain language — someone who does not know what a host key is has
+        // to be able to tell "the admin rebuilt the box" from "do not type your
+        // password". No hint suggests continuing, because there is no way to.
+        return {
+            .severity = QStringLiteral("danger"),
+            .message = QCoreApplication::translate(
+                "ErrorBanner",
+                "This server is presenting a different identity than the one Krait remembers."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner",
+                "That happens when a server is rebuilt or its key is replaced — and it is also "
+                "what an interception looks like. Ask whoever runs the server before you "
+                "connect again, and do not type a password until you have."),
+            .sessionEnded = true,
+        };
+    case net::ErrorCode::HostKeyRejected:
+        return {
+            .severity = QStringLiteral("error"),
+            .message = QCoreApplication::translate(
+                "ErrorBanner", "The server's identity was not accepted, so nothing was sent "
+                               "to it."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner",
+                "Compare the fingerprint with one you got from a source other than this "
+                "connection, then try again."),
+            .sessionEnded = true,
+        };
+    case net::ErrorCode::AuthFailed:
+        return {
+            .severity = QStringLiteral("error"),
+            .message = QCoreApplication::translate("ErrorBanner",
+                                                   "The server did not accept these credentials."),
+            .hint = QCoreApplication::translate(
+                "ErrorBanner", "Check the user name, and whether this profile should be using a "
+                               "key or the agent instead of a password."),
+            .sessionEnded = true,
+        };
     }
     // Reached only for a value outside the enum. There is no `default:` label
     // on purpose: adding a code has to break this switch's exhaustiveness check

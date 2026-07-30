@@ -22,12 +22,12 @@ constexpr std::uint32_t kVaultVersion = 1;
 // is parsed as hostile input (rules/net.md): every length is bounded and
 // checked against what is actually left before a single byte is allocated.
 constexpr std::uint32_t kMaxKeyLen = 256;
-constexpr std::uint32_t kMaxBlobLen = 64u * 1024u;
+constexpr std::uint32_t kMaxBlobLen = std::uint32_t{64} * 1024;
 constexpr std::size_t kMaxEntries = 4096;
 
 // A passphrase does not need to be larger than this, and a size read from a
 // file must never become an allocation request.
-constexpr std::size_t kMaxSecretLen = 16u * 1024u;
+constexpr std::size_t kMaxSecretLen = std::size_t{16} * 1024;
 
 void wipe(void* data, std::size_t size) {
     if (data != nullptr && size > 0) {
@@ -96,9 +96,12 @@ Secret& Secret::operator=(Secret&& other) noexcept {
 }
 
 void Secret::clear() {
+    // No shrink_to_fit. It may reallocate, and therefore may throw, which makes
+    // ~Secret and the move-assignment throwing functions that are declared not
+    // to be. The buffer it would release has just been zeroed anyway, and the
+    // destructor frees it for real a moment later.
     wipe(m_bytes.data(), m_bytes.size());
     m_bytes.clear();
-    m_bytes.shrink_to_fit();
 }
 
 bool Vault::load(const std::string& path) {
