@@ -10,6 +10,7 @@ add_executable(krait-core-tests
     grid_test.cpp
     modes_test.cpp
     profile_test.cpp
+    putty_import_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
     fontdb_test.cpp

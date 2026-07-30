@@ -12,6 +12,8 @@ add_library(krait-session STATIC
     fuzzy.h
     profile.cpp
     profile.h
+    putty_import.cpp
+    putty_import.h
 )
 target_include_directories(krait-session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
