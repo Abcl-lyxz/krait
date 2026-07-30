@@ -4,6 +4,7 @@
 #include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
 #include "core/grid/line.h"
+#include "core/grid/scrollback.h"
 #include "core/unicode/width.h"
 
 #include <array>
@@ -33,8 +34,6 @@ struct SavedCursor {
 // NEXT printable wraps. Cursor movement clears pendingWrap.
 class Grid {
   public:
-    static constexpr std::size_t kMaxScrollback = 10'000;  // lines; ring cap
-
     Grid(int rowCount, int colCount);
 
     int rows;  // visual screen size
@@ -134,9 +133,36 @@ class Grid {
     // Cursor down one row; scrolls (into scrollback) at the bottom.
     void linefeed();
 
-    std::size_t scrollbackSize() const { return m_scrollback.size(); }
+    std::size_t scrollbackSize() const { return m_scrollback.lineCount(); }
 
-    const Line& scrollbackAt(std::size_t i) const { return m_scrollback[i]; }
+    const Line& scrollbackAt(std::size_t i) const { return m_scrollback.lineAt(i); }
+
+    // History, for the viewport and for whoever sets the per-tab cap (T31).
+    const Scrollback& scrollback() const { return m_scrollback; }
+
+    Scrollback& scrollback() { return m_scrollback; }
+
+    // How far the viewport is scrolled UP into history, in visual rows. 0 is
+    // the live screen. Clamped to what history can actually supply, so a wheel
+    // spin at the top is a no-op rather than a blank screen.
+    int viewOffset() const { return m_viewOffset; }
+
+    // Scrolls the viewport by `delta` rows (positive = back into history) and
+    // returns whether it actually moved. Damage is marked only when it did:
+    // a no-op scroll must not cost a full repaint every wheel tick.
+    bool scrollView(int delta);
+
+    // Snaps the viewport back to the live screen. Plain output does NOT call
+    // this: a reader scrolled up keeps their place, and pushToScrollback
+    // follows the content so it does not shift under them. It is for the input
+    // path (T27: a keypress snaps to the bottom, as every terminal does).
+    // Anything that invalidates row offsets wholesale — a buffer swap, a
+    // resize — resets the offset directly rather than through here.
+    void scrollViewToBottom();
+
+    // The rows to DRAW, top to bottom: history rows first when scrolled up,
+    // then as much of the live screen as still fits.
+    std::vector<Line> viewportRows() const;
 
     // Rows: shrinking retires lines off the TOP (into scrollback for the
     // active buffer), growth appends blank rows at the bottom.
@@ -150,6 +176,9 @@ class Grid {
   private:
     // Retires a line off the top of the screen into scrollback.
     void pushToScrollback(Line&& line);
+
+    // Furthest the viewport may scroll back, in visual rows.
+    int maxViewOffset() const;
 
     // putChar's three phases, split out because the wrap rules differ between
     // starting a cluster and extending one.
@@ -171,7 +200,8 @@ class Grid {
     static constexpr std::size_t kMaxClusterLen = 16;
 
     std::vector<Line> m_screen;
-    std::deque<Line> m_scrollback;
+    Scrollback m_scrollback;
+    int m_viewOffset = 0;
     // The inactive buffer. Empty until mode 1049 is first set; from then on it
     // holds whichever buffer is NOT on screen (m_screen and this are swapped).
     std::vector<Line> m_altScreen;

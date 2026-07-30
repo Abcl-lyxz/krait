@@ -18,9 +18,8 @@ constexpr bool isByte(std::uint16_t v) noexcept {
 }
 
 Color rgbOf(std::uint16_t r, std::uint16_t g, std::uint16_t b) noexcept {
-    return {Color::Kind::Rgb, 0,
-            (static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) |
-                static_cast<std::uint32_t>(b)};
+    return Color::rgb((static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) |
+                      static_cast<std::uint32_t>(b));
 }
 
 // 38/48/58 arrive in three shapes, and telling them apart is the whole job:
@@ -51,7 +50,7 @@ ExtColor readExtendedColor(const Params& p, std::size_t i, std::size_t subEnd) n
             if (!isByte(p.values[i + 2])) {
                 return out;
             }
-            out.color = {Color::Kind::Indexed, static_cast<std::uint8_t>(p.values[i + 2]), 0};
+            out.color = Color::indexed(static_cast<std::uint8_t>(p.values[i + 2]));
             out.ok = true;
         } else if (kind == 2 && subCount >= 4) {
             const std::size_t r = i + (subCount >= 5 ? 3 : 2);
@@ -85,7 +84,7 @@ ExtColor readExtendedColor(const Params& p, std::size_t i, std::size_t subEnd) n
         const std::size_t have = runEnd - (i + 2);
         out.consumed = runEnd - i;
         if (kind == 5 && have >= 1 && isByte(p.values[i + 2])) {
-            out.color = {Color::Kind::Indexed, static_cast<std::uint8_t>(p.values[i + 2]), 0};
+            out.color = Color::indexed(static_cast<std::uint8_t>(p.values[i + 2]));
             out.ok = true;
         } else if (kind == 2 && have >= 3) {
             const std::size_t r = i + 2 + (have > 3 ? 1 : 0);
@@ -100,7 +99,7 @@ ExtColor readExtendedColor(const Params& p, std::size_t i, std::size_t subEnd) n
     if (kind == 5) {
         out.consumed = std::min<std::size_t>(3, avail + 1);
         if (avail >= 2 && isByte(p.values[i + 2])) {
-            out.color = {Color::Kind::Indexed, static_cast<std::uint8_t>(p.values[i + 2]), 0};
+            out.color = Color::indexed(static_cast<std::uint8_t>(p.values[i + 2]));
             out.ok = true;
         }
         return out;
@@ -248,13 +247,13 @@ bool applySgr(Attr& pen, const Params& params,
         default: {
             const int v = params.values[i];
             if (v >= 30 && v <= 37) {
-                pen.fg = {Color::Kind::Indexed, static_cast<std::uint8_t>(v - 30), 0};
+                pen.fg = Color::indexed(static_cast<std::uint8_t>(v - 30));
             } else if (v >= 40 && v <= 47) {
-                pen.bg = {Color::Kind::Indexed, static_cast<std::uint8_t>(v - 40), 0};
+                pen.bg = Color::indexed(static_cast<std::uint8_t>(v - 40));
             } else if (v >= 90 && v <= 97) {
-                pen.fg = {Color::Kind::Indexed, static_cast<std::uint8_t>(v - 90 + 8), 0};
+                pen.fg = Color::indexed(static_cast<std::uint8_t>(v - 90 + 8));
             } else if (v >= 100 && v <= 107) {
-                pen.bg = {Color::Kind::Indexed, static_cast<std::uint8_t>(v - 100 + 8), 0};
+                pen.bg = Color::indexed(static_cast<std::uint8_t>(v - 100 + 8));
             }
             // Anything else: unknown SGR, ignored.
             break;

@@ -150,8 +150,8 @@ void TerminalItem::rebuildInstances() {
             // render index 196 as a confidently WRONG colour — worse than the
             // default it used to fall back to. Leave anything this palette
             // cannot represent at the default until the real renderer (T25).
-            if (attr.fg.kind == core::vt::Color::Kind::Indexed && attr.fg.index < 16) {
-                int idx = attr.fg.index;
+            if (attr.fg.kind() == core::vt::Color::Kind::Indexed && attr.fg.index() < 16) {
+                int idx = attr.fg.index();
                 if ((attr.flags & core::vt::Attr::kBold) != 0 && idx < 8) {
                     idx += 8;  // bold brightens the classic 8
                 }
@@ -159,8 +159,8 @@ void TerminalItem::rebuildInstances() {
                 fg[1] = kPalette[idx][1];
                 fg[2] = kPalette[idx][2];
             }
-            if (attr.bg.kind == core::vt::Color::Kind::Indexed && attr.bg.index < 16) {
-                const int idx = attr.bg.index;
+            if (attr.bg.kind() == core::vt::Color::Kind::Indexed && attr.bg.index() < 16) {
+                const int idx = attr.bg.index();
                 bg[0] = kPalette[idx][0];
                 bg[1] = kPalette[idx][1];
                 bg[2] = kPalette[idx][2];

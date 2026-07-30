@@ -299,11 +299,11 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             flags = "-";
         }
         const auto color = [](const vt::Color& c) {
-            switch (c.kind) {
+            switch (c.kind()) {
             case vt::Color::Kind::Rgb:
-                return std::format("#{:06x}", c.rgb);
+                return std::format("#{:06x}", c.rgb());
             case vt::Color::Kind::Indexed:
-                return std::to_string(c.index);
+                return std::to_string(c.index());
             case vt::Color::Kind::Default:
                 break;
             }
@@ -327,7 +327,7 @@ class CursorSink final : public krait::core::vt::ParserEvents {
         // Emitted only when there is something to say, so the many cases that
         // never touch underlines keep their two-token expectations.
         if (grid.pen.underline != vt::Underline::None ||
-            grid.pen.ul.kind != vt::Color::Kind::Default) {
+            grid.pen.ul.kind() != vt::Color::Kind::Default) {
             static constexpr std::array<const char*, 6> kStyles{"none",  "single", "double",
                                                                 "curly", "dotted", "dashed"};
             static_assert(kStyles.size() == static_cast<std::size_t>(vt::Underline::Dashed) + 1,
