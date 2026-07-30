@@ -41,11 +41,19 @@ qt_add_shaders(krait-app "krait-spike-shaders"
         ../render/shaders/triangle.frag
         ../render/shaders/grid.vert
         ../render/shaders/grid.frag
+        ../render/shaders/cell.vert
+        ../render/shaders/cell.frag
+        ../render/shaders/glyph.vert
+        ../render/shaders/glyph.frag
     OUTPUTS
         triangle.vert.qsb
         triangle.frag.qsb
         grid.vert.qsb
         grid.frag.qsb
+        cell.vert.qsb
+        cell.frag.qsb
+        glyph.vert.qsb
+        glyph.frag.qsb
 )
 
 # The generated qmltyperegistrations includes module headers by basename.
@@ -53,7 +61,9 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 
 # GuiPrivate: QRhi is Qt's semi-public "guaranteed within a minor series"
 # API; its headers (rhi/qrhi.h) ship under the private include umbrella.
-target_link_libraries(krait-app PRIVATE krait-core Qt6::Quick Qt6::GuiPrivate freetype)
+# krait-shaper carries krait-core, HarfBuzz, FreeType and DirectWrite: the whole
+# T23/T24/T25 render pipeline the spike path was replaced with.
+target_link_libraries(krait-app PRIVATE krait-core krait-shaper Qt6::Quick Qt6::GuiPrivate freetype)
 
 # ADR-0011: the bundled ConPTY rides next to the exe; the backend refuses
 # to run without it.

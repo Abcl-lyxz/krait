@@ -5,7 +5,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-namespace krait::render {
+namespace krait::render::spike {
 
 GlyphAtlas buildAsciiAtlas(const QStringList& fontPaths, int pixelHeight) {
     FT_Library library = nullptr;
@@ -67,4 +67,4 @@ GlyphAtlas buildAsciiAtlas(const QStringList& fontPaths, int pixelHeight) {
     return atlas;
 }
 
-}  // namespace krait::render
+}  // namespace krait::render::spike

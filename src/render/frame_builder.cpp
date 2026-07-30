@@ -127,13 +127,9 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
     }
 
     m_rowsRebuilt = 0;
-    const auto& spans = damage.spans();
     for (int row = 0; row < rowCount; ++row) {
         RowCache& cache = m_rows[static_cast<std::size_t>(row)];
-        const bool damaged = m_invalidated || !cache.valid || damage.all() ||
-                             (row < static_cast<int>(spans.size()) &&
-                              spans[static_cast<std::size_t>(row)].col0 >= 0);
-        if (!damaged) {
+        if (!rowNeedsRebuild(row, damage)) {
             continue;
         }
         buildRow(row, viewport[static_cast<std::size_t>(row)], rowRuns(row), raster, atlas, cache);
@@ -160,6 +156,20 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
     // grid changing, so caching them per row would need its own invalidation.
     appendSelection(params, rowCount);
     appendCursor(viewport, params);
+}
+
+bool FrameBuilder::rowNeedsRebuild(int row, const core::vt::DamageList& damage) const {
+    if (m_invalidated || damage.all()) {
+        return true;
+    }
+    if (row < 0 || row >= static_cast<int>(m_rows.size())) {
+        return true;  // a row we have never seen
+    }
+    if (!m_rows[static_cast<std::size_t>(row)].valid) {
+        return true;
+    }
+    const auto& spans = damage.spans();
+    return row < static_cast<int>(spans.size()) && spans[static_cast<std::size_t>(row)].col0 >= 0;
 }
 
 void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& runs,

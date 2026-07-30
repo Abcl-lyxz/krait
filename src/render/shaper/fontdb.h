@@ -93,9 +93,10 @@ class FontDb {
 // A free function rather than a method on either class: it is the one place the
 // two meet, and giving ShapePool a FontDb member would drag DirectWrite into
 // every test that only wants to shape.
-std::vector<std::uint32_t> shapeWithFallback(ShapePool& pool, const FontDb& fonts,
-                                             std::span<const Run> runs, std::uint32_t primaryFaceId,
-                                             std::string_view primaryFamily, int pxHeight,
-                                             bool ligatures, std::vector<ShapedRun>& out);
+std::vector<std::uint32_t>
+shapeWithFallback(ShapePool& pool, const FontDb& fonts, std::span<const Run> runs,
+                  std::uint32_t primaryFaceId, std::string_view primaryFamily, int pxHeight,
+                  bool ligatures, std::vector<ShapedRun>& out,
+                  std::chrono::milliseconds timeout = std::chrono::milliseconds{8});
 
 }  // namespace krait::render

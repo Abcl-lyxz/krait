@@ -121,6 +121,13 @@ class FrameBuilder {
 
     int rowsRebuilt() const { return m_rowsRebuilt; }
 
+    // Whether build() will rebuild this row, given the same damage. Public so a
+    // caller can split and shape every damaged row in ONE batch before calling
+    // build(): shaping per row means one blocking round trip to the worker pool
+    // per row, which is 63 waits a frame on a full screen. Must be called
+    // BEFORE build(), which consumes the invalidation flag.
+    bool rowNeedsRebuild(int row, const core::vt::DamageList& damage) const;
+
     // Forces every row to rebuild on the next build() — for a theme change, a
     // font change or a resize, the three cases where a full redraw is correct.
     void invalidate();

@@ -403,9 +403,10 @@ std::optional<FaceSpec> FontDb::fallbackFor(std::u32string_view text, std::strin
 std::vector<std::uint32_t> shapeWithFallback(ShapePool& pool, const FontDb& fonts,
                                              std::span<const Run> runs, std::uint32_t primaryFaceId,
                                              std::string_view primaryFamily, int pxHeight,
-                                             bool ligatures, std::vector<ShapedRun>& out) {
+                                             bool ligatures, std::vector<ShapedRun>& out,
+                                             std::chrono::milliseconds timeout) {
     std::vector<std::uint32_t> faces(runs.size(), primaryFaceId);
-    if (!pool.shapeAll(runs, primaryFaceId, ligatures, out)) {
+    if (!pool.shapeAll(runs, primaryFaceId, ligatures, out, timeout)) {
         return faces;  // timed out; the frame draws what it has
     }
 
@@ -432,7 +433,8 @@ std::vector<std::uint32_t> shapeWithFallback(ShapePool& pool, const FontDb& font
         // on the still-missing sub-span. Do not build that before a real case.
         const std::array<Run, 1> single{runs[i]};
         std::vector<ShapedRun> reshaped;
-        if (pool.shapeAll(single, *faceId, ligatures, reshaped) && !reshaped[0].glyphs.empty()) {
+        if (pool.shapeAll(single, *faceId, ligatures, reshaped, timeout) &&
+            !reshaped[0].glyphs.empty()) {
             out[i] = std::move(reshaped[0]);
             faces[i] = *faceId;
         }

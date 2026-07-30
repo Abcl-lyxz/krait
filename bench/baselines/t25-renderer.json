@@ -1,0 +1,60 @@
+{
+  "recorded": "2026-07-30",
+  "task": "T25",
+  "machine": "HomeCenter",
+  "gpu_adapter": "NVIDIA GeForce RTX 4060",
+  "warp_adapter": "Microsoft Basic Render Driver",
+  "os": "Windows 11 Pro 10.0.26200",
+  "qt": "6.10.3",
+  "compiler": "MSVC 19.51",
+  "display_hz": 180,
+  "workload": "4K fixed colour buffer (3840x2160), 240x63 grid, EVERY cell rewritten every frame through Session::putChar, then split, shaped, atlased and rebuilt. Deliberately the same shape as bench/baselines/m0-spike.json so the two can be compared.",
+  "how_to_run": "KRAIT_TERM_BENCH=<frames> KRAIT_BENCH_4K=1 [KRAIT_BENCH_WARP=1] KRAIT_BENCH_OUT=<json> krait-app.exe",
+  "evidence": "Every run below logged 'bench: step N, rows 63, ..., rowsRebuilt 63', which is what proves the flood actually churned. An earlier version of this harness reported ~2900 fps because the renderer drove itself with update() and re-drew ONE static frame; the step log exists so that failure can never pass silently again.",
+  "caveat_shaping": "The synthetic flood repeats text across rows and frames, so 300 frames produce only ~94 shaped-run cache MISSES. These numbers therefore measure the cache-warm steady state — the realistic `cat`-flood case — and NOT cold shaping. Cold shaping is measured separately in t23-shaper.json.",
+  "caveat_m0_comparison": "m0-spike.json's dev_gpu figure is 180.1 fps against a 180 Hz display, and its own notes say cpu_*_ms include vsync pacing. That number is a CEILING, not a measured cost, so 'slower than M0 on the dev GPU' below may be an artefact of M0 never having been allowed to run faster. The WARP comparison is not vsync-bound and is the meaningful one.",
+  "debug_gpu": {
+    "build_type": "Debug",
+    "target": "3840x2160",
+    "frames": 200,
+    "cpu_avg_ms": 19.479,
+    "cpu_p99_ms": 25.078,
+    "cpu_max_ms": 25.214,
+    "fps": 51.3,
+    "gpu_avg_ms": 3.922,
+    "glyph_instances": 15120,
+    "solid_instances": 1,
+    "note": "Below 60 fps, but Debug is NOT the gate — rules/render.md states the budgets are release gates. Recorded so a Debug regression stays visible."
+  },
+  "release_gpu": {
+    "build_type": "RelWithDebInfo",
+    "target": "3840x2160",
+    "frames": 300,
+    "cpu_avg_ms": 7.106,
+    "cpu_p99_ms": 8.65,
+    "cpu_max_ms": 9.508,
+    "fps": 140.7,
+    "gpu_avg_ms": 4.104,
+    "glyph_instances": 15120,
+    "solid_instances": 1
+  },
+  "release_warp": {
+    "build_type": "RelWithDebInfo",
+    "target": "3840x2160",
+    "frames": 200,
+    "cpu_avg_ms": 7.148,
+    "cpu_p99_ms": 8.699,
+    "cpu_max_ms": 8.836,
+    "fps": 139.9,
+    "gpu_avg_ms": 4.157,
+    "glyph_instances": 15120,
+    "solid_instances": 1
+  },
+  "gates": {
+    "60fps_flood_release": "PASS — 140.7 fps on the dev GPU and 139.9 fps on WARP, p99 8.7 ms against a 16.7 ms frame budget.",
+    "vs_m0_warp": "PASS — 7.148 ms vs M0's 12.395 ms (1.7x faster), GPU time 4.157 ms vs 10.065 ms (2.4x faster). Coalescing backgrounds into one rect instead of 15,120 cell quads is where that comes from.",
+    "vs_m0_dev_gpu": "FAIL as measured — 140.7 fps vs M0's 180.1 fps. See caveat_m0_comparison: M0's figure equals the display refresh exactly, so it was vsync-capped and its true cost is unknown. Re-measure both with vsync disabled before treating this as a real regression.",
+    "60fps_flood_debug": "FAIL — 51.3 fps. Not a release gate; listed so it is not mistaken for passing."
+  },
+  "solid_instance_note": "solid_instances is 1 because the flood writes the default background everywhere, which coalesces to a single rect and is then skipped for equalling the clear colour. A coloured-background workload would raise it; that deserves its own baseline."
+}
