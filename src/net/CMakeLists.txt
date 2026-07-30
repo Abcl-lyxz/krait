@@ -15,7 +15,10 @@ add_library(krait-net STATIC
     ibackend.h
     conpty/conpty_backend.cpp
     conpty/conpty_backend.h
+    vault/vault.cpp
+    vault/vault.h
 )
 
 target_include_directories(krait-net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(krait-net PUBLIC Qt6::Core)
+# Crypt32 for the DPAPI vault (CryptProtectData lives in Crypt32.dll).
+target_link_libraries(krait-net PUBLIC Qt6::Core PRIVATE Crypt32)

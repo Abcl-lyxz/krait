@@ -40,6 +40,7 @@ add_executable(krait-qt-tests
     keymap_test.cpp
     paste_test.cpp
     settings_test.cpp
+    vault_test.cpp
 )
 target_link_libraries(krait-qt-tests
     PRIVATE krait-render krait-input krait-settings krait-net Qt6::Test Qt6::Xml
