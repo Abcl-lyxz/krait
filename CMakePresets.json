@@ -18,6 +18,7 @@
       "displayName": "Fuzz (Ninja + clang-cl libFuzzer+ASan, ADR-0010 primary)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/fuzz",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/O2 /Zi",
@@ -30,6 +31,7 @@
       "displayName": "Fuzz (Ninja + MSVC /fsanitize=fuzzer, experimental fallback)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/fuzz-msvc",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS_RELWITHDEBINFO": "/O2 /Zi",

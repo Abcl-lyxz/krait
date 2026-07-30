@@ -57,7 +57,7 @@ Re-run on the final `t19-width` tree:
 |---|---|
 | `cmake --build --preset dev` | pass, no warnings beyond the known Qt D9025 noise |
 | `ctest --preset dev` | **47/47** |
-| `tests\fuzz\run-smoke.cmd` | pass — 97,799 execs, **0 crashes**, exit 0 |
+| `tests\fuzz\run-smoke.cmd` | pass — 174,174 execs, **0 crashes**, exit 0 |
 | standalone zero-dep proof, Qt blanked | pass, including utf8proc |
 | clang-tidy on every changed TU | clean (see the local-repro recipe below) |
 | clang-format | clean |
@@ -125,6 +125,13 @@ whatever cluster storage T20 picks — decide them together.
 - **`bugprone-misplaced-widening-cast` gates the build.** Widen each operand
   before arithmetic (`static_cast<size_t>(r) + 1`), never the sum.
 - The corpus harness only understands `\xNN` escapes — **not** `\r\n`.
+- **`run-smoke.cmd` now needs `VCPKG_ROOT`** (the fuzz presets gained the vcpkg
+  toolchain in T19 so they can resolve utf8proc). It fails with a clear message
+  if unset. A `toolchainFile` change does NOT apply to an already-configured
+  build dir — delete `build\fuzz-msvc` if the utf8proc error persists.
+- **Re-run every gate AFTER the change that could invalidate it.** T19's first
+  CI run died in the fuzz step because I had measured the fuzz smoke before
+  linking utf8proc and carried the stale number forward into the PR body.
 
 ## Known-not-fixed
 

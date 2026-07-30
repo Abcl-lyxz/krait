@@ -40,6 +40,19 @@ if not defined KRAIT_FUZZ_PRESET set "KRAIT_FUZZ_PRESET=fuzz-msvc"
 set "PRESET=%KRAIT_FUZZ_PRESET%"
 echo using preset %PRESET%
 
+rem Both fuzz presets read $env{VCPKG_ROOT} for their toolchain file, because
+rem from T19 krait-core links utf8proc. Before that it had no dependencies and
+rem this script ran fine with VCPKG_ROOT unset, so the missing variable now
+rem surfaces as a confusing "Could not find a package configuration file
+rem provided by utf8proc" from deep inside src/core. Say the real reason here.
+rem NOTE: a toolchainFile change does NOT apply to an already-configured build
+rem directory — delete build\%PRESET% if you hit that error with VCPKG_ROOT set.
+if not defined VCPKG_ROOT (
+    echo ERROR: VCPKG_ROOT is not set. The %PRESET% preset needs it to resolve
+    echo        utf8proc via the vcpkg toolchain. Set it to your vcpkg checkout.
+    exit /b 1
+)
+
 cmake --preset %PRESET%
 if %ERRORLEVEL% neq 0 exit /b 1
 cmake --build --preset %PRESET%
