@@ -1,7 +1,9 @@
 find_package(Catch2 3 CONFIG REQUIRED)
 # Imported targets are directory-scoped, so src/render finding Qt does not make
 # Qt6::Gui visible here — and the DL_PATHS below needs it by name.
-find_package(Qt6 6.8 REQUIRED COMPONENTS Gui ShaderTools)
+# Qt6::Test is for QSignalSpy only — the settings tests assert which signals
+# fired, and hand-rolling that is more code than the dependency.
+find_package(Qt6 6.8 REQUIRED COMPONENTS Gui ShaderTools Test)
 
 add_executable(krait-core-tests
     atlas_test.cpp
@@ -32,8 +34,10 @@ add_executable(krait-qt-tests
     ime_test.cpp
     keymap_test.cpp
     paste_test.cpp
+    settings_test.cpp
 )
-target_link_libraries(krait-qt-tests PRIVATE krait-render krait-input Catch2::Catch2WithMain)
+target_link_libraries(krait-qt-tests
+    PRIVATE krait-render krait-input krait-settings Qt6::Test Catch2::Catch2WithMain)
 
 # The real shaders, not stubs: QRhi's FRONTEND rejects an empty QShader
 # ("Empty shader passed to graphics pipeline") before any backend sees it, even

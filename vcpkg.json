@@ -13,6 +13,7 @@
         "freetype"
       ]
     },
+    "tomlplusplus",
     "utf8proc"
   ]
 }
