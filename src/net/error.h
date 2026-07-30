@@ -10,6 +10,12 @@ enum class ErrorCode {
     PtyCreateFailed,
     SpawnFailed,
     IoFailed,
+    // The other end went away without the session ending cleanly: conhost
+    // killed, the pipe broken from outside, and later the SSH cases. Distinct
+    // from a shell that ran `exit`, which is not an error at all — telling
+    // someone their connection "failed" when they typed exit is how a banner
+    // trains people to ignore banners.
+    PeerClosed,
 };
 
 struct BackendError {
@@ -25,6 +31,8 @@ inline QString errorCodeName(ErrorCode code) {
         return QStringLiteral("spawn-failed");
     case ErrorCode::IoFailed:
         return QStringLiteral("io-failed");
+    case ErrorCode::PeerClosed:
+        return QStringLiteral("peer-closed");
     }
     return QStringLiteral("unknown");
 }

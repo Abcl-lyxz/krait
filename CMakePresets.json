@@ -38,19 +38,59 @@
         "CMAKE_CXX_COMPILER": "cl",
         "KRAIT_FUZZ": "ON"
       }
+    },
+    {
+      "name": "release",
+      "displayName": "release (RelWithDebInfo)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT}"
+      },
+      "description": "Optimised build with debug info. rules/render.md's perf budgets are RELEASE gates, and a Debug flood measures the compiler, not the renderer \u2014 the T25 Debug run came in at 51 fps against the same code that does 140 optimised."
     }
   ],
   "buildPresets": [
-    { "name": "dev", "configurePreset": "dev" },
-    { "name": "fuzz", "configurePreset": "fuzz" },
-    { "name": "fuzz-msvc", "configurePreset": "fuzz-msvc" }
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz"
+    },
+    {
+      "name": "fuzz-msvc",
+      "configurePreset": "fuzz-msvc"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    }
   ],
   "testPresets": [
     {
       "name": "dev",
       "configurePreset": "dev",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ]
 }

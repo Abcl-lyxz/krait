@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
 #include "core/grid/line.h"
 #include "render/atlas/glyph_atlas.h"
@@ -10,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace krait::render {
@@ -134,6 +136,18 @@ class FrameBuilder {
 
     const FaceMetrics& metrics() const { return m_metrics; }
 
+    // Appends one already-shaped run's glyphs at a fixed colour (plan T29).
+    //
+    // The IME composition needs this: a preedit is NOT grid content — it
+    // belongs to the IME until it commits — so it has no cells to read colours
+    // from, and build() cannot draw it. Sharing the placement code is the
+    // point: glyph position is cluster column + shaper offset + font bearing,
+    // and a second copy of that arithmetic is how a composition ends up
+    // drawing one pixel off from the text it commits to.
+    void appendShapedRun(const Run& run, const ShapedRun& shaped, std::uint32_t faceId,
+                         std::uint32_t fg, const RasterFn& raster, GlyphAtlas& atlas,
+                         std::vector<GlyphInstance>& out) const;
+
     void setTheme(Theme theme);
 
     const Theme& theme() const { return m_theme; }
@@ -180,5 +194,18 @@ std::uint32_t paletteColor(std::uint8_t index, const Theme& theme);
 // Whether a viewport cell falls inside a selection. Exposed because the
 // start/end ordering is easy to get subtly wrong and deserves its own test.
 bool selectionContains(const Selection& selection, int row, int col);
+
+// The selected text as UTF-8, for the clipboard (T27).
+//
+// Lives beside selectionContains because it has to agree with it cell for cell;
+// two independent notions of "selected" is how a terminal ends up copying text
+// the user never saw highlighted.
+//
+// Trailing blanks are trimmed per row and rows are joined with "\n" — EXCEPT
+// where the next row carries wrappedFromPrev. A wrapped line is ONE logical
+// line, and breaking it is what turns a copied command into two broken ones
+// when it is pasted back.
+std::string selectionText(std::span<const core::vt::Line> viewport, const Selection& selection,
+                          const core::vt::ClusterPool& clusters);
 
 }  // namespace krait::render

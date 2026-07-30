@@ -48,6 +48,16 @@ detection → any QML beyond one window with one item.
 | Input | clipboard, paste-guard (multiline/sudo confirm, ESC/C0 strip, bracketed paste), IME (Thai/JP composition + candidate positioning) |
 | App | settings registry v1 + TOML + hot reload, EN+TH locales, per-monitor DPI, portable mode, per-tab error banners |
 
+**STATUS: COMPLETE (2026-07-30).** Automated gates green — 194/194 tests in
+both Debug and RelWithDebInfo, fuzz smoke clean, core-standalone builds without
+Qt, clang-format and clang-tidy clean, `toolsttest-check.cmd` green, and the
+release flood at >=180 fps on WARP against a 60 fps budget
+(`bench/baselines/m1-wrap.json`). NOT yet run: the scripted IME demo, the
+manual DPI drag, and the daily-drive checklist below — all need a person at an
+attached display, which this session did not have. The scripts exist
+(`tools/ime-check.cmd`, `dpi-check.cmd`, `paste-check.cmd`, `backend-check.cmd`)
+and STATE.md carries them as open.
+
 **Acceptance:**
 
 ```

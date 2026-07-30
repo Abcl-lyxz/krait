@@ -59,6 +59,28 @@ class Grid {
     // (T28), which is also where the paste-guard lives.
     bool bracketedPaste = false;
 
+    // Mode 1, DECCKM. Changes what the arrow keys SEND (CSI A vs SS3 A), so
+    // like bracketedPaste it is state the core owns and the input path reads.
+    // It never changes what the grid draws.
+    bool appCursorKeys = false;
+
+    // Mouse reporting (T27). The three tracking modes are mutually exclusive in
+    // xterm — 1002 supersedes 1000, and resetting whichever is active is what
+    // turns tracking off — so one enum, not three bools. Three bools is how
+    // terminals end up still reporting motion after an app disabled only 1003.
+    enum class MouseTracking : std::uint8_t {
+        Off,
+        Normal,       // 1000: press and release only
+        ButtonEvent,  // 1002: press, release, and motion while a button is down
+        AnyEvent,     // 1003: press, release, and every motion
+    };
+    MouseTracking mouseTracking = MouseTracking::Off;
+
+    // Mode 1006, SGR encoding. The default X10 encoding cannot express a column
+    // past 222, so on any wider window it silently reports the wrong cell —
+    // which is why every modern application asks for 1006.
+    bool sgrMouse = false;
+
     // Mode 2026, synchronized output. See sync_output.h for why the guard's
     // clock is supplied by the caller rather than read here.
     SyncOutput sync;

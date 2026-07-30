@@ -32,9 +32,9 @@ libFuzzer.
 | T15 | ConPTY backend: acquire pinned OpenConsole build (`third_party/openconsole/` + MS LICENSE + VERSION.md per ADR-0011); `IBackend` + `ConptyBackend` (CreatePseudoConsole, per-pipe threads, resize); wire backend→parser→grid→spike renderer + keyboard input | T9,T12 | src/net/ibackend.h, src/net/error.h, src/net/conpty/*, third_party/openconsole/* | manual: type `dir` in PowerShell through Krait | net.md |
 | T16 | CI fast gate: `.github/workflows/ci.yml` — windows-latest, install-qt-action (6.11.1, cache:true), vcpkg cache, build, ctest, clang-format check, clang-tidy on changed files, core-standalone build; branch protection on | T3 | .github/workflows/ci.yml | green run on GitHub | — |
 
-M0 done = M0 acceptance block in 01-milestones.md passes.
+M0 done = M0 acceptance block in 01-milestones.md passes. **M0: DONE.**
 
-## M1
+## M1 — DONE (2026-07-30, T17-T35)
 
 | # | Task | Needs | Files | Verify | Rules |
 |---|---|---|---|---|---|

@@ -15,6 +15,36 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
         grid.cursorSet(0, 0);
         break;
 
+    case 1:
+        // DECCKM. Only the input path reads it; nothing on screen moves.
+        grid.appCursorKeys = on;
+        break;
+
+    case 1000:
+    case 1002:
+    case 1003: {
+        // xterm keeps these in ONE variable, so setting a higher mode replaces
+        // the lower one, and resetting a mode that is not the active one is a
+        // no-op. With three independent flags, `1003l` after `1000h 1003h`
+        // leaves normal tracking on and the application — which believes it
+        // disabled the mouse — starts receiving reports as keyboard input.
+        const auto wanted = mode == 1000   ? Grid::MouseTracking::Normal
+                            : mode == 1002 ? Grid::MouseTracking::ButtonEvent
+                                           : Grid::MouseTracking::AnyEvent;
+        if (on) {
+            grid.mouseTracking = wanted;
+        } else if (grid.mouseTracking == wanted) {
+            grid.mouseTracking = Grid::MouseTracking::Off;
+        }
+        break;
+    }
+
+    case 1006:
+        // SGR mouse encoding. Independent of WHETHER we track: an application
+        // may enable it before or after the tracking mode.
+        grid.sgrMouse = on;
+        break;
+
     case 2004:
         // Bracketed paste. A flag and nothing more at this layer — see grid.h.
         grid.bracketedPaste = on;

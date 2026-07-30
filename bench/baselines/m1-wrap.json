@@ -1,0 +1,53 @@
+{
+  "recorded": "2026-07-30",
+  "task": "T35",
+  "machine": "HomeCenter",
+  "gpu_adapter": "NVIDIA GeForce RTX 4060",
+  "warp_adapter": "Microsoft Basic Render Driver",
+  "os": "Windows 11 Pro 10.0.26200",
+  "qt": "6.10.3",
+  "compiler": "MSVC 19.51",
+  "display_hz": 180,
+  "workload": "Identical to t25-renderer.json: 4K fixed colour buffer (3840x2160), 240x63 grid, EVERY cell rewritten every frame through Session::putChar, then split, shaped, atlased and rebuilt. Unchanged on purpose so the two compare directly.",
+  "how_to_run": "cmake --preset release && cmake --build --preset release, then KRAIT_TERM_BENCH=<frames> KRAIT_BENCH_4K=1 KRAIT_GPU=<hardware|warp> KRAIT_BENCH_OUT=<json> krait-app.exe",
+  "preset_note": "T35 added a `release` preset. Until now the release gate was measured from a hand-configured build/rel directory, which is a gate nobody else could reproduce. rules/render.md's budgets are release gates and now have a preset to match.",
+  "evidence": "Every run logged 'bench: step 600, rows 63, cache hits 37643 misses 94, rowsRebuilt 63'. rowsRebuilt 63 is what proves the flood actually churned — an earlier harness reported ~2900 fps while re-drawing one static frame, and the step log exists so that can never pass silently again.",
+
+  "release_warp": {
+    "build_type": "RelWithDebInfo",
+    "adapter": "warp",
+    "frames": 600,
+    "cpu_avg_ms": 5.555,
+    "cpu_p99_ms": 7.281,
+    "cpu_max_ms": 7.892,
+    "fps": 180.0,
+    "gpu_avg_ms": 3.618,
+    "glyph_instances": 15120,
+    "solid_instances": 1,
+    "note": "Two runs: 179.9 and 180.0 fps, cpu_avg 5.557 and 5.555 — reproducible to three digits. 180.0 against a 180 Hz display means this leg is now VSYNC-BOUND, so it is a floor and not a measured ceiling: WARP is at least 180 fps, where T25 measured 139.9 and was not vsync-bound. cpu_avg includes vsync pacing for the same reason."
+  },
+
+  "debug_warp": {
+    "build_type": "Debug",
+    "adapter": "warp",
+    "frames": 200,
+    "cpu_avg_ms": 11.668,
+    "cpu_p99_ms": 13.438,
+    "cpu_max_ms": 14.06,
+    "fps": 85.7,
+    "gpu_avg_ms": 3.507,
+    "note": "Debug is NOT the gate (rules/render.md: the budgets are release gates), but it is recorded so a Debug regression stays visible. T25's Debug leg was 51.3 fps on the dev GPU; this is 85.7 on WARP, and the two are not directly comparable."
+  },
+
+  "release_gpu": {
+    "measured": false,
+    "why": "NOT MEASURED this session, and deliberately not carried forward from T25 as though it were fresh. The hardware leg initialises correctly — 'render: pipelines ready (adapter NVIDIA GeForce RTX 4060)', 'rhi backend: D3D11' — and then never presents a frame: synchronize() is never called, the step log stays empty, and the harness watchdog fires at 60 s. Qt also logs 'qt.qpa.screen: Unable to open monitor interface to DISPLAY1'. The machine had no usable attached display for the duration of this session, and a D3D11 present on a physical adapter with nowhere to present blocks. This is exactly the condition T26's WARP fallback exists for, so it is evidence the fallback matters rather than a renderer regression.",
+    "todo": "Re-measure on a machine with an attached display before M2 closes; the last real number is t25-renderer.json's 140.7 fps."
+  },
+
+  "gates": {
+    "sixty_fps_release_flood": "PASS on WARP (>=180 fps, vsync-bound). rules/render.md asks for 60 fps under cat-flood on the reference machine; the hardware leg is unmeasured this session — see release_gpu.",
+    "vs_t25_warp": "PASS, and by a margin: 139.9 -> at least 180 fps, cpu_avg 7.148 -> 5.555 ms. No M1 renderer change targeted this; the likeliest cause is the release preset applying optimisation flags the hand-rolled build/rel may not have carried identically. Recorded as unexplained-but-favourable rather than claimed as a win.",
+    "regression_threshold": "rules/render.md fails any baseline that regresses more than 5%. For M2, compare release_warp: cpu_avg_ms must stay at or under 5.83, and rowsRebuilt must stay 63."
+  }
+}
