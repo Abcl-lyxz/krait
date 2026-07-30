@@ -105,29 +105,29 @@
         <translation>Krait</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="63"/>
-        <location filename="../qml/Main.qml" line="91"/>
-        <location filename="../qml/Main.qml" line="100"/>
+        <location filename="../qml/Main.qml" line="67"/>
+        <location filename="../qml/Main.qml" line="95"/>
+        <location filename="../qml/Main.qml" line="108"/>
         <source>Dismiss</source>
         <translation>ปิด</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="72"/>
+        <location filename="../qml/Main.qml" line="76"/>
         <source>Paste anyway</source>
         <translation>วางต่อไป</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="73"/>
+        <location filename="../qml/Main.qml" line="77"/>
         <source>Cancel</source>
         <translation>ยกเลิก</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="93"/>
+        <location filename="../qml/Main.qml" line="97"/>
         <source>Opening saved sessions is not wired up yet: %1</source>
         <translation>ยังไม่ได้เชื่อมการเปิดเซสชันที่บันทึกไว้: %1</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="102"/>
+        <location filename="../qml/Main.qml" line="110"/>
         <source>Not wired up yet: %1</source>
         <translation>ยังไม่ได้เชื่อมต่อคำสั่งนี้: %1</translation>
     </message>
@@ -179,6 +179,31 @@
         <location filename="../settings/paths.cpp" line="60"/>
         <source>user profile</source>
         <translation>โปรไฟล์ผู้ใช้</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="57"/>
+        <source>Settings</source>
+        <translation>การตั้งค่า</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="76"/>
+        <source>This file was written by a newer version of Krait, so changes will not be saved. Update Krait, or edit the file by hand.</source>
+        <translation>ไฟล์นี้ถูกเขียนโดย Krait รุ่นใหม่กว่า การเปลี่ยนแปลงจึงจะไม่ถูกบันทึก กรุณาอัปเดต Krait หรือแก้ไขไฟล์ด้วยตนเอง</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="95"/>
+        <source>Search settings…</source>
+        <translation>ค้นหาการตั้งค่า…</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="150"/>
+        <source>on</source>
+        <translation>เปิด</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="150"/>
+        <source>off</source>
+        <translation>ปิด</translation>
     </message>
 </context>
 <context>

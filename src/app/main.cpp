@@ -11,6 +11,7 @@
 #include "session/cli.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
+#include "settings_model.h"
 #include "terminal_item.h"
 #include <windows.h>
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
@@ -155,6 +156,15 @@ int main(int argc, char* argv[]) {
     for (QObject* root : engine.rootObjects()) {
         for (krait::app::TerminalItem* item : root->findChildren<krait::app::TerminalItem*>()) {
             item->setSettings(&registry);
+        }
+    }
+
+    // The settings page reads the same one, for the same reason — and it is
+    // where a hot reload has to land visibly, since a page showing stale values
+    // is a page that will be edited on top of them.
+    for (QObject* root : engine.rootObjects()) {
+        for (krait::app::SettingsModel* model : root->findChildren<krait::app::SettingsModel*>()) {
+            model->setRegistry(&registry);
         }
     }
 

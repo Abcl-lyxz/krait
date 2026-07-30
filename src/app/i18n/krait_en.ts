@@ -105,29 +105,29 @@
         <translation>Krait</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="63"/>
-        <location filename="../qml/Main.qml" line="91"/>
-        <location filename="../qml/Main.qml" line="100"/>
+        <location filename="../qml/Main.qml" line="67"/>
+        <location filename="../qml/Main.qml" line="95"/>
+        <location filename="../qml/Main.qml" line="108"/>
         <source>Dismiss</source>
         <translation>Dismiss</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="72"/>
+        <location filename="../qml/Main.qml" line="76"/>
         <source>Paste anyway</source>
         <translation>Paste anyway</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="73"/>
+        <location filename="../qml/Main.qml" line="77"/>
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="93"/>
+        <location filename="../qml/Main.qml" line="97"/>
         <source>Opening saved sessions is not wired up yet: %1</source>
         <translation>Opening saved sessions is not wired up yet: %1</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="102"/>
+        <location filename="../qml/Main.qml" line="110"/>
         <source>Not wired up yet: %1</source>
         <translation>Not wired up yet: %1</translation>
     </message>
@@ -179,6 +179,31 @@
         <location filename="../settings/paths.cpp" line="60"/>
         <source>user profile</source>
         <translation>user profile</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="57"/>
+        <source>Settings</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="76"/>
+        <source>This file was written by a newer version of Krait, so changes will not be saved. Update Krait, or edit the file by hand.</source>
+        <translation>This file was written by a newer version of Krait, so changes will not be saved. Update Krait, or edit the file by hand.</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="95"/>
+        <source>Search settings…</source>
+        <translation>Search settings…</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="150"/>
+        <source>on</source>
+        <translation>on</translation>
+    </message>
+    <message>
+        <location filename="../qml/Settings.qml" line="150"/>
+        <source>off</source>
+        <translation>off</translation>
     </message>
 </context>
 <context>

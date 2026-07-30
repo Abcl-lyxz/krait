@@ -20,6 +20,10 @@ Window {
         sequence: "Ctrl+Shift+O"
         onActivated: palette.open()
     }
+    Shortcut {
+        sequence: "Ctrl+,"
+        onActivated: settingsPage.open()
+    }
 
     // Bench runs keep the synthetic spike; normal runs are the terminal.
     SpikeGrid {
@@ -95,6 +99,10 @@ Window {
         }
 
         onActionChosen: (actionId) => {
+            if (actionId === "settings.open") {
+                settingsPage.open()
+                return
+            }
             banner.severity = "info"
             banner.showAccept = false
             banner.rejectText = qsTr("Dismiss")
@@ -103,6 +111,12 @@ Window {
             banner.forceActiveFocus()
         }
 
+        onDismissed: terminal.forceActiveFocus()
+    }
+
+    Settings {
+        id: settingsPage
+        z: 90
         onDismissed: terminal.forceActiveFocus()
     }
 }

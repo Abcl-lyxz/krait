@@ -1,5 +1,7 @@
 #include "schema.h"
 
+#include <string>
+
 #include <algorithm>
 #include <array>
 #include <type_traits>
@@ -117,6 +119,35 @@ Value defaultValue(const Def& def) {
             }
         },
         def.fallback);
+}
+
+bool matchesSearch(const Def& def, std::string_view query) {
+    if (query.empty()) {
+        return true;
+    }
+    // ASCII case folding only. Thai has no case to fold, so folding it is a
+    // no-op rather than a bug; what matters is that a non-ASCII byte never
+    // changes under it.
+    const auto fold = [](char ch) {
+        return ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
+    };
+    std::string needle;
+    needle.reserve(query.size());
+    for (const char ch : query) {
+        needle += fold(ch);
+    }
+
+    for (const std::string_view field : {def.id, def.doc, def.searchEn, def.searchTh}) {
+        std::string haystack;
+        haystack.reserve(field.size());
+        for (const char ch : field) {
+            haystack += fold(ch);
+        }
+        if (haystack.find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
 }
 
 const Def* find(std::string_view id) {

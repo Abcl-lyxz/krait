@@ -24,8 +24,11 @@ qt_add_qml_module(krait-app
         qml/BannerButton.qml
         qml/Main.qml
         qml/Palette.qml
+        qml/Settings.qml
     SOURCES
         session_model.cpp
+        settings_model.cpp
+        settings_model.h
         session_model.h
         terminal_item.cpp
         terminal_item.h
