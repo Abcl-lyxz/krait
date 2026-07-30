@@ -15,6 +15,23 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
         grid.cursorSet(0, 0);
         break;
 
+    case 2004:
+        // Bracketed paste. A flag and nothing more at this layer — see grid.h.
+        grid.bracketedPaste = on;
+        break;
+
+    case 2026:
+        // Synchronized output. DECSET opens a batch, DECRST closes it. The
+        // timestamp is 0 here because src/core/ has no clock: the app layer
+        // re-stamps the batch as it feeds bytes in, and the guard is evaluated
+        // against ITS clock. A core-only test drives begin() directly.
+        if (on) {
+            grid.sync.begin(grid.nowMs);
+        } else {
+            grid.sync.end();
+        }
+        break;
+
     case 1049:
         // NOT idempotent, and deliberately so. xterm's whichBuf guard lives
         // INSIDE ToAlternate/FromAlternate — CursorSave, ClearScreen and
@@ -50,9 +67,8 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
         // case of its own: our width model is always cluster-based (T19), so
         // there is no per-codepoint mode to switch to and both DECSET and
         // DECRST are correctly inert. It is NOT merely unrecognised though —
-        // DECRQM (T22) must answer 3 (permanently set) for it, never 1, and the
-        // fact lives in Capabilities::graphemeClusteringAlwaysOn where that
-        // reply will be generated from.
+        // T22's DECRQM answers 3 (permanently set) for it, never 1, generated
+        // from Capabilities::graphemeClusteringAlwaysOn.
         break;
     }
 }
