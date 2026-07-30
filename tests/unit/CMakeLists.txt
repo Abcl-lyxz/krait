@@ -5,6 +5,7 @@ add_executable(krait-core-tests
     modes_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
+    fontdb_test.cpp
     session_test.cpp
     shaper_test.cpp
     smoke_test.cpp
