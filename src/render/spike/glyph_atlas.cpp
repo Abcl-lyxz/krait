@@ -37,7 +37,11 @@ GlyphAtlas buildAsciiAtlas(const QStringList& fontPaths, int pixelHeight) {
     atlas.image.fill(0);
 
     for (int i = 0; i < kCount; ++i) {
-        if (FT_Load_Char(face, static_cast<FT_ULong>(kFirst + i), FT_LOAD_RENDER) != 0) {
+        // Widen first, then add: casting the int sum reads as a narrowing bug
+        // to clang-tidy (bugprone-misplaced-widening-cast) and it is right that
+        // the intent was unclear.
+        const FT_ULong charCode = static_cast<FT_ULong>(kFirst) + static_cast<FT_ULong>(i);
+        if (FT_Load_Char(face, charCode, FT_LOAD_RENDER) != 0) {
             continue;
         }
         const FT_Bitmap& bmp = face->glyph->bitmap;
