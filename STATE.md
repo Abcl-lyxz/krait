@@ -85,9 +85,11 @@ in M1. The tab strip needs the same factory, so it follows naturally.
   wait.** A directly-connected receiver answers inside the emit; clearing the
   flag afterwards discards that answer and then waits five minutes for it. The
   contract tests connect directly on purpose so this cannot regress.
-- Every wait in `ssh_backend.cpp` is bounded and `stop()` notifies the condition
-  variable — closing a tab during a host-key prompt or a 30-second backoff must
-  not hold the join.
+- Every wait `ssh_backend.cpp` OWNS is bounded, and `stop()` notifies the
+  condition variable, so closing a tab during a host-key prompt or a 30-second
+  backoff returns promptly. The waits it does NOT own — libssh's connect, agent
+  and key-import calls — are not interruptible; see the `stop()` entry under
+  "Open, not blocking".
 - clang-tidy rejects PARTIAL designated initializers
   (`missing-designated-field-initializers`). CI catches it; a local check needs
   `clang-tidy -p build/dev` on the changed files, which `/preflight` does not do.
