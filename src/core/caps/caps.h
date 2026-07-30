@@ -70,11 +70,36 @@ class ReplyLimiter {
     int m_credits = kRepliesPerWindow;
 };
 
+// DECRQM's answer values (DEC STD 070 / ctlseqs "CSI ? Ps ; Pm $ y"). The
+// distinction that matters is 1/2 versus 3/4: 1 and 2 promise an application
+// it can CHANGE the mode, 3 and 4 tell it the answer is fixed. Reporting 1 for
+// something we cannot actually turn off is the exact dishonesty CLAUDE.md's
+// capability rule exists to prevent.
+enum class ModeReport : std::uint8_t {
+    NotRecognized = 0,
+    Set = 1,
+    Reset = 2,
+    PermanentlySet = 3,
+    PermanentlyReset = 4,
+};
+
+// The single source of truth for "what is mode Ps doing", generated from live
+// grid state and the capability table — never a hardcoded answer. DECRQM and
+// any future XTGETTCAP-style query both read it, so the two cannot disagree.
+ModeReport decrqmState(const Grid& grid, const Capabilities& caps, std::uint16_t mode) noexcept;
+
 // DA1 (CSI c) and DSR 5/6 (CSI n). Appends the reply to `out` subject to
 // the limiter (a rate-dropped reply still counts as handled). Returns false
 // for anything else — DA2, DECXCPR, DEC ?-forms and colon subparams are
 // honest silence until implemented.
 bool handleReport(const Grid& grid, const Capabilities& caps, const Params& params,
+                  std::span<const std::uint8_t> intermediates, std::uint8_t final,
+                  ReplyLimiter& limiter, std::string& out);
+
+// DECRQM: `CSI ? Ps $ p` -> `CSI ? Ps ; Pm $ y`. Separate from handleReport
+// because it is selected by an INTERMEDIATE ('$') rather than by its final
+// byte, and folding it in would blur that dispatch.
+bool handleDecrqm(const Grid& grid, const Capabilities& caps, const Params& params,
                   std::span<const std::uint8_t> intermediates, std::uint8_t final,
                   ReplyLimiter& limiter, std::string& out);
 

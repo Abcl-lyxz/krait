@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <string>
 
 namespace krait::core::vt {
 
@@ -79,6 +80,75 @@ bool handleReport(const Grid& grid, const Capabilities& caps, const Params& para
     default:
         return false;
     }
+}
+
+ModeReport decrqmState(const Grid& grid, const Capabilities& caps, std::uint16_t mode) noexcept {
+    switch (mode) {
+    case 6:  // DECOM, origin mode
+        return grid.originMode ? ModeReport::Set : ModeReport::Reset;
+
+    case 7:   // DECAWM, autowrap
+    case 25:  // DECTCEM, cursor visibility
+        // Both are on with no code path that turns them off: putChar's
+        // deferred wrap is unconditional, and nothing hides the cursor until
+        // the real renderer (T25). So the honest answer is PERMANENTLY set,
+        // not "set" — answering 1 would promise an application it can turn
+        // them off, and it would then misdraw wondering why that did not take.
+        // Making either a real toggle is grid/renderer work, not a reply
+        // change, and this line moves when that lands.
+        //
+        // Shared branch on purpose: bugprone-branch-clone gates the build and
+        // two identical returns would trip it, exactly as mode 2027 did in T19.
+        return ModeReport::PermanentlySet;
+
+    case 1049:
+        return grid.onAlternateScreen() ? ModeReport::Set : ModeReport::Reset;
+
+    case 2004:
+        return grid.bracketedPaste ? ModeReport::Set : ModeReport::Reset;
+
+    case 2026:
+        // What the application asked for, not what the guard is doing — see
+        // SyncOutput::requested().
+        return grid.sync.requested() ? ModeReport::Set : ModeReport::Reset;
+
+    case 2027:
+        // Grapheme clustering. Always on by construction (T19/ADR-0003), so 3
+        // and never 1. This is the reply Capabilities::graphemeClusteringAlwaysOn
+        // exists to generate.
+        return caps.graphemeClusteringAlwaysOn ? ModeReport::PermanentlySet
+                                               : ModeReport::NotRecognized;
+
+    default:
+        // Not recognised. Every mode we merely CONSUME without implementing
+        // must land here: claiming 2 ("reset, you may set it") for a mode we
+        // would then ignore is the same lie as claiming 1.
+        return ModeReport::NotRecognized;
+    }
+}
+
+bool handleDecrqm(const Grid& grid, const Capabilities& caps, const Params& params,
+                  std::span<const std::uint8_t> intermediates, std::uint8_t final,
+                  ReplyLimiter& limiter, std::string& out) {
+    if (final != 'p' || intermediates.size() != 2 || intermediates[0] != '?' ||
+        intermediates[1] != '$') {
+        return false;
+    }
+    // DECRQM asks about exactly ONE mode: unlike DECSET it takes no list, and
+    // a multi-parameter form is malformed rather than a batch request.
+    if (params.count != 1 || params.subparam[0]) {
+        return false;
+    }
+    if (!limiter.allow()) {
+        return true;  // rate-dropped, but handled
+    }
+    const auto mode = static_cast<std::uint16_t>(params.values[0]);
+    out += "[?";
+    out += std::to_string(mode);
+    out += ';';
+    out += std::to_string(static_cast<int>(decrqmState(grid, caps, mode)));
+    out += "$y";
+    return true;
 }
 
 }  // namespace krait::core::vt

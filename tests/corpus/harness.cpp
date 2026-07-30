@@ -244,9 +244,17 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             krait::core::vt::handleScroll(grid, params, intermediates, final);
         } else if (final == 'h' || final == 'l') {
             krait::core::vt::handleMode(grid, params, intermediates, final);
-        } else if (final == 'c' || final == 'n') {
+        } else if (final == 'c' || final == 'n' || final == 'p') {
             std::string out;
-            krait::core::vt::handleReport(grid, caps, params, intermediates, final, limiter, out);
+            // 'p' is DECRQM, which handleDecrqm gates on its '?' '$'
+            // intermediates — every other 'p' form falls through it silently.
+            if (final == 'p') {
+                krait::core::vt::handleDecrqm(grid, caps, params, intermediates, final, limiter,
+                                              out);
+            } else {
+                krait::core::vt::handleReport(grid, caps, params, intermediates, final, limiter,
+                                              out);
+            }
             if (!out.empty()) {
                 std::string tok = "reply:";
                 for (const char ch : out) {

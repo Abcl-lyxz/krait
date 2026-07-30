@@ -2,6 +2,7 @@ find_package(Catch2 3 CONFIG REQUIRED)
 
 add_executable(krait-core-tests
     grid_test.cpp
+    modes_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
     session_test.cpp

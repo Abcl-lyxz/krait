@@ -58,6 +58,8 @@ class FuzzSink final : public ParserEvents {
             handleMode(grid, params, intermediates, final);
         } else if (final == 'c' || final == 'n') {
             handleReport(grid, caps, params, intermediates, final, limiter, replies);
+        } else if (final == 'p') {
+            handleDecrqm(grid, caps, params, intermediates, final, limiter, replies);
         } else {
             handleCsiCursor(grid, params, intermediates, final);
         }

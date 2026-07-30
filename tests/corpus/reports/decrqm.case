@@ -1,0 +1,109 @@
+# DECRQM (T22): CSI ? Ps $ p  ->  CSI ? Ps ; Pm $ y
+#
+# Every answer is GENERATED from live state + the capability table
+# (caps.cpp decrqmState), never hardcoded. Pm values, DEC STD 070:
+#   0 not recognized   1 set   2 reset   3 permanently set   4 permanently reset
+#
+# The 1/2 vs 3/4 split is the honesty rule with teeth. 1 and 2 promise an
+# application it can CHANGE the mode; 3 and 4 tell it the answer is fixed.
+# Answering 2 for a mode we would then ignore is the same lie as answering 1.
+
+# ---- modes we really do toggle ----
+
+# DECOM (?6) reset by default, set after DECSET
+IN \x1B[?6$p
+EXPECT reply:\x1B[?6;2$y
+IN \x1B[?6h\x1B[?6$p
+EXPECT reply:\x1B[?6;1$y
+IN \x1B[?6h\x1B[?6l\x1B[?6$p
+EXPECT reply:\x1B[?6;2$y
+
+# 1049 tracks the alternate screen
+IN \x1B[?1049$p
+EXPECT reply:\x1B[?1049;2$y
+IN \x1B[?1049h\x1B[?1049$p
+EXPECT reply:\x1B[?1049;1$y
+IN \x1B[?1049h\x1B[?1049l\x1B[?1049$p
+EXPECT reply:\x1B[?1049;2$y
+
+# 2004 bracketed paste (T22): a real flag, so 1/2
+IN \x1B[?2004$p
+EXPECT reply:\x1B[?2004;2$y
+IN \x1B[?2004h\x1B[?2004$p
+EXPECT reply:\x1B[?2004;1$y
+IN \x1B[?2004h\x1B[?2004l\x1B[?2004$p
+EXPECT reply:\x1B[?2004;2$y
+
+# 2026 synchronized output reports what the APPLICATION asked for. The 150 ms
+# guard is a rendering safety net, not a mode change — a batch that timed out
+# must not be reported back as reset, because the application still owns it.
+IN \x1B[?2026$p
+EXPECT reply:\x1B[?2026;2$y
+IN \x1B[?2026h\x1B[?2026$p
+EXPECT reply:\x1B[?2026;1$y
+IN \x1B[?2026h\x1B[?2026l\x1B[?2026$p
+EXPECT reply:\x1B[?2026;2$y
+
+# ---- modes whose answer is FIXED ----
+
+# 2027 grapheme clustering: always on by construction (T19/ADR-0003). 3, never
+# 1 — answering 1 would promise an application it can turn clustering off, and
+# DECRST 2027 is accept-and-ignore precisely because it cannot.
+IN \x1B[?2027$p
+EXPECT reply:\x1B[?2027;3$y
+IN \x1B[?2027l\x1B[?2027$p
+EXPECT reply:\x1B[?2027;3$y
+
+# DECAWM (?7): we autowrap and have no path that does not, so 3. Answering 1
+# would invite an application to turn wrapping off and then draw a ragged
+# screen wondering why it did not take.
+IN \x1B[?7$p
+EXPECT reply:\x1B[?7;3$y
+
+# DECTCEM (?25): nothing hides the cursor until the real renderer. Same rule.
+IN \x1B[?25$p
+EXPECT reply:\x1B[?25;3$y
+
+# ---- everything else is 0, not a guess ----
+
+IN \x1B[?9999$p
+EXPECT reply:\x1B[?9999;0$y
+
+# Mouse reporting is not implemented (T27), so 0 — NOT 2. "Reset" would tell
+# an application it may enable it.
+IN \x1B[?1000$p
+EXPECT reply:\x1B[?1000;0$y
+
+# Mode 0 names nothing
+IN \x1B[?0$p
+EXPECT reply:\x1B[?0;0$y
+
+# ---- malformed and near-miss forms are honest silence ----
+
+# ANSI-mode DECRQM (no '?') is a different request we do not answer
+IN \x1B[4$p
+EXPECT -
+
+# DECRQM asks about exactly ONE mode; a list is malformed, not a batch
+IN \x1B[?6;1049$p
+EXPECT -
+
+# No parameter at all
+IN \x1B[?$p
+EXPECT -
+
+# Colon subparameters are SGR-only
+IN \x1B[?6:1$p
+EXPECT -
+
+# 'p' without the '$' intermediate is not DECRQM (DECSCL/DECSTR territory)
+IN \x1B[?6p
+EXPECT -
+
+# Interrupted mid-sequence: the CAN aborts, the tail is plain text
+IN \x1B[?6\x18$p
+EXPECT -
+
+# A truncated request answers nothing at all
+IN \x1B[?2026$
+EXPECT -
