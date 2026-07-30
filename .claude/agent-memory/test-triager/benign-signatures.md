@@ -24,6 +24,20 @@ are **not** defects. Confirmed 2026-07-29 during the M0 acceptance battery.
 3. `cl : Command line warning D9025 : overriding '/std:c++17' with '/std:c++23preview'`
    Real but pre-existing and non-blocking — see [[d9025-std-override]].
 
+4. **A leading `\` where a `//` comment belongs, in Grep tool output.** The Grep
+   tool sometimes renders `// comment` as `\ comment` (seen 2026-07-30 on
+   `src/core/grid/scrollback.cpp:36` and `:87`). This reads like a syntax error
+   that could not possibly compile. Confirm with `sed -n '36p' file | cat -A`
+   before reporting; in that case the file was clean and the build was green.
+   Never report a compile error the build did not actually emit.
+
+5. **An incremental build that prints only 2-4 AUTOMOC lines and exits 0.** This
+   is an up-to-date no-op, not a full build — and it proves nothing about
+   warnings, since `/W4 /WX` diagnostics only appear when objects actually
+   compile. If the implementing session already built the branch, force the
+   evidence: `ninja -C build\dev -t clean <new-targets>` then rebuild. A no-op
+   build reported as "zero warnings" is a false pass.
+
 **Why:** each of these cost real triage time to attribute; two of them look like
 toolchain breakage at a glance.
 

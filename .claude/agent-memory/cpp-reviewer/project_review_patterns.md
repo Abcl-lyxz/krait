@@ -55,3 +55,34 @@ T7 confirmations (both recurring patterns hit again):
 ## T8 lesson
 - docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.
 - Grid behavior changes tend to ship unit tests only; vt-core rule also wants corpus cases (parser-path: wrap at margin, LF-at-bottom scroll, pendingWrap cancel) in the same commit.
+
+## T23 lesson (shaper pool + shaped-run cache) — bounds in the wrong unit, again
+- Third time now (T21 tailRows, T21 resize-capacity, T23 kMaxCacheableText): a
+  cap is written in the unit the author *thinks* in, not the unit the data grows
+  in. Here the cache bound is CODEPOINTS per run (256) while a run holds up to
+  `cols x Grid::kMaxClusterLen` = 240x16 = 3840 codepoints, so ordinary Thai on a
+  wide terminal falls off the cache entirely. Standing check: for every new cap,
+  compute the worst case from the *storage* invariants (Cell/ClusterPool/Line),
+  not from "typical" text. An aggregate byte budget + evict-until-under beats two
+  independent per-entry/count caps every time.
+- New recurring shape: **a degraded result gets cached as if it were correct.**
+  shape_pool.cpp caches an empty ShapedRun when the lazy per-worker loadFace
+  fails, so a transient FT failure makes that text invisible for the rest of the
+  session AND clears `missingGlyphs`, which is exactly the flag the fallback
+  chain triggers on. Whenever a diff caches the output of a fallible operation,
+  ask what gets stored on the failure path.
+- Worker-pool checklist that paid off here: (1) is the task queue capped, (2)
+  does the destructor DRAIN or DROP the backlog (drain = unbounded UI-thread
+  block at shutdown), (3) does the loop honour the jthread stop_token or only a
+  bool (bool-only = constructor-throw joins forever), (4) is the blocking
+  timeout smaller than a frame.
+- Verified-correct patterns here, do not re-litigate: `shared_ptr<Batch>`
+  captured by value in the task + all result writes under the same mutex as the
+  caller's copy-out (a timed-out caller genuinely cannot be written into);
+  members ordered so `std::vector<jthread>` is declared LAST hence destroyed
+  FIRST, joining before the cache/queue it touches; nested `m_mutex` take in the
+  lazy-loadFace block released before the outer take (no recursion, no lock held
+  across hb_shape); `upper_bound(offset)-1` cluster mapping cannot underflow
+  because clusters[0].offset is always 0 (and is order-independent, so RTL
+  visual-order output maps correctly); deleted copy ctor + user dtor suppress
+  the implicit move, so `Shaper`'s raw FT/hb handles cannot be stolen.

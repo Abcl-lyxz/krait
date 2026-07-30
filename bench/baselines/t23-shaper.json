@@ -1,0 +1,27 @@
+{
+  "recorded": "2026-07-30",
+  "task": "T23",
+  "machine": "HomeCenter",
+  "os": "Windows 11 Pro 10.0.26200",
+  "compiler": "MSVC 19.51",
+  "build_type": "Debug",
+  "harfbuzz": "14.2.1",
+  "freetype": "2.14.3",
+  "notes": "DEBUG build, so these are an upper bound and not comparable to the release budgets in rules/render.md. Source: tests/unit/shaper_test.cpp \"shaping throughput\" ([.][bench], hidden by default). One screenful of DISTINCT text: 63 runs of 78 ASCII columns, nothing repeating, so the cold pass is a worst case no real session reaches. The warm pass re-shapes the identical runs and must come entirely from the ShapeCache.",
+  "workload": {
+    "runs": 63,
+    "columns_per_run": 78,
+    "font": "C:/Windows/Fonts/consola.ttf",
+    "px_height": 18,
+    "ligatures": false
+  },
+  "shape_screenful": {
+    "workers": 4,
+    "cold_ms": 4.352,
+    "warm_ms": 0.236,
+    "cache_hits": 63,
+    "cache_misses": 63,
+    "speedup": 18.4
+  },
+  "gate": "warm_ms < cold_ms is asserted by the bench itself. A regression of >5% on cold_ms is what perf-auditor should flag once a release-mode baseline replaces this one."
+}

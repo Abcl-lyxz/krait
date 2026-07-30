@@ -108,3 +108,31 @@ Watch items from past reviews (verify still true before flagging):
 - Grid::resize/ctor accept <=0 dims -> row/col=-1 -> cellAt UB. Flagged BLOCKING; verify fix landed before app-layer wires window resize.
 - wrappedFromPrev never cleared by ED/EL full-row erase -> stale wrap flags feed M1 reflow. Re-check when reflow lands.
 - scrollUp allocates a fresh Line per scrolled row (emplace_back) even when scrollback cap discards one -> recycle candidate when parser bench lands.
+
+## T23 shaper (t23-shaper, uncommitted at review — 3 BLOCKING)
+- Blocked on: (1) shape_pool.cpp:208 caches an empty ShapedRun when the worker's
+  lazy loadFace fails; (2) kMaxCacheableText=256 codepoints is below a real Thai/
+  emoji row (cols x 16); (3) unbounded m_tasks + destructor drains the whole
+  backlog. Verify all three fixed before T24 builds on this.
+- Accepted latent, re-check at T24/T25:
+  - Cache key omits `run.script`/`run.rightToLeft`. Safe ONLY because splitRow
+    derives both from the text (first strong codepoint). T24 fallback or any
+    splitter change breaks that invariant silently — ask for the fields in the
+    key then.
+  - `run.shaping` is in the cache key but `Shaper::shape` ignores it, so bold/
+    italic currently shape with the regular face. T24 owns face selection.
+  - run_splitter.cpp:121 narrows `cps.size()` to uint8_t; only Grid::kMaxClusterLen
+    (16) keeps it safe and ClusterPool itself has no length cap. Add a bound on
+    ClusterPool if any non-Grid caller ever interns.
+  - `splitRow` does not flush on a leading `kWideTrailing` cell and its
+    `cps.empty()` (dangling cluster ref) branch has no test.
+  - Default `shapeAll` timeout is 250 ms on the CALLING thread vs render.md's
+    <10 ms renderer latency budget — T25 must pass a sub-frame timeout.
+  - No intra-batch dedupe: N identical rows in one frame are N misses and N
+    hb_shape calls.
+  - Tests hard-require C:/Windows/Fonts (tahoma/consola); they FAIL rather than
+    skip on a host without them.
+- src/render finally has its own CMake target (`krait-shaper`, Qt-free), which
+  closes the T11/T12 watch item. Spike sources still live in src/render/spike/
+  and are compiled by krait-app, so no collision. `target_include_directories
+  (krait-shaper PUBLIC src/)` repeats the T3 include-hygiene item.

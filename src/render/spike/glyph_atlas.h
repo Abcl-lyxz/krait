@@ -3,7 +3,7 @@
 #include <QImage>
 #include <QStringList>
 
-namespace krait::render {
+namespace krait::render::spike {
 
 // ASCII 0x20..0x7E rasterized into a single-row R8 atlas of uniform cells
 // (95 cells wide). Spike-only: the real shaper-fed atlas lands post-M0.
@@ -20,4 +20,4 @@ struct GlyphAtlas {
 // exists. Returns an invalid atlas if no font loads.
 GlyphAtlas buildAsciiAtlas(const QStringList& fontPaths, int pixelHeight);
 
-}  // namespace krait::render
+}  // namespace krait::render::spike

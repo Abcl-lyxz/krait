@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <numeric>
 
-namespace krait::render {
+namespace krait::render::spike {
 
 namespace {
 
@@ -302,4 +302,4 @@ void GridSpikeRenderer::reportBench() {
     QMetaObject::invokeMethod(m_item, "finishBench", Qt::QueuedConnection, Q_ARG(QString, json));
 }
 
-}  // namespace krait::render
+}  // namespace krait::render::spike

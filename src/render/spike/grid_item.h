@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-namespace krait::render {
+namespace krait::render::spike {
 
 // M0 spike (plan T12): 240x63 grid of instanced glyph quads sampling an R8
 // FreeType atlas, per-cell fg/bg riding a dynamic per-instance buffer (the
@@ -75,4 +75,4 @@ class GridSpikeRenderer : public QQuickRhiItemRenderer {
     std::unique_ptr<QRhiGraphicsPipeline> m_pipeline;
 };
 
-}  // namespace krait::render
+}  // namespace krait::render::spike
