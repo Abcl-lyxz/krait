@@ -6,6 +6,7 @@
     "catch2",
     "fmt",
     "freetype",
+    "libssh",
     {
       "name": "harfbuzz",
       "default-features": false,

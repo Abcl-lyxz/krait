@@ -16,6 +16,16 @@ enum class ErrorCode {
     // someone their connection "failed" when they typed exit is how a banner
     // trains people to ignore banners.
     PeerClosed,
+    // SSH (T39). Split rather than one "ssh-failed", because each of these
+    // wants a different banner and a different next action: retry, look at the
+    // key, or fix the credential.
+    ConnectFailed,
+    // The server presented a DIFFERENT key than the one we know. Blocking, and
+    // deliberately not the same code as a rejected new key: one is "you have
+    // never met this host", the other is "something changed" (rules/net.md).
+    HostKeyChanged,
+    HostKeyRejected,
+    AuthFailed,
 };
 
 struct BackendError {
@@ -33,6 +43,14 @@ inline QString errorCodeName(ErrorCode code) {
         return QStringLiteral("io-failed");
     case ErrorCode::PeerClosed:
         return QStringLiteral("peer-closed");
+    case ErrorCode::ConnectFailed:
+        return QStringLiteral("connect-failed");
+    case ErrorCode::HostKeyChanged:
+        return QStringLiteral("host-key-changed");
+    case ErrorCode::HostKeyRejected:
+        return QStringLiteral("host-key-rejected");
+    case ErrorCode::AuthFailed:
+        return QStringLiteral("auth-failed");
     }
     return QStringLiteral("unknown");
 }

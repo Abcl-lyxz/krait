@@ -35,6 +35,7 @@ add_executable(krait-qt-tests
     backend_contract_test.cpp
     error_banner_test.cpp
     gpu_resources_test.cpp
+    hostkey_art_test.cpp
     i18n_test.cpp
     ime_test.cpp
     keymap_test.cpp
