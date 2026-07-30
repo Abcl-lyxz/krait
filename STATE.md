@@ -95,15 +95,39 @@ in M1. The tab strip needs the same factory, so it follows naturally.
   is vsync-bound at 180 Hz, so `cpu_avg_ms` is the number that carries
   information, not fps.
 
+## The review
+
+`cpp-reviewer` ran over the whole branch and found **three blocking** issues,
+all real, all fixed in `bbd91ef` — and finding them is why the M1 note said to
+run it rather than treat it as a formality:
+
+1. A stale answer could satisfy the host-key gate on a reconnect, writing
+   `known_hosts` with no human in the loop. `verifyHostKey` was not arming the
+   answer slot before its emit; only `askForSecret` was. Fixing it exposed a
+   second bug on the same line — the TOFU prompt was sending the bare
+   fingerprint, so the randomart never reached the one prompt it exists for.
+2. `std::regex` could throw out of `src/core`: MSVC throws `error_complexity`
+   while MATCHING, and the `try` covered construction only.
+3. `Vault` had no lock but is borrowed by every backend and called from every
+   worker thread — two tabs authenticating at once is a read of freed heap on a
+   credential path.
+
+Six more below blocking, also fixed: the reconnect counter never reset after a
+successful reconnect; a credential answered after its prompt timed out was never
+zeroed; `SSH_AGAIN` treated as success in the write loop; `vault.dat` truncated
+in place; one over-long PuTTY name aborting the whole import; a kitty colon
+subparam read as a mode; `krait ssh []:22` yielding a host named "[]".
+
 ## Evidence
 
 | Gate | Result |
 |---|---|
 | `cmake --build --preset dev` | pass |
 | `cmake --build --preset release` | pass |
-| `ctest --preset dev` | **278/278** (was 199 at M1) |
-| `ctest --preset release` | **278/278** |
-| clang-tidy, changed files | clean |
+| `ctest --preset dev` | **279/279** (was 199 at M1) |
+| `ctest --preset release` | **278/278** (before the review fixes) |
+| clang-tidy + clang-format, changed files | clean |
+| `cpp-reviewer`, whole branch | 3 blocking + 6 others, all fixed |
 | SSH contract suite vs in-process sshd | 8 cases, under 1 s |
 | Palette, 2000 profiles | well under the 100 ms budget |
 | Release flood, WARP, 60 fps budget | **PASS** — 177.6 fps, cpu 5.63 ms |
@@ -120,9 +144,16 @@ Baseline: `bench/baselines/m2-wrap.json`.
   has nowhere to go. `KRAIT_GPU=hardware` exits non-zero with no frames. The
   last real hardware number is T25's 140.7 fps, now two milestones old. It needs
   one run on a machine with a monitor, and no code at all.
-- **`cpp-reviewer` has NOT been run over this branch.** M1 ran it and it found
-  three blocking issues, so this is a real gap rather than a formality. It is
-  the first thing to do before merging PR #24.
+- **`stop()` joins the worker with no bound.** `m_shutdown` + `notify_all`
+  releases the condition-variable waits, but a worker inside `ssh_connect` (DNS
+  is not covered by `SSH_OPTIONS_TIMEOUT`), `ssh_userauth_agent` on a hung
+  OpenSSH named pipe, or `ssh_pki_import_privkey_file` on a dead network share
+  is not interruptible. Closing a tab against a blackholed host freezes the UI
+  for up to `connectTimeoutSeconds`; against a hung agent pipe, indefinitely.
+  `net.md` asks for a cancel path wired to tab close and this is not one.
+  Fixing it properly needs an `ssh_event` loop over a socket we own, or a
+  detached worker — and detaching a thread that touches `this` is worse than
+  the freeze. Left as a known ceiling with the reasoning, not papered over.
 - **The manual gates have still not been run by a human.** Same reason as M1.
   The palette, the settings page and the banners have been verified to LOAD (the
   app exits 0, and a QML failure exits 1), not to look right.
