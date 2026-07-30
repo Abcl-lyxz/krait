@@ -4,6 +4,8 @@
 #include "core/caps/caps.h"
 #include "core/grid/grid.h"
 #include "core/parser/csi_cursor.h"
+#include "core/parser/csi_mode.h"
+#include "core/parser/csi_scroll.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
 
@@ -50,12 +52,17 @@ class FuzzSink final : public ParserEvents {
             applySgr(grid.pen, params, intermediates);
         } else if (final == 'J' || final == 'K') {
             handleErase(grid, params, intermediates, final);
+        } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
+            handleScroll(grid, params, intermediates, final);
+        } else if (final == 'h' || final == 'l') {
+            handleMode(grid, params, intermediates, final);
         } else if (final == 'c' || final == 'n') {
             handleReport(grid, caps, params, intermediates, final, limiter, replies);
         } else {
             handleCsiCursor(grid, params, intermediates, final);
         }
         checkCursor();
+        checkRowWidths();
     }
 
     void dcsHook(const Params&, std::span<const std::uint8_t>, std::uint8_t) override {}
@@ -74,6 +81,21 @@ class FuzzSink final : public ParserEvents {
     void checkCursor() const {
         assert(grid.row >= 0 && grid.row < grid.rows);
         assert(grid.col >= 0 && grid.col < grid.cols);
+        // The margins index m_screen directly in scrollRegionUp/Down, so an
+        // inverted or out-of-range region is an out-of-bounds write waiting for
+        // the right input. DECSTBM is reachable from the first byte.
+        assert(grid.scrollTop >= 0);
+        assert(grid.scrollTop <= grid.scrollBottom);
+        assert(grid.scrollBottom < grid.rows);
+    }
+
+    // O(rows), so it stays OUT of checkCursor() — that runs per printable byte.
+    // Only a buffer swap can make a row the wrong width, and only csiDispatch
+    // can trigger one.
+    void checkRowWidths() const {
+        for (int r = 0; r < grid.rows; ++r) {
+            assert(grid.lineAt(r).cells.size() == static_cast<std::size_t>(grid.cols));
+        }
     }
 };
 

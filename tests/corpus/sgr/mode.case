@@ -1,0 +1,131 @@
+# Mode 1049 (alternate screen) buffer + shared-state behavior (T18).
+# Grid is 24x80. EXPECT tokens:
+#   pen:...      pen state
+#   region:T,B   1-based margins, emitted only when narrowed
+#   origin:on    DECOM set
+#   alt:on       the ALTERNATE buffer is the active one
+#   line:N:...   row content of the ACTIVE buffer, '.' = erased cell
+#
+# Spec basis: xterm ctlseqs (1049's wording), xterm ptyx.h (which state is
+# per-buffer and which is not), cursor.c CursorSave2/CursorRestore.
+
+# ---- entering and leaving ----
+
+# The alternate buffer starts blank: ctlseqs says 1049 switches to it
+# "clearing it first", so 'A' on the normal screen is not visible here.
+IN A\x1B[?1049h
+EXPECT pen:-/def/def alt:on
+
+# Writes on the alternate buffer never reach the normal one
+IN AB\x0D\x0A\x1B[?1049hXY\x1B[?1049l
+EXPECT pen:-/def/def line:1:AB
+
+# Leaving does NOT clear (that is 1047's behavior) — it just switches back,
+# so the normal screen still holds everything written before entering
+IN A\x0D\x0AB\x1B[?1049hZ\x1B[?1049l
+EXPECT pen:-/def/def line:1:A line:2:B
+
+# Entering twice is NOT idempotent: xterm's whichBuf guard is inside
+# ToAlternate, while the ClearScreen around it runs unconditionally — so the
+# second h wipes the X the app just drew on the alternate buffer.
+IN \x1B[?1049hX\x1B[?1049h
+EXPECT pen:-/def/def alt:on
+
+# ...and the clear is full-screen, not region-limited: xterm's ClearBufRows
+# runs 0..max_row and ignores the margins entirely
+IN \x1B[?1049hA\x1B[10;1HB\x1B[2;3r\x1B[?1049h
+EXPECT pen:-/def/def region:2,3 alt:on
+
+# Leaving twice: the switch back no-ops the second time but the CursorRestore
+# does not — it re-reads the same slot, so nothing observable changes here
+IN A\x1B[?1049h\x1B[?1049l\x1B[?1049l
+EXPECT pen:-/def/def line:1:A
+
+# A COLD leave restores a never-written slot rather than doing nothing:
+# CursorRestoreFlags has no `if (sc->saved)` guard on the position or the pen,
+# so a stray rmcup homes the cursor and resets the pen. The bold is gone.
+IN \x1B[1;31mA\x1B[?1049l
+EXPECT pen:-/def/def line:1:A
+
+# ---- state that is SHARED between the buffers (xterm ptyx.h) ----
+
+# Margins are single TScreen members, not per-buffer: a region set on the
+# normal screen is still in force on the alternate one
+IN \x1B[5;10r\x1B[?1049h
+EXPECT pen:-/def/def region:5,10 alt:on
+
+# So is the pen — the alternate buffer inherits the current SGR state
+IN \x1B[1;31m\x1B[?1049h
+EXPECT pen:bold/1/def alt:on
+
+# ...and origin mode
+IN \x1B[?6h\x1B[?1049h
+EXPECT pen:-/def/def origin:on alt:on
+
+# ---- what the saved-cursor slot restores ----
+
+# The slot holds the PEN too (cursor.c CursorSave2 saves xw->flags and the
+# colors), so an SGR reset inside the alternate screen is undone on the way out
+IN \x1B[1;31m\x1B[?1049h\x1B[0m\x1B[?1049l
+EXPECT pen:bold/1/def
+
+# ...and origin mode, which the alt-screen app cleared
+IN \x1B[?6h\x1B[?1049h\x1B[?6l\x1B[?1049l
+EXPECT pen:-/def/def origin:on
+
+# Margins are NOT cursor state, so a region set INSIDE the alternate screen
+# survives the switch back — nothing restores it
+IN \x1B[?1049h\x1B[5;10r\x1B[?1049l
+EXPECT pen:-/def/def region:5,10
+
+# The slot holds the WHOLE pen, underline style and underline colour included
+IN \x1B[4:3m\x1B[58;5;9m\x1B[?1049h\x1B[0m\x1B[?1049l
+EXPECT pen:-/def/def ul:curly/9
+
+# ---- the alternate screen scrolls its OWN rows ----
+
+# A scroll at the bottom margin moves the alternate buffer's rows, and captures
+# no history at all (xterm's `!whichBuf` gate on scroll_all_lines)
+IN \x1B[1;2r\x1B[?1049hA\x0D\x0AB\x0D\x0AC
+EXPECT pen:-/def/def region:1,2 alt:on line:1:B line:2:C
+
+# ...and none of it reached the normal buffer
+IN \x1B[1;2r\x1B[?1049hA\x0D\x0AB\x0D\x0AC\x1B[?1049l
+EXPECT pen:-/def/def region:1,2
+
+# ---- DECOM + IL inside the region ----
+
+# The blank line lands on the region row the app addressed, and C falls off the
+# bottom margin
+IN A\x0D\x0AB\x0D\x0AC\x1B[1;3r\x1B[?6h\x1B[2;1H\x1B[1L
+EXPECT pen:-/def/def region:1,3 origin:on line:1:A line:3:B
+
+# ---- mode lists ----
+
+# DECSET applies every mode in the list, in order
+IN \x1B[?6;1049h
+EXPECT pen:-/def/def origin:on alt:on
+
+# ---- forms that are not ours ----
+
+# An unimplemented DEC mode is consumed and switches nothing
+IN A\x1B[?1050h
+EXPECT pen:-/def/def line:1:A
+
+# No private marker: ANSI mode 1049 does not exist
+IN A\x1B[1049h
+EXPECT pen:-/def/def line:1:A
+
+# Subparameters are SGR-only, so this is rejected outright
+IN A\x1B[?1049:1h
+EXPECT pen:-/def/def line:1:A
+
+# ---- interrupted mid-sequence ----
+
+# CAN aborts the DECSET; the trailing final prints as a character instead
+IN A\x1B[?1049\x18h
+EXPECT pen:-/def/def line:1:Ah
+
+# ESC re-introduces: the abandoned sequence never applies, the second does
+IN A\x1B[?1049\x1B[?1049h
+EXPECT pen:-/def/def alt:on

@@ -14,6 +14,7 @@
 //                      Non-printables and space render as \xNN (uppercase).
 #include "core/caps/caps.h"
 #include "core/parser/csi_cursor.h"
+#include "core/parser/csi_mode.h"
 #include "core/parser/csi_scroll.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
@@ -241,6 +242,8 @@ class CursorSink final : public krait::core::vt::ParserEvents {
             krait::core::vt::handleErase(grid, params, intermediates, final);
         } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
             krait::core::vt::handleScroll(grid, params, intermediates, final);
+        } else if (final == 'h' || final == 'l') {
+            krait::core::vt::handleMode(grid, params, intermediates, final);
         } else if (final == 'c' || final == 'n') {
             std::string out;
             krait::core::vt::handleReport(grid, caps, params, intermediates, final, limiter, out);
@@ -312,6 +315,14 @@ class CursorSink final : public krait::core::vt::ParserEvents {
         if (grid.scrollTop != 0 || grid.scrollBottom != grid.rows - 1) {
             tokens.push_back("region:" + std::to_string(grid.scrollTop + 1) + "," +
                              std::to_string(grid.scrollBottom + 1));
+        }
+        // Both emitted only when on, so every pre-T18 case keeps its existing
+        // expectations. `line:` rows below always describe the ACTIVE buffer.
+        if (grid.originMode) {
+            tokens.emplace_back("origin:on");
+        }
+        if (grid.onAlternateScreen()) {
+            tokens.emplace_back("alt:on");
         }
         // Emitted only when there is something to say, so the many cases that
         // never touch underlines keep their two-token expectations.

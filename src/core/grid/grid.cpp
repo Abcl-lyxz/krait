@@ -9,6 +9,65 @@ Grid::Grid(int rowCount, int colCount)
     : rows(std::max(1, rowCount)), cols(std::max(1, colCount)), damage(rows),
       scrollBottom(rows - 1), m_screen(static_cast<std::size_t>(rows), Line(cols)) {}
 
+void Grid::cursorSet(int r, int c) {
+    // xterm cursor.c: with ORIGIN set the row is offset by the top margin and
+    // clamped to the BOTTOM MARGIN; without it the clamp is the page. The only
+    // low clamp is 0 — do NOT assume the result is at or below scrollTop. A
+    // caller may legitimately pass a NEGATIVE relative row and land above the
+    // top margin with origin mode still on: restoreCursor() does exactly that
+    // when the margins moved while the alternate screen was up, which is why
+    // caps.cpp's CPR has to clamp its subtraction.
+    const int maxRow = originMode ? scrollBottom : rows - 1;
+    if (originMode) {
+        r += scrollTop;
+    }
+    row = std::clamp(r, 0, maxRow);
+    col = std::clamp(c, 0, cols - 1);
+    pendingWrap = false;
+}
+
+void Grid::eraseScreen() {
+    // ponytail: blanks with fresh default cells, not the current pen. BCE is
+    // one undecided question across ED/EL/IL/DL/SU/SD (see conformance.md) and
+    // this stays consistent with scrollRegion*'s DEC-cited attribute-free
+    // blanks; terminalguide says xterm's 1049 clear DOES use the pen, so this
+    // flips with the rest of BCE, not on its own.
+    for (Line& line : m_screen) {
+        line = Line(cols);
+    }
+    damage.markAll();
+}
+
+void Grid::useAlternateScreen(bool on) {
+    if (on == m_onAlt) {
+        return;  // idempotent: xterm's 1049 handler is a no-op when already there
+    }
+    // Allocated on first use. No shape check beyond this: resize() reshapes the
+    // inactive buffer too, so once it exists it is always rows x cols.
+    if (m_altScreen.empty()) {
+        m_altScreen.assign(static_cast<std::size_t>(rows), Line(cols));
+    }
+    m_screen.swap(m_altScreen);
+    m_onAlt = on;
+    damage.markAll();
+}
+
+void Grid::saveCursor() {
+    m_saved[m_onAlt ? 1 : 0] = {row, col, pen, originMode, pendingWrap, g1Invoked};
+}
+
+void Grid::restoreCursor() {
+    const SavedCursor sc = m_saved[m_onAlt ? 1 : 0];
+    pen = sc.pen;
+    originMode = sc.originMode;
+    g1Invoked = sc.g1Invoked;
+    // Saved rows are ABSOLUTE, but cursorSet() re-adds the top margin when
+    // origin mode is on — so take it back out first (xterm CursorRestore does
+    // exactly this: CursorSet(screen, sc->row - screen->top_marg, ...)).
+    cursorSet(originMode ? sc.row - scrollTop : sc.row, sc.col);
+    pendingWrap = sc.pendingWrap;  // cursorSet() just cleared it; the slot wins
+}
+
 Cell& Grid::cellAt(int r, int c) {
     return m_screen[static_cast<std::size_t>(r)].cells[static_cast<std::size_t>(c)];
 }
@@ -144,15 +203,34 @@ void Grid::resize(int newRows, int newCols) {
             line.cells.resize(static_cast<std::size_t>(newCols));
         }
     }
+    // xterm's ScreenResize reallocates the INACTIVE buffer too, so the normal
+    // screen survives a resize taken while a full-screen app owns the alternate
+    // one. Shrinking drops rows off the TOP, not the bottom — xterm's
+    // Reallocate: "If the screen shrinks, remove lines off the top of the
+    // buffer", under the default SouthWest gravity, for both buffers. Getting
+    // this end wrong would destroy the shell prompt every time a window shrank
+    // inside vim. ponytail: no reflow and no scrollback push, same as above.
+    if (!m_altScreen.empty()) {
+        while (m_altScreen.size() > static_cast<std::size_t>(rows)) {
+            m_altScreen.erase(m_altScreen.begin());
+        }
+        m_altScreen.resize(static_cast<std::size_t>(rows), Line(newCols));
+        for (Line& line : m_altScreen) {
+            line.cells.resize(static_cast<std::size_t>(newCols));
+        }
+    }
     row = std::min(row, rows - 1);
     col = std::min(col, cols - 1);
     pendingWrap = false;
     // A resize can leave the margins describing rows that no longer exist. An
     // out-of-range scrollBottom would make scrollRegionUp index past the
     // screen, so re-clamp rather than trusting the old values. xterm likewise
-    // resets the region on resize.
+    // resets the region on resize — and in the same breath clears DECOM
+    // (screen.c: resetMargins(xw) then UIntClr(*flags, ORIGIN)), which it must,
+    // since origin mode without its margins would address a stale region.
     scrollTop = 0;
     scrollBottom = rows - 1;
+    originMode = false;
     damage.reset(rows);
     damage.markAll();
 }

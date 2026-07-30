@@ -50,10 +50,11 @@ bool handleScroll(Grid& grid, const Params& params, std::span<const std::uint8_t
         grid.scrollTop = top - 1;
         grid.scrollBottom = bottom - 1;
         // "DECSTBM moves the cursor to column 1, line 1 of the page" — which is
-        // the region's top line when origin mode is on.
-        grid.row = grid.originMode ? grid.scrollTop : 0;
-        grid.col = 0;
-        grid.pendingWrap = false;
+        // the region's top line when origin mode is on. xterm homes it through
+        // CursorSet with its flags (charproc.c CASE_DECSTBM), so route through
+        // the same one place rather than open-coding the origin rule: DECSLRM
+        // will add a left-margin offset there and this must inherit it.
+        grid.cursorSet(0, 0);
         return true;
     }
 

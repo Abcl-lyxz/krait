@@ -4,6 +4,7 @@ add_library(krait-core STATIC
     caps/caps.cpp
     grid/grid.cpp
     parser/csi_cursor.cpp
+    parser/csi_mode.cpp
     parser/csi_scroll.cpp
     parser/machine.cpp
     parser/sgr.cpp

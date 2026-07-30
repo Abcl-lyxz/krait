@@ -1,6 +1,7 @@
 #include "core/terminal/session.h"
 
 #include "core/parser/csi_cursor.h"
+#include "core/parser/csi_mode.h"
 #include "core/parser/csi_scroll.h"
 #include "core/parser/sgr.h"
 
@@ -33,6 +34,8 @@ void Session::csiDispatch(const Params& params, std::span<const std::uint8_t> in
         handleErase(m_grid, params, intermediates, final);
     } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
         handleScroll(m_grid, params, intermediates, final);
+    } else if (final == 'h' || final == 'l') {
+        handleMode(m_grid, params, intermediates, final);
     } else if (final == 'c' || final == 'n') {
         std::string reply;
         handleReport(m_grid, m_caps, params, intermediates, final, m_limiter, reply);

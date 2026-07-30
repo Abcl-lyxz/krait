@@ -143,6 +143,145 @@ TEST_CASE("grid: resize re-clamps stale margins", "[grid][scroll]") {
     SUCCEED();
 }
 
+TEST_CASE("grid: resize clears origin mode with the margins", "[grid][scroll]") {
+    // xterm's ScreenResize does resetMargins() then UIntClr(flags, ORIGIN) —
+    // origin mode outliving its margins would address a region that is gone.
+    Grid g(10, 4);
+    g.scrollTop = 4;
+    g.scrollBottom = 9;
+    g.originMode = true;
+    g.resize(8, 4);
+    CHECK_FALSE(g.originMode);
+    // Re-narrow before probing: resize() zeroes scrollTop too, so without a
+    // fresh margin a surviving originMode would still land on row 0 and this
+    // would assert nothing.
+    g.scrollTop = 4;
+    g.scrollBottom = 7;
+    g.cursorSet(0, 0);  // absolute home, not the new top margin
+    CHECK(g.row == 0);
+}
+
+TEST_CASE("grid: alternate screen never captures scrollback", "[grid][alt]") {
+    // xterm util.c gates scrollback on `!screen->whichBuf` as well as on the
+    // top margin: a full-screen app's redraws are not history.
+    Grid g(2, 4);
+    g.useAlternateScreen(true);
+    REQUIRE(g.capturesScrollback() == false);
+    g.putChar(U'A');
+    g.linefeed();
+    g.linefeed();  // at the bottom, so this scrolls the region
+    CHECK(g.scrollbackSize() == 0);
+    // Back on the normal screen the same scroll DOES capture.
+    g.useAlternateScreen(false);
+    g.row = 0;
+    g.col = 0;
+    g.putChar(U'B');
+    g.row = g.rows - 1;
+    g.linefeed();
+    REQUIRE(g.scrollbackSize() == 1);
+    CHECK(g.scrollbackAt(0).cells[0].ch == U'B');
+}
+
+TEST_CASE("grid: switching buffers preserves the other one", "[grid][alt]") {
+    Grid g(2, 4);
+    g.putChar(U'N');
+    g.useAlternateScreen(true);
+    CHECK(g.cellAt(0, 0).ch == 0);  // the alternate buffer starts blank
+    g.row = 0;
+    g.col = 0;
+    g.putChar(U'A');
+    g.useAlternateScreen(false);
+    CHECK(g.cellAt(0, 0).ch == U'N');  // normal content survived
+    g.useAlternateScreen(true);
+    CHECK(g.cellAt(0, 0).ch == U'A');  // and so did the alternate's
+}
+
+TEST_CASE("grid: resize reshapes the inactive buffer too", "[grid][alt]") {
+    // xterm's ScreenResize reallocates editBuf_index[!whichBuf], so a resize
+    // taken while an app owns the alternate screen must not leave the normal
+    // buffer the wrong shape — cellAt() would index out of bounds on return.
+    Grid g(4, 6);
+    // On the LAST row, so top-trimming keeps it. Asserting content matters:
+    // useAlternateScreen() re-allocates a blank buffer of the right shape when
+    // m_altScreen is empty, so a shape-only check passes even with the whole
+    // reshape path deleted.
+    g.row = 3;
+    g.col = 0;
+    g.putChar(U'N');
+    g.useAlternateScreen(true);
+    g.resize(2, 3);
+    g.useAlternateScreen(false);
+    REQUIRE(g.rows == 2);
+    for (int r = 0; r < g.rows; ++r) {
+        CHECK(g.lineAt(r).cells.size() == 3);
+    }
+    CHECK(g.cellAt(1, 0).ch == U'N');
+}
+
+TEST_CASE("grid: shrinking keeps the BOTTOM of the inactive buffer", "[grid][alt]") {
+    // xterm Reallocate: "If the screen shrinks, remove lines off the top of the
+    // buffer" — SouthWest gravity, and it runs for the inactive buffer too.
+    // Trimming the bottom instead would destroy the shell prompt every time a
+    // window shrank inside vim.
+    Grid g(4, 4);
+    for (int r = 0; r < 4; ++r) {
+        g.row = r;
+        g.col = 0;
+        g.putChar(U'0' + static_cast<char32_t>(r));
+    }
+    g.useAlternateScreen(true);
+    g.resize(2, 4);
+    g.useAlternateScreen(false);
+    CHECK(g.cellAt(0, 0).ch == U'2');
+    CHECK(g.cellAt(1, 0).ch == U'3');
+}
+
+TEST_CASE("grid: saved cursor round-trips through origin mode", "[grid][alt]") {
+    // The slot stores an ABSOLUTE row; restoreCursor() must take the top margin
+    // back out before cursorSet() re-applies it, or the row drifts by scrollTop.
+    Grid g(10, 8);
+    g.scrollTop = 3;
+    g.scrollBottom = 8;
+    g.originMode = true;
+    g.cursorSet(1, 2);  // region row 2 -> absolute row 4
+    REQUIRE(g.row == 4);
+    g.saveCursor();
+    g.cursorSet(0, 0);
+    REQUIRE(g.row == 3);
+    g.restoreCursor();
+    CHECK(g.row == 4);
+    CHECK(g.col == 2);
+}
+
+TEST_CASE("grid: the two saved-cursor slots are independent", "[grid][alt]") {
+    // xterm indexes sc[] by whichBuf, so ESC 7 on the alternate screen cannot
+    // clobber what mode 1049 saved on the way in.
+    Grid g(10, 8);
+    g.cursorSet(5, 5);
+    g.saveCursor();  // slot 0
+    g.useAlternateScreen(true);
+    g.cursorSet(1, 1);
+    g.saveCursor();  // slot 1
+    g.cursorSet(9, 7);
+    g.restoreCursor();
+    CHECK(g.row == 1);
+    g.useAlternateScreen(false);
+    g.restoreCursor();
+    CHECK(g.row == 5);
+    CHECK(g.col == 5);
+}
+
+TEST_CASE("grid: cursorSet clamps into the region only in origin mode", "[grid][scroll]") {
+    Grid g(10, 8);
+    g.scrollTop = 3;
+    g.scrollBottom = 6;
+    g.cursorSet(9, 0);  // DECOM off: the whole page is addressable
+    CHECK(g.row == 9);
+    g.originMode = true;
+    g.cursorSet(99, 0);  // DECOM on: clamped to the bottom margin
+    CHECK(g.row == 6);
+}
+
 TEST_CASE("grid: damage coalesces per-row spans and clears", "[grid]") {
     Grid g(3, 10);
     g.putChar(U'A');
