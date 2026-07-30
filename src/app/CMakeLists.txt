@@ -23,7 +23,10 @@ qt_add_qml_module(krait-app
         qml/Banner.qml
         qml/BannerButton.qml
         qml/Main.qml
+        qml/Palette.qml
     SOURCES
+        session_model.cpp
+        session_model.h
         terminal_item.cpp
         terminal_item.h
         ../render/spike/grid_item.cpp

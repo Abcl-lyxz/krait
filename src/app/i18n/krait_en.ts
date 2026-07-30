@@ -74,7 +74,7 @@
     <message>
         <location filename="../error_banner.h" line="100"/>
         <source>The server&apos;s identity was not accepted, so nothing was sent to it.</source>
-        <translation>The server's identity was not accepted, so nothing was sent to it.</translation>
+        <translation>The server&apos;s identity was not accepted, so nothing was sent to it.</translation>
     </message>
     <message>
         <location filename="../error_banner.h" line="103"/>
@@ -105,19 +105,44 @@
         <translation>Krait</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="51"/>
+        <location filename="../qml/Main.qml" line="63"/>
+        <location filename="../qml/Main.qml" line="91"/>
+        <location filename="../qml/Main.qml" line="100"/>
         <source>Dismiss</source>
         <translation>Dismiss</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="60"/>
+        <location filename="../qml/Main.qml" line="72"/>
         <source>Paste anyway</source>
         <translation>Paste anyway</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="61"/>
+        <location filename="../qml/Main.qml" line="73"/>
         <source>Cancel</source>
         <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="93"/>
+        <source>Opening saved sessions is not wired up yet: %1</source>
+        <translation>Opening saved sessions is not wired up yet: %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="102"/>
+        <source>Not wired up yet: %1</source>
+        <translation>Not wired up yet: %1</translation>
+    </message>
+</context>
+<context>
+    <name>Palette</name>
+    <message>
+        <location filename="../qml/Palette.qml" line="97"/>
+        <source>Type a command or a session…</source>
+        <translation>Type a command or a session…</translation>
+    </message>
+    <message>
+        <location filename="../qml/Palette.qml" line="120"/>
+        <source>Nothing matches.</source>
+        <translation>Nothing matches.</translation>
     </message>
 </context>
 <context>
@@ -154,6 +179,102 @@
         <location filename="../settings/paths.cpp" line="60"/>
         <source>user profile</source>
         <translation>user profile</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app</name>
+    <message>
+        <location filename="../session_model.cpp" line="30"/>
+        <source>New session</source>
+        <translation>New session</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="31"/>
+        <source>Close session</source>
+        <translation>Close session</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="32"/>
+        <source>Reconnect session</source>
+        <translation>Reconnect session</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="33"/>
+        <source>Command palette</source>
+        <translation>Command palette</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="34"/>
+        <source>Open a saved session</source>
+        <translation>Open a saved session</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="35"/>
+        <source>Manage sessions</source>
+        <translation>Manage sessions</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="36"/>
+        <source>Import sessions from PuTTY</source>
+        <translation>Import sessions from PuTTY</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="37"/>
+        <source>Settings</source>
+        <translation>Settings</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="38"/>
+        <source>Reload settings from disk</source>
+        <translation>Reload settings from disk</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="39"/>
+        <source>Copy</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="40"/>
+        <source>Paste</source>
+        <translation>Paste</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="41"/>
+        <source>Search scrollback</source>
+        <translation>Search scrollback</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="42"/>
+        <source>Clear scrollback</source>
+        <translation>Clear scrollback</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="43"/>
+        <source>About Krait</source>
+        <translation>About Krait</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::SessionModel</name>
+    <message>
+        <location filename="../session_model.cpp" line="62"/>
+        <source>Could not read %1: %2</source>
+        <translation>Could not read %1: %2</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="121"/>
+        <source>No PuTTY sessions were found.</source>
+        <translation>No PuTTY sessions were found.</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="135"/>
+        <source>Imported %1 session(s) from PuTTY.</source>
+        <translation>Imported %1 session(s) from PuTTY.</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="144"/>
+        <source>Imported %1 session(s). Left behind, because Krait does not speak their protocol yet: %2.</source>
+        <translation>Imported %1 session(s). Left behind, because Krait does not speak their protocol yet: %2.</translation>
     </message>
 </context>
 <context>
@@ -197,7 +318,7 @@
     <message>
         <location filename="../../net/ssh/ssh_backend.cpp" line="234"/>
         <source>The server&apos;s host key could not be read.</source>
-        <translation>The server's host key could not be read.</translation>
+        <translation>The server&apos;s host key could not be read.</translation>
     </message>
     <message>
         <location filename="../../net/ssh/ssh_backend.cpp" line="283"/>

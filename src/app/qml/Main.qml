@@ -9,6 +9,18 @@ Window {
     title: qsTr("Krait")
     color: "#0d0f17"
 
+    // Ctrl+Shift+P from anywhere in the window. rules/ui.md is explicit that a
+    // feature reachable only by mouse is incomplete work, and the palette is
+    // the thing that makes every other action reachable at all.
+    Shortcut {
+        sequence: "Ctrl+Shift+P"
+        onActivated: palette.open()
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+O"
+        onActivated: palette.open()
+    }
+
     // Bench runs keep the synthetic spike; normal runs are the terminal.
     SpikeGrid {
         anchors.fill: parent
@@ -64,5 +76,33 @@ Window {
                 banner.forceActiveFocus()
             }
         }
+    }
+
+    Palette {
+        id: palette
+        z: 100
+
+        onSessionChosen: (profileId) => {
+            // The connection itself is not wired yet: opening a tab needs the
+            // backend factory that T51 records as the next task. Saying so in
+            // the banner beats a click that appears to do nothing.
+            banner.severity = "info"
+            banner.showAccept = false
+            banner.rejectText = qsTr("Dismiss")
+            banner.detail = ""
+            banner.message = qsTr("Opening saved sessions is not wired up yet: %1").arg(profileId)
+            banner.forceActiveFocus()
+        }
+
+        onActionChosen: (actionId) => {
+            banner.severity = "info"
+            banner.showAccept = false
+            banner.rejectText = qsTr("Dismiss")
+            banner.detail = ""
+            banner.message = qsTr("Not wired up yet: %1").arg(actionId)
+            banner.forceActiveFocus()
+        }
+
+        onDismissed: terminal.forceActiveFocus()
     }
 }

@@ -3,7 +3,7 @@ find_package(Catch2 3 CONFIG REQUIRED)
 # Qt6::Gui visible here — and the DL_PATHS below needs it by name.
 # Qt6::Test is for QSignalSpy only — the settings tests assert which signals
 # fired, and hand-rolling that is more code than the dependency.
-find_package(Qt6 6.8 REQUIRED COMPONENTS Gui ShaderTools Test Xml)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Qml ShaderTools Test Xml)
 
 add_executable(krait-core-tests
     atlas_test.cpp
@@ -36,6 +36,8 @@ catch_discover_tests(krait-core-tests)
 # QGuiApplication — linking even Qt6::Core into it costs that property, since
 # the binary then will not start without Qt6Core.dll beside it.
 add_executable(krait-qt-tests
+    action_labels_test.cpp
+    ../../src/app/session_model.cpp
     backend_contract_test.cpp
     error_banner_test.cpp
     gpu_resources_test.cpp
@@ -57,11 +59,15 @@ add_executable(krait-qt-tests
 # ssh_test_server.h for why that beats a Docker fixture here), so this binary
 # needs libssh directly rather than only through krait-net.
 find_package(libssh CONFIG REQUIRED)
-target_include_directories(krait-qt-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../support)
+# session_model.cpp is compiled straight in rather than linked: it lives in
+# krait-app, which is an executable, and the label-parity test has to see it.
+target_include_directories(krait-qt-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../support
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/app)
 # ws2_32 for the test server's wake-the-accept self-connect (see wakeAccept).
 target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32)
 target_link_libraries(krait-qt-tests
-    PRIVATE krait-render krait-input krait-settings krait-net Qt6::Test Qt6::Xml
+    PRIVATE krait-render krait-input krait-settings krait-session krait-net Qt6::Test Qt6::Qml Qt6::Xml
             Catch2::Catch2WithMain)
 # On this target only. backend_contract_test.cpp declares a Q_OBJECT subclass of
 # IBackend and needs moc; krait-core-tests deliberately links no Qt at all, so a

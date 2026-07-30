@@ -105,19 +105,44 @@
         <translation>Krait</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="51"/>
+        <location filename="../qml/Main.qml" line="63"/>
+        <location filename="../qml/Main.qml" line="91"/>
+        <location filename="../qml/Main.qml" line="100"/>
         <source>Dismiss</source>
         <translation>ปิด</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="60"/>
+        <location filename="../qml/Main.qml" line="72"/>
         <source>Paste anyway</source>
         <translation>วางต่อไป</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="61"/>
+        <location filename="../qml/Main.qml" line="73"/>
         <source>Cancel</source>
         <translation>ยกเลิก</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="93"/>
+        <source>Opening saved sessions is not wired up yet: %1</source>
+        <translation>ยังไม่ได้เชื่อมการเปิดเซสชันที่บันทึกไว้: %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="102"/>
+        <source>Not wired up yet: %1</source>
+        <translation>ยังไม่ได้เชื่อมต่อคำสั่งนี้: %1</translation>
+    </message>
+</context>
+<context>
+    <name>Palette</name>
+    <message>
+        <location filename="../qml/Palette.qml" line="97"/>
+        <source>Type a command or a session…</source>
+        <translation>พิมพ์คำสั่งหรือชื่อเซสชัน…</translation>
+    </message>
+    <message>
+        <location filename="../qml/Palette.qml" line="120"/>
+        <source>Nothing matches.</source>
+        <translation>ไม่พบรายการที่ตรงกัน</translation>
     </message>
 </context>
 <context>
@@ -154,6 +179,102 @@
         <location filename="../settings/paths.cpp" line="60"/>
         <source>user profile</source>
         <translation>โปรไฟล์ผู้ใช้</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app</name>
+    <message>
+        <location filename="../session_model.cpp" line="30"/>
+        <source>New session</source>
+        <translation>เซสชันใหม่</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="31"/>
+        <source>Close session</source>
+        <translation>ปิดเซสชัน</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="32"/>
+        <source>Reconnect session</source>
+        <translation>เชื่อมต่อเซสชันใหม่</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="33"/>
+        <source>Command palette</source>
+        <translation>แผงคำสั่ง</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="34"/>
+        <source>Open a saved session</source>
+        <translation>เปิดเซสชันที่บันทึกไว้</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="35"/>
+        <source>Manage sessions</source>
+        <translation>จัดการเซสชัน</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="36"/>
+        <source>Import sessions from PuTTY</source>
+        <translation>นำเข้าเซสชันจาก PuTTY</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="37"/>
+        <source>Settings</source>
+        <translation>การตั้งค่า</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="38"/>
+        <source>Reload settings from disk</source>
+        <translation>โหลดการตั้งค่าจากดิสก์ใหม่</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="39"/>
+        <source>Copy</source>
+        <translation>คัดลอก</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="40"/>
+        <source>Paste</source>
+        <translation>วาง</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="41"/>
+        <source>Search scrollback</source>
+        <translation>ค้นหาในประวัติการเลื่อน</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="42"/>
+        <source>Clear scrollback</source>
+        <translation>ล้างประวัติการเลื่อน</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="43"/>
+        <source>About Krait</source>
+        <translation>เกี่ยวกับ Krait</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::SessionModel</name>
+    <message>
+        <location filename="../session_model.cpp" line="62"/>
+        <source>Could not read %1: %2</source>
+        <translation>ไม่สามารถอ่าน %1 ได้: %2</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="121"/>
+        <source>No PuTTY sessions were found.</source>
+        <translation>ไม่พบเซสชันของ PuTTY</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="135"/>
+        <source>Imported %1 session(s) from PuTTY.</source>
+        <translation>นำเข้า %1 เซสชันจาก PuTTY แล้ว</translation>
+    </message>
+    <message>
+        <location filename="../session_model.cpp" line="144"/>
+        <source>Imported %1 session(s). Left behind, because Krait does not speak their protocol yet: %2.</source>
+        <translation>นำเข้า %1 เซสชันแล้ว รายการที่ยังไม่ได้นำเข้าเพราะ Krait ยังไม่รองรับโปรโตคอลของรายการเหล่านี้: %2</translation>
     </message>
 </context>
 <context>
