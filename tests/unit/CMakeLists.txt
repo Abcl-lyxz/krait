@@ -30,6 +30,7 @@ catch_discover_tests(krait-core-tests)
 add_executable(krait-qt-tests
     gpu_resources_test.cpp
     keymap_test.cpp
+    paste_test.cpp
 )
 target_link_libraries(krait-qt-tests PRIVATE krait-render krait-input Catch2::Catch2WithMain)
 

@@ -2,6 +2,7 @@
 
 #include "input/keymap.h"
 #include "input/mouse.h"
+#include "input/paste.h"
 #include "render/shaper/run_splitter.h"
 
 #include <QClipboard>
@@ -10,6 +11,7 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QMouseEvent>
 #include <QQuickWindow>
 #include <QTimer>
@@ -468,6 +470,13 @@ bool TerminalItem::reportMouse(input::MouseAction action, Qt::MouseButton button
 }
 
 void TerminalItem::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::MiddleButton && m_started) {
+        // Middle-click paste goes through the SAME guard as Ctrl+Shift+V. A
+        // second, unguarded paste path is how paste-guards get bypassed.
+        paste();
+        event->accept();
+        return;
+    }
     // Shift is the universal override: it lets a user select text inside a
     // full-screen application that has grabbed the mouse. Without it there is
     // no way to copy from vim or htop.
@@ -559,6 +568,13 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
     }
     // Ctrl+Shift+C copies rather than sending ^C. Checked before translation
     // because the terminal would otherwise swallow it as ETX.
+    if (event->matches(QKeySequence::Paste) ||
+        (event->modifiers().testFlag(Qt::ControlModifier) &&
+         event->modifiers().testFlag(Qt::ShiftModifier) && event->key() == Qt::Key_V)) {
+        paste();
+        event->accept();
+        return;
+    }
     if (event->matches(QKeySequence::Copy) ||
         (event->modifiers().testFlag(Qt::ControlModifier) &&
          event->modifiers().testFlag(Qt::ShiftModifier) && event->key() == Qt::Key_C)) {
@@ -584,6 +600,50 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
     rebuildFrame();
     update();
     event->accept();
+}
+
+void TerminalItem::sendPaste(const QByteArray& bytes) {
+    if (bytes.isEmpty() || !m_started) {
+        return;
+    }
+    // A paste, like a keypress, snaps the viewport back to the live screen.
+    m_session->grid().scrollViewToBottom();
+    m_selection.active = false;
+    m_backend->writeInput(bytes);
+    rebuildFrame();
+    update();
+}
+
+void TerminalItem::paste() {
+    if (!m_session || !m_started) {
+        return;
+    }
+    const QString text = QGuiApplication::clipboard()->text();
+    if (text.isEmpty()) {
+        return;
+    }
+    const auto guarded = input::preparePaste(text, m_session->grid().bracketedPaste);
+    if (!guarded.needsConfirm()) {
+        sendPaste(guarded.bytes);
+        return;
+    }
+    // Hold the SANITISED bytes, not the clipboard text: the clipboard can
+    // change between the banner appearing and the user answering, and re-reading
+    // it on "allow" would send something the banner never described.
+    m_pendingPaste = guarded.bytes;
+    QString detail = text.section(QChar::LineFeed, 0, 0).trimmed();
+    constexpr int kDetailChars = 120;
+    if (detail.size() > kDetailChars) {
+        detail = detail.left(kDetailChars) + QStringLiteral("...");
+    }
+    emit pasteConfirmRequested(input::describeRisk(guarded.risk), detail);
+}
+
+void TerminalItem::resolvePaste(bool allow) {
+    const QByteArray pending = std::exchange(m_pendingPaste, QByteArray{});
+    if (allow) {
+        sendPaste(pending);
+    }
 }
 
 void TerminalItem::copySelection() {

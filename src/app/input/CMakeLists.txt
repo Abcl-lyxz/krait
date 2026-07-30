@@ -9,6 +9,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
 add_library(krait-input STATIC
     keymap.cpp
     mouse.cpp
+    paste.cpp
 )
 target_include_directories(krait-input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 # krait-core PUBLIC: mouse.h takes a core::vt::Grid to read the tracking mode.

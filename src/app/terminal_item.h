@@ -3,6 +3,7 @@
 #include "../net/conpty/conpty_backend.h"
 #include "core/terminal/session.h"
 #include "input/mouse.h"
+#include "input/paste.h"
 #include "render/atlas/glyph_atlas.h"
 #include "render/frame_builder.h"
 #include "render/gpu_resources.h"
@@ -63,6 +64,19 @@ class TerminalItem : public QQuickRhiItem {
     // Dumps the atlas to a PNG for the golden-image gate.
     Q_INVOKABLE void dumpAtlas(const QString& path) const;
 
+    // Paste, guarded (T28). Reads the clipboard, sanitises it, and either sends
+    // it or raises pasteConfirmRequested. QML calls this from the paste action.
+    Q_INVOKABLE void paste();
+
+    // Answers a pending confirmation. `allow` false discards the paste.
+    Q_INVOKABLE void resolvePaste(bool allow);
+
+  signals:
+    // rules/ui.md: a per-tab banner, never an app-modal dialog. `detail` is the
+    // first line of what would be sent, so the user can see what they are
+    // agreeing to without leaving the terminal.
+    void pasteConfirmRequested(const QString& message, const QString& detail);
+
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
     // ItemDevicePixelRatioHasChanged: the only hook Qt gives for a per-monitor
@@ -100,6 +114,8 @@ class TerminalItem : public QQuickRhiItem {
                      int wheelSteps);
     // Puts the current selection on the clipboard. No-op without one.
     void copySelection();
+    // Sends already-sanitised paste bytes and snaps the viewport back.
+    void sendPaste(const QByteArray& bytes);
 
     std::unique_ptr<render::FontDb> m_fonts;
     std::unique_ptr<render::ShapePool> m_pool;
@@ -129,6 +145,10 @@ class TerminalItem : public QQuickRhiItem {
 
     render::FrameData m_frame;
     render::Selection m_selection;
+    // A paste held back pending confirmation. Already sanitised — what is
+    // stored is exactly what will be sent, so an "allow" cannot re-run the
+    // guard against different text than the banner described.
+    QByteArray m_pendingPaste;
     bool m_dragging = false;
     int m_cols = 0;
     int m_rows = 0;

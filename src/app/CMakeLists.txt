@@ -24,6 +24,8 @@ qt_add_qml_module(krait-app
     URI Krait
     VERSION 1.0
     QML_FILES
+        qml/Banner.qml
+        qml/BannerButton.qml
         qml/Main.qml
     SOURCES
         terminal_item.cpp
