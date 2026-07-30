@@ -34,7 +34,6 @@ struct SavedCursor {
 // NEXT printable wraps. Cursor movement clears pendingWrap.
 class Grid {
   public:
-
     Grid(int rowCount, int colCount);
 
     int rows;  // visual screen size
@@ -140,6 +139,7 @@ class Grid {
 
     // History, for the viewport and for whoever sets the per-tab cap (T31).
     const Scrollback& scrollback() const { return m_scrollback; }
+
     Scrollback& scrollback() { return m_scrollback; }
 
     // How far the viewport is scrolled UP into history, in visual rows. 0 is

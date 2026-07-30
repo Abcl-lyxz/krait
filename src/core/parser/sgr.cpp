@@ -18,8 +18,8 @@ constexpr bool isByte(std::uint16_t v) noexcept {
 }
 
 Color rgbOf(std::uint16_t r, std::uint16_t g, std::uint16_t b) noexcept {
-    return Color::rgb((static_cast<std::uint32_t>(r) << 16) |
-                      (static_cast<std::uint32_t>(g) << 8) | static_cast<std::uint32_t>(b));
+    return Color::rgb((static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) |
+                      static_cast<std::uint32_t>(b));
 }
 
 // 38/48/58 arrive in three shapes, and telling them apart is the whole job:

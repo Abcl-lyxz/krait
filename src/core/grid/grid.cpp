@@ -256,8 +256,8 @@ int Grid::maxViewOffset() const {
     // narrow screen wraps each into several, so this under-reports at small
     // widths — deliberately: over-reporting would scroll into rows that do not
     // exist and show blanks above the oldest output.
-    return static_cast<int>(std::min<std::size_t>(m_scrollback.lineCount(),
-                                                  static_cast<std::size_t>(rows) * 1000));
+    return static_cast<int>(
+        std::min<std::size_t>(m_scrollback.lineCount(), static_cast<std::size_t>(rows) * 1000));
 }
 
 bool Grid::scrollView(int delta) {

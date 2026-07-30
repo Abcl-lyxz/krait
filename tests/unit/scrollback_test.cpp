@@ -118,8 +118,7 @@ TEST_CASE("scrollback: a window read does not rewrap an endless line", "[scrollb
     }
 }
 
-TEST_CASE("scrollback: breakLine stops a continuation gluing across buffers",
-          "[scrollback]") {
+TEST_CASE("scrollback: breakLine stops a continuation gluing across buffers", "[scrollback]") {
     Scrollback sb;
     sb.push(makeLine(U"alt.", 4));
     sb.breakLine();
