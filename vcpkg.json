@@ -6,6 +6,13 @@
     "catch2",
     "fmt",
     "freetype",
+    {
+      "name": "harfbuzz",
+      "default-features": false,
+      "features": [
+        "freetype"
+      ]
+    },
     "utf8proc"
   ]
 }
