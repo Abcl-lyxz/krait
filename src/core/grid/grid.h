@@ -227,6 +227,9 @@ class Grid {
     void beginCluster(char32_t ch);
     void appendToCluster(char32_t ch);
     void advanceCursor(int width);
+    // Blanks the orphaned half of any 2-column cluster that the span
+    // [first, last] on row `r` is about to overwrite. Must run BEFORE the write.
+    void breakWidePairs(int r, int first, int last);
 
     // Forgets which cell the current cluster lives in, without disturbing the
     // break state. Anything that moves CONTENT under a settled cursor must call
