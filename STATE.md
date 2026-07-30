@@ -1,15 +1,19 @@
 # STATE
 
-Phase: **M1 in progress** — T17-T20 done. **Next task: T21 (scrollback).**
+Phase: **M1 in progress** — T17-T22 done. **Next task: T23 (shaper).**
 
 ## Now
 
-Branch `t20-reflow`, PR open against `main`. T20 is complete and every gate is
-green (table below). T17, T18, T19 are merged; T20 is the fourth M1 task.
+T20 and T21 are MERGED to `main` (4db4635, 733b4c3). T22 is on
+`t22-modes-v2` as PR #20. Everything through T22 is `src/core/` work; T23
+starts the render half of M1 and is a different kind of task.
 
-**Next task: T21** (`docs/plan/02-m0-tasks.md` §M1) — scrollback: ring of
-logical lines + per-tab cap + viewport, damage integration. Start at "T21
-starts here" below; T20 deliberately left it two things.
+**Next task: T23** (`docs/plan/02-m0-tasks.md` §M1) — shaper: HarfBuzz +
+FreeType worker pool (per-worker `FT_Face`), run-splitting, shaped-run cache
+keyed (font, attrs, cluster-text). Depends on T12 and T19. **Verify every
+HarfBuzz/FreeType signature through the `context7` MCP or `docs-verifier`
+before writing against it** — rules/mcp-first.md, and nothing in this repo has
+touched those APIs yet.
 
 ## What T20 landed
 
@@ -64,7 +68,7 @@ one CJK character as `??`.
 
 ## Evidence, not assertion
 
-Re-run on `t20-reflow` AFTER the review fixes:
+Re-run on `t22-modes-v2`, rebased onto `main` with T20 and T21 merged:
 
 | Gate | Result |
 |---|---|
@@ -81,26 +85,84 @@ three (including an explicit 1x1) and managed only 22,805; the 1x1 was dropped
 because the derived width already reaches 1 column. If exec count matters more
 than reflow coverage later, gate the resize on a bit of the input instead.
 
-## T21 starts here
+## What T21 and T22 landed
 
-T21 is scrollback: ring of logical lines + per-tab cap + viewport + damage.
-T20 left it exactly two things, deliberately:
+T21 — scrollback as a ring of LOGICAL lines. Continuation rows coalesce on push
+(using T8's wrap point) and re-split through `reflow()` on read, at whatever
+width is current. TWO caps: a cap counted only in LINES is not a memory bound,
+because one logical line can be arbitrarily long and a stream that never emits
+a newline grows the ring without ever adding a line to it. Reads are bounded
+the same way — a window read never rewraps more than ~(rows+1)*cols cells.
 
-1. **Scrollback lines are NOT rewrapped.** They keep the width they had when
-   they were retired, so after a narrowing resize the ring holds lines wider
-   than `cols`. `Grid::resize` only reflows the screen. This is recorded in the
-   Reflow row of `docs/conformance.md`. A renderer reading `scrollbackAt()`
-   today would read past `cols` — fix it in T21 before anything consumes it.
-2. **Pack `Color` into a uint32 and land `Cell` at 20 bytes.** The ponytail note
-   in `cell.h` has the full reasoning; T20's encoding was chosen to keep it
-   available (zero extra bytes). T21 has the "flood keeps O(cap) memory" test
-   that proves the win, which is why it was deferred here.
+T21 also paid off the T17 `ponytail:` note: `Color` packs into one uint32, so
+**Cell is 20 bytes**, four SMALLER than before T17 while carrying more state.
+`static_assert`s pin `sizeof(Color)==4` and `sizeof(Cell)==20` — the size IS
+the memory bound, so a future field must not give it back silently.
 
-Related known gap, NOT T21's: ED/EL can erase the lead of a wide cluster and
-leave its trailing cell orphaned. Cosmetic, not a safety issue — the fuzz target
-asserts the safety invariants and deliberately not this one. It belongs to the
-one deferred BCE decision, which is still ONE decision across
-ED/EL/IL/DL/SU/SD/1049.
+T22 — DECRQM generated from `decrqmState()`, which reads live grid state and
+the capability table. The 1/2 vs 3/4 split carries the honesty rule: 2027, ?7
+and ?25 answer 3 (permanently set), and anything unimplemented answers 0 and
+never 2. Modes 2004 (bracketed paste, a flag; T28 does the wrapping) and 2026
+(sync output, with the 150 ms guard) landed. `Grid::nowMs` is how a clock
+reaches the guard without `src/core/` ever reading one.
+
+## Bugs worth remembering
+
+- **`scrollRegionUp` cleared `wrappedFromPrev` on the new top row**, destroying
+  the continuation link before it reached history, so a wrapped line arrived as
+  two logical lines. T18's reasoning only holds when the retired line is
+  DISCARDED; if it went to history it did not scroll away at all. Now cleared
+  only when `!toHistory`.
+- **The viewport could not scroll deeper than one screenful.** `tailRows()`
+  returned the LAST N rows, so every offset >= rows rendered the identical
+  screen. The three viewport tests only asserted the row COUNT, so the suite
+  was blind to it. It is a real window now.
+- **`resize()` retires rows from BOTH buffers back to back**, welding shell
+  output onto the alternate screen's last row as one logical line. Hence
+  `Scrollback::breakLine()`.
+- **The corpus harness has its own CSI dispatch** and did not route DECRQM, so
+  T22's first run produced no replies at all — the same class of gap T18 found
+  in the fuzz target. THREE places dispatch CSI: `session.cpp`, the corpus
+  harness, and the fuzz target. A new sequence must be wired into all three or
+  its tests are theatre.
+
+## Run each gate in its OWN Bash call — this cost two CI cycles
+
+Chaining `cmd.exe //c "<devrun> clang-tidy ..."` after another `cmd.exe //c`
+in one shell line makes the later ones **silently no-op**: they print nothing
+and the surrounding `echo TIDY_CLEAN` fires anyway. Two red CI runs on PR #19
+were both caught by gates that had "passed" locally without ever running.
+One gate, one Bash call, and read the actual output — not an echo after it.
+
+Two real findings hid behind that: `bugprone-implicit-widening-of-multiplication-result`
+on `64 * 10`, and `bugprone-branch-clone` on two DECRQM cases returning the
+same value (merge the labels, as T19 did for mode 2027).
+
+Also: edits made by a `python - <<EOF` heredoc do NOT run the clang-format
+post-edit hook, so they must be formatted by hand afterwards. That is what
+produced the first PR #19 failure.
+
+## Squash-merge breaks a stacked rebase
+
+`gh pr merge --squash` rewrites the branch into one commit, so a child branch
+rebased onto the new `main` conflicts with its own parent's content. It also
+deletes the local parent branch. Recovery that worked: `git diff HEAD~1 HEAD >
+patch`, branch fresh from `main`, `git apply --3way`. Do not stack more than
+one task deep.
+
+## T23 starts here
+
+T23 is the shaper and the first `src/render/` task of M1. Nothing in the repo
+has called HarfBuzz or FreeType yet, so **every signature is unverified** —
+`context7` MCP or the `docs-verifier` subagent first, per rules/mcp-first.md.
+The width engine (T19) already owns cluster segmentation; the shaper consumes
+clusters, it must not re-segment.
+
+What core hands it: `Grid::viewportRows()` returns exactly `rows` Lines each
+exactly `cols` wide, and a cell's `ch` is a literal codepoint, `kWideTrailing`
+(a spacer, draw nothing), or a `kClusterTag` ref resolved through
+`grid.clusters().lookup()`. **Use `viewportRows()`, not `scrollbackAt()`** —
+the latter returns raw logical lines whose length is NOT `cols`.
 
 ## Watchouts, all of them earned
 
@@ -115,6 +177,8 @@ ED/EL/IL/DL/SU/SD/1049.
   everything else is advisory. Exclude `tests\fuzz\*.cpp` (no
   `compile_commands.json` entry, so it falls back to C++17 and every
   `std::span` becomes a fatal error about nothing).
+- **THREE places dispatch CSI** — `src/core/terminal/session.cpp`, the corpus
+  harness, and the fuzz target. Wire a new sequence into all three.
 - **`cmake` is not on the bare PATH.** VS 18 lives at
   `C:\Program Files\Microsoft Visual Studio\18\Community`; CMake at
   `C:\Program Files\CMake\bin`. From Git Bash, `cmd.exe /c` is mangled by MSYS
@@ -157,7 +221,10 @@ ED/EL/IL/DL/SU/SD/1049.
 ## Done so far
 
 T1-T16 = M0, complete and merged (ADR-0013 records the GO verdict).
-M1: T17, T18, T19 merged. T20 complete on `t20-reflow`.
+M1: T17-T21 merged. T22 complete on `t22-modes-v2` (PR #20).
+**T23-T35 are NOT started** — 13 tasks, mostly render/UI: shaper, font stack,
+renderer v1, device robustness, input, paste-guard, IME, settings registry,
+settings wiring, locales, banners, portable mode, M1 wrap.
 
 Task numbering: **M0 = T1-T16, M1 = T17-T35**, both in
 `docs/plan/02-m0-tasks.md`. M2-M6 exist in `docs/plan/01-milestones.md` as
