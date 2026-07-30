@@ -41,9 +41,20 @@ class Scrollback {
     // Logical line i, oldest first.
     const Line& lineAt(std::size_t i) const { return m_lines[i]; }
 
-    // The last `count` VISUAL rows of history, wrapped at `cols`. This is what
-    // a viewport scrolled up into history draws.
-    std::vector<Line> tailRows(int cols, std::size_t count) const;
+    // A WINDOW of visual rows, wrapped at `cols`: `count` rows ending
+    // `fromEnd` rows before the newest. fromEnd == count == rows gives the
+    // screenful immediately above the live screen.
+    //
+    // A window rather than a tail because a viewport scrolled N rows up needs
+    // rows [V-N, V-N+count), and "the last count rows" answers a different
+    // question — it renders the identical screenful at every depth.
+    std::vector<Line> viewRows(int cols, std::size_t fromEnd, std::size_t count) const;
+
+    // Forces the next push() to start a new logical line even if the row
+    // carries wrappedFromPrev. resize() retires rows from BOTH buffers back to
+    // back, and a continuation flag from one buffer must never glue itself to
+    // the other buffer's last line.
+    void breakLine() { m_forceBreak = true; }
 
     void setCaps(std::size_t maxLines, std::size_t maxCells);
     void clear();
@@ -55,6 +66,7 @@ class Scrollback {
     std::size_t m_cells = 0;
     std::size_t m_maxLines = kDefaultMaxLines;
     std::size_t m_maxCells = kDefaultMaxCells;
+    bool m_forceBreak = false;
 };
 
 }  // namespace krait::core::vt

@@ -1,6 +1,6 @@
 ---
 name: project-review-patterns
-description: Recurring things to check when reviewing Krait VT-core diffs (T5-T17): corpus/fuzz/conformance completeness, Params bounds proofs, Cell size budget, local verify commands
+description: Recurring things to check when reviewing Krait VT-core diffs (T5-T21): corpus/fuzz/conformance completeness, Params bounds proofs, Cell/scrollback size budget, viewport-vs-damage coordinate traps, local verify commands
 metadata:
   type: project
 ---
@@ -41,6 +41,16 @@ T7 confirmations (both recurring patterns hit again):
 - reflow.cpp cursor placement: the in-loop `k == cursorOffset` match is skipped for offsets that land INSIDE a wide pair (k advances by 2), and the fallback "past content" branch invents row indices for rows it never emits. Both are cursor-teleport bugs, both bounded by resize()'s final clamp. Check any k-stepping loop that also carries a position.
 - terminal_item.cpp (spike renderer) fired AGAIN: cell.h grew kWideTrailing/kClusterTag and the renderer still does `ch >= 0x20 && ch <= 0x7E ? ... : '?'`, so every wide char now paints "??" . Standing rule: any cell.h `ch` encoding change must touch terminal_item.cpp:136 in the same commit.
 - Verified-safe patterns worth not re-litigating: `std::deque<std::u32string>` + `unordered_map<u32string_view,...>` keyed into it is sound (deque insertion never invalidates references; rehash moves nodes not data). Only COPYING the pool breaks it — ask for `= delete` on copy ops.
+
+## T21 lesson (scrollback ring + viewport) — bounds that are only half-bounds
+- Recurring shape: a "tail" accessor whose cost is stated per ITEM but paid per BYTE. `Scrollback::tailRows(cols, count)` takes the last `count` LOGICAL lines — one of which is capped only by m_maxCells (4M). Whenever a diff bounds work by a count of variable-length objects, restate the bound in cells/bytes and check the worst case a remote stream can build.
+- `std::vector::resize()` down NEVER frees capacity. Any "memory cap" counted in `size()` (trim-on-finish, clamp-oversized-line) undercounts resident memory by the retired row width x line cap. Ask for `shrink_to_fit()` at every trim site before accepting a byte-budget claim.
+- Viewport offsets have a UNIT trap: `m_viewOffset` is VISUAL rows, `Scrollback::lineCount()` is LOGICAL lines. Anything comparing the two (maxViewOffset) or clamping one by `rows` (viewportRows) silently caps how far history can be reached. Tests that assert only `viewportRows().size() == rows` cannot see it — demand a CONTENT assertion at an offset > rows.
+- `DamageList` is in SCREEN row coordinates; anything returning a composed viewport is in VIEWPORT coordinates. They differ by the history rows prepended. Flag any consumer that mixes them.
+- Cross-buffer scrollback feeds: `Grid::resize` pushes rows from BOTH buffers (active first, then the inactive one when m_onAlt) into the same ring. Any ring logic that trusts `wrappedFromPrev` to mean "continues the previous push" gets welded across buffers there. grid.cpp resize is the only site; check it whenever push() semantics change.
+- IL/DL (csi_scroll.cpp) temporarily set `grid.scrollTop = grid.row`, so `capturesScrollback()` is TRUE for a DL issued at row 0 — DL at the top of the screen retires lines into history. Remember this when reasoning about "which rows reach the ring".
+- Packed-bitfield migrations (Color 8->4 B) are cheap to verify: check the kind byte is inside the compared bits (defaulted `operator==` on the packed word gets this right), and that the new payload MASK cannot lose a value a writer could produce (sgr.cpp validates 0-255 via isByte before rgbOf, so the 24-bit mask is behaviour-preserving).
+- terminal_item.cpp was updated correctly this time (kind()/index()) — the standing rule keeps paying.
 
 ## T8 lesson
 - docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.

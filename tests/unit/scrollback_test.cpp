@@ -69,15 +69,64 @@ TEST_CASE("scrollback: rewraps history at the width asked for", "[scrollback]") 
     sb.push(makeLine(U"fgh..", 5, true));
 
     // Stored logical, re-split on read — the same history, two widths.
-    const std::vector<Line> wide = sb.tailRows(10, 4);
+    const std::vector<Line> wide = sb.viewRows(10, 4, 4);
     REQUIRE(wide.size() == 1);
     CHECK(lineAscii(wide[0]) == "abcdefgh..");
 
-    const std::vector<Line> narrow = sb.tailRows(4, 4);
+    const std::vector<Line> narrow = sb.viewRows(4, 4, 4);
     REQUIRE(narrow.size() == 2);
     CHECK(lineAscii(narrow[0]) == "abcd");
     CHECK(lineAscii(narrow[1]) == "efgh");
     CHECK(narrow[1].wrappedFromPrev);
+}
+
+TEST_CASE("scrollback: the window moves with the scroll depth", "[scrollback]") {
+    // Found by review: "the last N rows" answers a different question and
+    // renders the identical screenful however far up you scroll.
+    Scrollback sb;
+    for (char32_t ch : {U'a', U'b', U'c', U'd', U'e'}) {
+        Line line(4);
+        line.cells[0].ch = ch;
+        sb.push(std::move(line));
+    }
+
+    const std::vector<Line> newest = sb.viewRows(4, 2, 2);
+    REQUIRE(newest.size() == 2);
+    CHECK(newest[0].cells[0].ch == U'd');
+
+    const std::vector<Line> deeper = sb.viewRows(4, 4, 2);
+    REQUIRE(deeper.size() == 2);
+    CHECK(deeper[0].cells[0].ch == U'b');
+    CHECK(deeper[1].cells[0].ch == U'c');
+}
+
+TEST_CASE("scrollback: a window read does not rewrap an endless line", "[scrollback]") {
+    // A stream that never emits a newline builds ONE logical line at the full
+    // cell budget. Reading a screenful out of it must not touch all of it.
+    Scrollback sb;
+    sb.setCaps(1'000, 200'000);
+    sb.push(makeLine(U"start.....", 10));
+    for (int i = 0; i < 30'000; ++i) {
+        sb.push(makeLine(U"0123456789", 10, /*wrapped=*/true));
+    }
+    REQUIRE(sb.cellCount() > 100'000);
+
+    const std::vector<Line> window = sb.viewRows(80, 24, 24);
+    CHECK(window.size() == 24);
+    for (const Line& line : window) {
+        CHECK(line.cells.size() == 80);
+    }
+}
+
+TEST_CASE("scrollback: breakLine stops a continuation gluing across buffers",
+          "[scrollback]") {
+    Scrollback sb;
+    sb.push(makeLine(U"alt.", 4));
+    sb.breakLine();
+    sb.push(makeLine(U"norm", 4, /*wrapped=*/true));
+
+    // Without breakLine the alt-screen row and the shell row become one line.
+    CHECK(sb.lineCount() == 2);
 }
 
 TEST_CASE("scrollback: a flood keeps O(cap) memory", "[scrollback]") {
@@ -160,6 +209,23 @@ TEST_CASE("grid: the viewport is always exactly `rows` tall", "[scrollback][grid
     CHECK(g.viewportRows().size() == 4);
     g.scrollView(1000);  // clamped
     CHECK(g.viewportRows().size() == 4);
+}
+
+TEST_CASE("grid: scrolling deeper shows different rows", "[scrollback][grid]") {
+    Grid g(4, 8);
+    for (int i = 0; i < 20; ++i) {
+        g.cursorSet(g.row, 0);  // putChar advances the column; keep the mark at 0
+        g.putChar(static_cast<char32_t>(U'a' + i));
+        g.linefeed();
+    }
+    REQUIRE(g.scrollbackSize() > 8);
+
+    g.scrollView(4);
+    const std::vector<Line> shallow = g.viewportRows();
+    g.scrollView(6);  // now 10 up
+    const std::vector<Line> deep = g.viewportRows();
+
+    CHECK(shallow[0].cells[0].ch != deep[0].cells[0].ch);
 }
 
 TEST_CASE("cell: the packed Color round-trips every kind", "[scrollback][cell]") {

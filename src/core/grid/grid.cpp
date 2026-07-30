@@ -64,6 +64,9 @@ void Grid::useAlternateScreen(bool on) {
     m_screen.swap(m_altScreen);
     m_onAlt = on;
     resetClusterAnchor();  // the anchored cell belongs to the other buffer now
+    // A full-screen application owns the whole viewport; leaving it scrolled up
+    // would paint shell history over vim.
+    m_viewOffset = 0;
     damage.markAll();
 }
 
@@ -241,6 +244,10 @@ void Grid::pushToScrollback(Line&& line) {
     // ring's cap stops giving ground.
     if (m_viewOffset > 0) {
         m_viewOffset = std::min(m_viewOffset + 1, maxViewOffset());
+        // Every visible row is a different row now. DamageList addresses SCREEN
+        // rows while the viewport is showing history, so partial damage would
+        // describe the wrong lines entirely.
+        damage.markAll();
     }
 }
 
@@ -274,8 +281,12 @@ std::vector<Line> Grid::viewportRows() const {
     if (m_viewOffset <= 0) {
         return m_screen;
     }
-    const auto want = static_cast<std::size_t>(std::min(m_viewOffset, rows));
-    std::vector<Line> out = m_scrollback.tailRows(cols, want);
+    // The window is the `min(offset, rows)` history rows starting `offset` rows
+    // up from the newest — NOT the last `rows` of history, which would render
+    // the same screenful at every scroll depth.
+    const auto offset = static_cast<std::size_t>(m_viewOffset);
+    const auto want = std::min(offset, static_cast<std::size_t>(rows));
+    std::vector<Line> out = m_scrollback.viewRows(cols, offset, want);
     // History may supply fewer rows than asked for; the live screen fills the
     // rest, so the viewport is always exactly `rows` tall.
     for (std::size_t i = 0; out.size() < static_cast<std::size_t>(rows) && i < m_screen.size();
@@ -409,6 +420,11 @@ void Grid::resize(int newRows, int newCols) {
     // buffers — getting this end wrong would destroy the shell prompt every
     // time a window shrank inside vim. Only the active buffer's retired rows
     // are history; the inactive one's are dropped, as before T20.
+    // Rows retired below come from a DIFFERENT buffer than whatever the ring
+    // last saw, so a wrappedFromPrev on the first of them must not glue itself
+    // onto the previous buffer's last line.
+    m_scrollback.breakLine();
+    m_viewOffset = 0;  // the rewrapped layout invalidates every row offset
     while (m_screen.size() > static_cast<std::size_t>(newRows)) {
         pushToScrollback(std::move(m_screen.front()));
         m_screen.erase(m_screen.begin());
@@ -420,6 +436,7 @@ void Grid::resize(int newRows, int newCols) {
     // xterm reallocates the INACTIVE buffer too, so the normal screen survives
     // a resize taken while a full-screen app owns the alternate one.
     if (!m_altScreen.empty()) {
+        m_scrollback.breakLine();  // second buffer, same reason
         while (m_altScreen.size() > static_cast<std::size_t>(newRows)) {
             // When the alternate screen is up, THIS vector holds the normal
             // buffer — and a narrowing rewrap can have just grown it past the

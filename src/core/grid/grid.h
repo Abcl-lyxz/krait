@@ -152,9 +152,12 @@ class Grid {
     // a no-op scroll must not cost a full repaint every wheel tick.
     bool scrollView(int delta);
 
-    // Snaps the viewport back to the live screen. Output arriving while the
-    // user is scrolled up calls this — every terminal does, and a viewport
-    // that silently drifts away from new output reads as a hang.
+    // Snaps the viewport back to the live screen. Plain output does NOT call
+    // this: a reader scrolled up keeps their place, and pushToScrollback
+    // follows the content so it does not shift under them. It is for the input
+    // path (T27: a keypress snaps to the bottom, as every terminal does).
+    // Anything that invalidates row offsets wholesale — a buffer swap, a
+    // resize — resets the offset directly rather than through here.
     void scrollViewToBottom();
 
     // The rows to DRAW, top to bottom: history rows first when scrolled up,
