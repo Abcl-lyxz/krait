@@ -155,18 +155,28 @@ searchScrollback(const Grid& grid, std::string_view pattern, const SearchOptions
         }
     };
 
-    std::size_t lineIndex = 0;
-    for (std::size_t i = 0; i < grid.scrollbackSize(); ++i, ++lineIndex) {
-        findIn(lineText(grid.scrollbackAt(i), grid.clusters()), lineIndex);
-        if (hits.size() >= options.maxHits) {
-            return hits;
+    // The MATCHING is inside the try as well as the construction. MSVC's
+    // <regex> throws regex_error(error_complexity) while matching, not while
+    // compiling — `(a+)+$` against a line of thirty a's is enough — so a try
+    // that covers only the constructor leaves an exception escaping src/core
+    // into a Qt slot, where it becomes std::terminate. The header promises
+    // nothing escapes; this is what makes that true.
+    try {
+        std::size_t lineIndex = 0;
+        for (std::size_t i = 0; i < grid.scrollbackSize(); ++i, ++lineIndex) {
+            findIn(lineText(grid.scrollbackAt(i), grid.clusters()), lineIndex);
+            if (hits.size() >= options.maxHits) {
+                return hits;
+            }
         }
-    }
-    for (const Line& row : grid.viewportRows()) {
-        findIn(lineText(row, grid.clusters()), lineIndex++);
-        if (hits.size() >= options.maxHits) {
-            return hits;
+        for (const Line& row : grid.viewportRows()) {
+            findIn(lineText(row, grid.clusters()), lineIndex++);
+            if (hits.size() >= options.maxHits) {
+                return hits;
+            }
         }
+    } catch (const std::regex_error& error) {
+        return std::unexpected(std::string(error.what()));
     }
     return hits;
 }

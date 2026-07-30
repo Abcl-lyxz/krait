@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 namespace krait::net {
@@ -105,6 +106,7 @@ void Secret::clear() {
 }
 
 bool Vault::load(const std::string& path) {
+    const std::lock_guard lock(m_mutex);
     m_path = path;
     m_error.clear();
     m_entries.clear();
@@ -170,7 +172,13 @@ bool Vault::load(const std::string& path) {
 }
 
 bool Vault::save() const {
-    std::ofstream file(m_path, std::ios::binary | std::ios::trunc);
+    const std::lock_guard lock(m_mutex);
+    // Written beside the real file and renamed over it. Truncating in place
+    // means a crash, a full disk or a power cut between the truncate and the
+    // last write leaves an empty vault — and every stored credential is gone
+    // with no way to tell that is what happened.
+    const std::string temporary = m_path + ".tmp";
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
     if (!file) {
         m_error = "cannot open the vault for writing";
         return false;
@@ -184,10 +192,28 @@ bool Vault::save() const {
         file.write(reinterpret_cast<const char*>(entry.blob.data()),
                    static_cast<std::streamsize>(entry.blob.size()));
     }
-    return file.good();
+    if (!file.good()) {
+        m_error = "the vault could not be written";
+        file.close();
+        std::error_code cleanup;
+        std::filesystem::remove(temporary, cleanup);
+        return false;
+    }
+    file.close();
+
+    std::error_code renameError;
+    std::filesystem::rename(temporary, m_path, renameError);
+    if (renameError) {
+        m_error = "the vault could not be replaced";
+        std::error_code cleanup;
+        std::filesystem::remove(temporary, cleanup);
+        return false;
+    }
+    return true;
 }
 
 bool Vault::store(std::string_view key, const Secret& secret) {
+    const std::lock_guard lock(m_mutex);
     if (key.empty() || key.size() > kMaxKeyLen || secret.empty() || secret.size() > kMaxSecretLen) {
         m_error = "key or secret out of range";
         return false;
@@ -224,6 +250,7 @@ bool Vault::store(std::string_view key, const Secret& secret) {
 }
 
 bool Vault::retrieve(std::string_view key, Secret* out) const {
+    const std::lock_guard lock(m_mutex);
     const auto it = std::find_if(m_entries.begin(), m_entries.end(),
                                  [key](const Entry& e) { return e.key == key; });
     if (it == m_entries.end()) {
@@ -248,6 +275,7 @@ bool Vault::retrieve(std::string_view key, Secret* out) const {
 }
 
 bool Vault::erase(std::string_view key) {
+    const std::lock_guard lock(m_mutex);
     const auto it = std::find_if(m_entries.begin(), m_entries.end(),
                                  [key](const Entry& e) { return e.key == key; });
     if (it == m_entries.end()) {
@@ -259,11 +287,13 @@ bool Vault::erase(std::string_view key) {
 }
 
 bool Vault::contains(std::string_view key) const {
+    const std::lock_guard lock(m_mutex);
     return std::any_of(m_entries.begin(), m_entries.end(),
                        [key](const Entry& e) { return e.key == key; });
 }
 
 std::vector<std::string> Vault::keys() const {
+    const std::lock_guard lock(m_mutex);
     std::vector<std::string> names;
     names.reserve(m_entries.size());
     for (const Entry& entry : m_entries) {

@@ -70,6 +70,15 @@ bool handleKittyKeys(Grid& grid, const Params& params, std::span<const std::uint
     if (final != 'u' || intermediates.size() != 1) {
         return false;
     }
+    // Colon subparameters are honest silence, matching the DECRQM precedent in
+    // conformance.md. `CSI = 5 : 1 u` is not a spelling this protocol defines,
+    // and reading the subparam as the mode would apply a replace nobody asked
+    // for.
+    for (std::size_t i = 0; i < params.count; ++i) {
+        if (params.subparam[i]) {
+            return false;
+        }
+    }
     KittyKeyboard& keys = grid.kittyKeys;
 
     switch (intermediates[0]) {

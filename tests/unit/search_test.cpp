@@ -124,3 +124,19 @@ TEST_CASE("paths stay whole and words stay words", "[core][search]") {
     // Past the end clamps rather than reading off it.
     CHECK(selected("abc", 99) == "abc");
 }
+
+TEST_CASE("a catastrophic regex is an answer too", "[core][search]") {
+    Session session(6, 60);
+    // Thirty a's with no trailing b: classic catastrophic backtracking.
+    feed(session, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n");
+
+    // MSVC's <regex> throws regex_error(error_complexity) while MATCHING, not
+    // while compiling — so a try that covers only the constructor lets the
+    // exception unwind out of src/core into a Qt slot and terminate the
+    // process. The pattern compiles fine; it is the match that explodes.
+    const auto hits = searchScrollback(session.grid(), "(a+)+$", {.regex = true});
+    if (!hits.has_value()) {
+        CHECK_FALSE(hits.error().empty());
+    }
+    SUCCEED("no exception escaped searchScrollback");
+}

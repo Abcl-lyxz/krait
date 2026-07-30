@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -57,6 +58,13 @@ class Secret {
 //
 // Errors are values. A vault file is a file on disk that something else may
 // have touched, so a bad one degrades to "no secrets" and says why.
+//
+// THREAD-SAFE, and it has to be: one Vault is owned by main() and borrowed by
+// every SSH backend, each of which calls retrieve()/store()/save() from its own
+// worker thread. Two tabs authenticating at once is the normal case, not a
+// corner one — and without the lock, one worker's store() can reallocate
+// m_entries while another holds a pointer into it for CryptUnprotectData, which
+// is a read of freed heap on a credential path.
 class Vault {
   public:
     // A missing file is a first run, not a failure — true either way. False
@@ -88,6 +96,13 @@ class Vault {
         std::vector<std::uint8_t> blob;  // DPAPI ciphertext, never plaintext
     };
 
+    // One mutex over the whole object rather than per-entry: these calls happen
+    // at connect time, a handful of times per session, so contention is not a
+    // thing that exists here and a coarse lock is one fewer thing to reason
+    // about on a path that handles secrets.
+    // ponytail: whole-object lock; revisit only if something starts calling
+    // this in a loop.
+    mutable std::mutex m_mutex;
     std::string m_path;
     mutable std::string m_error;
     std::vector<Entry> m_entries;

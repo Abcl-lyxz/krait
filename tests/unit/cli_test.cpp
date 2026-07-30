@@ -80,6 +80,9 @@ TEST_CASE("ssh targets split into user, host and port", "[session][cli]") {
     CHECK_FALSE(parseTarget("host:", &user, &host, &port));
     CHECK_FALSE(parseTarget("host:ssh", &user, &host, &port));
     CHECK_FALSE(parseTarget("[fe80::1", &user, &host, &port));
+    // An empty bracketed host is a parse error, not a host literally named "[]".
+    CHECK_FALSE(parseTarget("[]", &user, &host, &port));
+    CHECK_FALSE(parseTarget("[]:22", &user, &host, &port));
 }
 
 TEST_CASE("krait ssh builds an ad-hoc profile", "[session][cli]") {

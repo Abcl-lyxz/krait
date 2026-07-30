@@ -145,8 +145,16 @@ PuttyImport importFromPuttyRegistry() {
     for (DWORD index = 0;; ++index) {
         char keyName[256] = {};
         DWORD keyLen = sizeof(keyName);
-        if (RegEnumKeyExA(sessions, index, keyName, &keyLen, nullptr, nullptr, nullptr, nullptr) !=
-            ERROR_SUCCESS) {
+        const LSTATUS enumerated =
+            RegEnumKeyExA(sessions, index, keyName, &keyLen, nullptr, nullptr, nullptr, nullptr);
+        if (enumerated == ERROR_MORE_DATA) {
+            // A session name longer than the buffer. Skipping just that one and
+            // carrying on matters: breaking here would silently drop every
+            // LATER session too, and the summary would report the truncated
+            // count as a success.
+            continue;
+        }
+        if (enumerated != ERROR_SUCCESS) {
             break;
         }
         HKEY session = nullptr;

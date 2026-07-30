@@ -1,6 +1,6 @@
 ---
 name: conpty-thread-patterns
-description: T15 review — recurring defect patterns in src/net threaded backends (handle close-before-join, start() failure leaks)
+description: Recurring defect patterns in src/net threaded backends — close-before-join, start() failure leaks, un-armed prompt handshakes, unbounded joins, secret slots
 metadata:
   type: project
 ---
@@ -12,5 +12,25 @@ T15 ConptyBackend review (2026-07-29) found two recurring pattern risks for ALL 
 3. Writer thread blocked in synchronous WriteFile ignores CV shutdown flag — needs CancelSynchronousIo or handle-close unblock path.
 4. stop() waits (3s x2) run on GUI thread via destructor — net.md says no UI-thread blocking; watch when tab close lands in M1.
 5. CreateProcessW with lpApplicationName=nullptr + bare "powershell.exe" → binary planting via search path. Use full System32 path.
+
+T39-T43 SshBackend added three more (2026-07-31), all generalisable:
+
+6. **Prompt-handshake flags are never re-armed.** A CV handshake that crosses to
+   the GUI (host key, credential) needs the "answered" slot CLEARED before the
+   emit, on EVERY prompt site — not just the one the author was thinking about.
+   A reconnect loop replays the same object, so a leftover `answered=true` makes
+   the next security prompt resolve without a human. Grep for every `emit
+   *Prompt` and check each has its arm/clear.
+7. **stop() joins a worker parked in a third-party blocking call.** A shutdown
+   atomic + notify_all only releases OUR waits; libssh/WinSock/agent-pipe calls
+   ignore it, so the join (and the UI thread) is unbounded. Demand either a
+   socket-level cancel or a bounded join with a detach fallback.
+8. **Reconnect attempt counters must reset on success**, or "5 attempts" quietly
+   becomes "5 drops ever".
+9. **Secrets held in a member slot need clearing on the cancel/timeout path**,
+   not only on the consume path — an answer arriving after the wait gave up
+   parks plaintext for the object's lifetime.
+10. Shared secret stores (Vault) are touched from worker threads: check for a
+    mutex before the first backend calls retrieve/store/save off the GUI thread.
 
 **How to apply:** checklist for any src/net diff with std::thread + Win32 handles. See [[project-watch-items]].

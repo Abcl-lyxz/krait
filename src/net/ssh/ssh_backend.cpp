@@ -97,7 +97,16 @@ void SshBackend::run(int cols, int rows) {
         if (outcome == Outcome::CleanExit || outcome == Outcome::Stopped) {
             return;
         }
-        // Failed. Whether that is worth another go is a policy question, and
+        // A cycle that actually connected earns a clean slate. Without this,
+        // `attempt` only ever counts up, and an overnight session on flaky wifi
+        // that reconnects SUCCESSFULLY once an hour still gives up on the sixth
+        // drop — the limit is meant to bound consecutive failures, not a
+        // session's lifetime.
+        if (m_everConnected) {
+            attempt = 0;
+            m_everConnected = false;
+        }
+        // Whether this failure is worth another go is a policy question, and
         // reconnect.h answers it: never a changed host key, a rejected key or a
         // bad password, however many attempts are configured.
         if (!isRetryable(m_lastError) || m_config.maxReconnectAttempts <= 0) {
@@ -148,6 +157,7 @@ SshBackend::Outcome SshBackend::runOnce(int cols, int rows) {
     }
 
     m_connected = true;
+    m_everConnected = true;
     emit connected();
     const Outcome outcome = pump();
     m_connected = false;
@@ -288,7 +298,17 @@ bool SshBackend::verifyHostKey() {
     }
 
     // First contact: trust on first use, and only a human decides.
-    emit hostKeyPrompt(static_cast<int>(state), fingerprint);
+    //
+    // Armed BEFORE the emit, and this is the site where it matters most. The
+    // object survives the reconnect loop, and m_answered/m_hostKeyTrusted are
+    // only ever cleared here — so without this, a cycle that already answered
+    // ANY prompt (a password, or an earlier TOFU) leaves the flag set, the next
+    // cycle's waitForAnswer returns instantly on the stale value, and
+    // known_hosts gets written with no human in the loop.
+    armAnswer();
+    // `detail`, not `fingerprint`: this is the ONE prompt where the randomart
+    // is the point. Nobody compares 43 base64 characters.
+    emit hostKeyPrompt(static_cast<int>(state), detail);
     if (!waitForAnswer(kPromptTimeoutMs)) {
         fail(ErrorCode::HostKeyRejected, tr("No answer about the host key; connection stopped."));
         return false;
@@ -601,7 +621,12 @@ SshBackend::Outcome SshBackend::pump() {
             while (written < bytes.size() && !m_shutdown.load()) {
                 const int n = ssh_channel_write(channel, bytes.constData() + written,
                                                 static_cast<std::uint32_t>(bytes.size() - written));
-                if (n == SSH_ERROR) {
+                // n < 0, not n == SSH_ERROR: SSH_AGAIN is -2, and `written += n`
+                // would then walk BACKWARDS through the buffer with a length
+                // that grows. Unreachable while the session stays blocking, but
+                // that is an invariant of our own code rather than a promise
+                // libssh makes.
+                if (n < 0) {
                     fail(ErrorCode::IoFailed,
                          sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
                     return Outcome::Failed;
@@ -689,6 +714,12 @@ void SshBackend::stop() {
     }
     m_started = false;
     m_shutdown = true;
+    {
+        // A password typed after the prompt timed out has nothing left to
+        // consume it. Wipe it rather than carry it to the destructor.
+        const std::lock_guard lock(m_mutex);
+        m_credential.clear();
+    }
     // Releases a worker parked in waitForAnswer. Without this, closing a tab
     // during a host-key prompt leaves that thread sitting there for five
     // minutes and the join below waits with it.
@@ -702,6 +733,12 @@ void SshBackend::stop() {
 void SshBackend::armAnswer() {
     const std::lock_guard lock(m_mutex);
     m_answered = false;
+    m_hostKeyTrusted = false;
+    // Any answer still sitting here belongs to a prompt that is over. Keeping
+    // it would leave a password in memory for the object's lifetime, which is
+    // exactly what net.md's "zero after use" forbids — and would let a stale
+    // answer satisfy the NEXT prompt.
+    m_credential.clear();
 }
 
 bool SshBackend::waitForAnswer(int timeoutMs) {

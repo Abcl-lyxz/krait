@@ -58,8 +58,11 @@ bool parseTarget(std::string_view target, std::string* user, std::string* host, 
             portColon = close + 1;
         }
         *host = std::string(target.substr(1, close - 1));
+        if (host->empty()) {
+            return false;  // "[]" is not a host, with or without a port
+        }
         if (portColon == std::string_view::npos) {
-            return !host->empty();
+            return true;
         }
     } else if (target.find(':') != target.rfind(':')) {
         // More than one colon and no brackets: bare IPv6, so there is no port

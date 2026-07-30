@@ -174,6 +174,9 @@ class SshBackend : public IBackend {
     ErrorCode m_lastError = ErrorCode::IoFailed;
     std::atomic<bool> m_shutdown{false};
     std::atomic<bool> m_connected{false};
+    // Whether the CURRENT cycle ever reached the connected state, so run() can
+    // reset the retry counter after a reconnect that worked.
+    bool m_everConnected = false;
     bool m_started = false;
 
     // Guards the write queue, the pending grid size, and the answer handshake.
