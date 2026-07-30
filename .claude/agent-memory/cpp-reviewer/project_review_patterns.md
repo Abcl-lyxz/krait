@@ -35,6 +35,13 @@ T7 confirmations (both recurring patterns hit again):
 - Spike renderer (src/app/terminal_item.cpp) masks colour index with `& 0x0F` and ignores Kind::Rgb — any core colour widening turns "default colour" into "confidently wrong colour" there. Check terminal_item on every cell.h/sgr.cpp diff until T25.
 - Local verification (Bash tool): cmake is NOT on PATH — use `/c/Program Files/CMake/bin/cmake.exe`. ASan fuzz binary needs the VC `bin/Hostx64/x64` dir (clang_rt.asan_dynamic-x86_64.dll) prepended to PATH or it exits 127.
 
+## T20 lesson (reflow + cluster storage) — the "self-healing state" trap
+- Recurring defect shape: a cached (row,col,pendingWrap) "did the cursor move?" heuristic used INSTEAD of explicit invalidation. It is blind to sequences that move CONTENT without moving the cursor. ED/EL (sgr.cpp clearRange, writes `grid.cellAt(r,c) = Cell{}` directly) are the live ones; ECH/DCH/ICH will be the next. Whenever a diff caches "where I left the cursor", enumerate every handler that writes cells directly — grep `cellAt|lineAt` under src/core/parser.
+- Grid's public int members (rows/cols/row/col/pendingWrap/scrollTop) are mutated directly by parser handlers (csi_cursor.cpp, csi_scroll.cpp). Any new Grid private invariant keyed on those fields is unenforceable from inside Grid. Say so.
+- reflow.cpp cursor placement: the in-loop `k == cursorOffset` match is skipped for offsets that land INSIDE a wide pair (k advances by 2), and the fallback "past content" branch invents row indices for rows it never emits. Both are cursor-teleport bugs, both bounded by resize()'s final clamp. Check any k-stepping loop that also carries a position.
+- terminal_item.cpp (spike renderer) fired AGAIN: cell.h grew kWideTrailing/kClusterTag and the renderer still does `ch >= 0x20 && ch <= 0x7E ? ... : '?'`, so every wide char now paints "??" . Standing rule: any cell.h `ch` encoding change must touch terminal_item.cpp:136 in the same commit.
+- Verified-safe patterns worth not re-litigating: `std::deque<std::u32string>` + `unordered_map<u32string_view,...>` keyed into it is sound (deque insertion never invalidates references; rehash moves nodes not data). Only COPYING the pool breaks it — ask for `= delete` on copy ops.
+
 ## T8 lesson
 - docs/conformance.md rows go stale when stub behavior becomes real (LF "no scroll until T8" row survived T8). Grep conformance.md for the touched controls every grid/parser diff.
 - Grid behavior changes tend to ship unit tests only; vt-core rule also wants corpus cases (parser-path: wrap at margin, LF-at-bottom scroll, pendingWrap cancel) in the same commit.

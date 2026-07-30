@@ -134,9 +134,14 @@ void TerminalItem::rebuildInstances() {
             float* inst = m_instances.data() +
                           (static_cast<std::size_t>(r) * grid.cols + c) * kInstanceFloats;
             const char32_t ch = cell.ch;
-            inst[0] = (ch >= 0x20 && ch <= 0x7E)
-                          ? static_cast<float>(ch - 0x20)
-                          : (ch == 0 ? 0.0F : static_cast<float>('?' - 0x20));
+            // T20: a wide cluster's trailing cell is a spacer, not a glyph —
+            // its lead already drew. Without this the spike ASCII path renders
+            // one CJK character as "??". The real renderer (T25) resolves
+            // cluster refs through grid.clusters(); the spike keeps its '?'.
+            inst[0] = (ch >= 0x20 && ch <= 0x7E) ? static_cast<float>(ch - 0x20)
+                      : (ch == 0 || krait::core::vt::isWideTrailing(ch))
+                          ? 0.0F
+                          : static_cast<float>('?' - 0x20);
             const auto& attr = cell.attr;
             float fg[3] = {0.86F, 0.87F, 0.89F};  // default fg
             float bg[3] = {0.05F, 0.06F, 0.09F};  // default bg

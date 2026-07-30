@@ -77,6 +77,14 @@ class FuzzSink final : public ParserEvents {
 
     void oscEnd(bool) override {}
 
+    // Every invariant at once. Public because resize() is driven from
+    // LLVMFuzzerTestOneInput rather than from a parser event.
+    void checkAll() const {
+        checkCursor();
+        checkRowWidths();
+        checkClusters();
+    }
+
   private:
     void checkCursor() const {
         assert(grid.row >= 0 && grid.row < grid.rows);
@@ -95,6 +103,28 @@ class FuzzSink final : public ParserEvents {
     void checkRowWidths() const {
         for (int r = 0; r < grid.rows; ++r) {
             assert(grid.lineAt(r).cells.size() == static_cast<std::size_t>(grid.cols));
+        }
+    }
+
+    // T20. Both of these are how a wide-cell or reflow bug turns into an
+    // out-of-bounds read in the renderer, which reads a cell's left neighbour
+    // to find the cluster a trailing half belongs to.
+    //
+    // NOT asserted: that a trailing half's lead is non-blank. ED/EL can erase
+    // the lead of a wide cluster and leave its trailing cell behind — a real
+    // gap, recorded in docs/conformance.md, but a cosmetic one rather than a
+    // memory-safety one. Asserting it here would fuzz-fail on known behaviour.
+    void checkClusters() const {
+        for (int r = 0; r < grid.rows; ++r) {
+            for (int c = 0; c < grid.cols; ++c) {
+                const char32_t ch = grid.cellAt(r, c).ch;
+                if (isWideTrailing(ch)) {
+                    assert(c > 0);  // never the first column
+                    assert(!isWideTrailing(grid.cellAt(r, c - 1).ch));
+                } else if (isClusterRef(ch)) {
+                    assert(!grid.clusters().lookup(ch).empty());
+                }
+            }
         }
     }
 };
@@ -116,6 +146,24 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     // Amplification invariant: replies bounded by the limiter's windows.
     const std::size_t maxReplies = 8 * (1 + size / 256);
     assert(sink.replies.size() <= maxReplies * 16);
+
+    // T20: reflow, driven from the same bytes. A resize is reachable from any
+    // window drag, so rewrap has to survive whatever the parser just wrote —
+    // and it is the one path that walks every cell it did not write itself.
+    // Both extremes matter: 1 column cannot hold a wide pair at all, and the
+    // round trip back to the original geometry catches a rewrap that corrupts
+    // state only on the second pass.
+    // Two resizes, not three: the derived width already reaches 1 column (the
+    // degenerate case a wide pair cannot fit in), and a rewrap is O(rows*cols)
+    // with an allocation per row, so each extra one is paid on every single
+    // execution. An explicit 1x1 pass cost ~7x the total exec count for
+    // coverage the derived case already had.
+    if (size >= 2) {
+        sink.grid.resize(1 + (data[size - 1] % 60), 1 + (data[0] % 120));
+        sink.checkAll();
+        sink.grid.resize(24, 80);  // round trip: catches a rewrap that only corrupts on pass two
+        sink.checkAll();
+    }
     (void)sink;
     return 0;
 }

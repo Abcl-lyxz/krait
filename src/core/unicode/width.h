@@ -48,6 +48,32 @@ class ClusterIterator {
     std::int32_t m_breakState = 0;  // utf8proc's; 0 means "start of text"
 };
 
+// The streaming counterpart of ClusterIterator, for the one caller that cannot
+// use it: the grid. A terminal receives codepoints one at a time from the
+// parser and must decide, on each, "does this extend the cluster already in the
+// current cell, or start a new one?" — there is no span to iterate over.
+//
+// Same engine, same ordering requirement: every consecutive pair is fed to
+// utf8proc in order, including the pair that breaks, because that call is what
+// arms GB12/13 for the next cluster. Feed codepoints out of order and regional
+// indicators (flags) and ZWJ sequences silently mis-segment.
+class ClusterBreaker {
+  public:
+    // True when `cp` STARTS a new cluster, false when it extends the previous
+    // one. The first codepoint after construction or reset() always starts one.
+    bool startsNewCluster(char32_t cp) noexcept;
+
+    // Forget the previous codepoint. Callers must do this whenever the
+    // codepoint stream is discontinuous — a cluster cannot span a cursor jump,
+    // an erase, or a screen swap.
+    void reset() noexcept;
+
+  private:
+    char32_t m_prev = 0;
+    bool m_hasPrev = false;
+    std::int32_t m_breakState = 0;
+};
+
 // Width of a single already-segmented cluster. Exposed because the grid needs
 // it for a cluster it is re-measuring (a reflow, or a cell it already stores)
 // without re-running segmentation.

@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 using krait::core::vt::Grid;
+using krait::core::vt::isWideTrailing;
 
 TEST_CASE("grid: deferred wrap at the right margin", "[grid]") {
     Grid g(4, 10);
@@ -360,10 +361,10 @@ TEST_CASE("grid: naive resize keeps content near the cursor", "[grid]") {
     CHECK(g.damage.all());
 }
 
-// --- Reflow scaffold (M1). These document the DESIRED behavior; naive
-// resize does not rewrap yet, so they are [!mayfail] until reflow lands. ---
+// --- Reflow (T20). These three were the [!mayfail] scaffold T8 left behind to
+// keep the cases visible; T20 made them required. Do not re-tag them. ---
 
-TEST_CASE("grid: resize wider rejoins a wrapped logical line", "[grid][!mayfail]") {
+TEST_CASE("grid: resize wider rejoins a wrapped logical line", "[grid][reflow]") {
     Grid g(4, 5);
     for (int i = 0; i < 7; ++i) {
         g.putChar(U'a' + static_cast<char32_t>(i));
@@ -375,13 +376,44 @@ TEST_CASE("grid: resize wider rejoins a wrapped logical line", "[grid][!mayfail]
     CHECK_FALSE(g.lineAt(1).wrappedFromPrev);
 }
 
-TEST_CASE("grid: resize narrower must not tear a wide char at the boundary", "[grid][!mayfail]") {
-    // Wide-char cells arrive with the width tables (utf8proc work); until
-    // then this scaffold fails by construction to keep the case visible.
-    FAIL("wide-char-aware reflow not implemented (M1; needs width tables)");
+TEST_CASE("grid: resize narrower must not tear a wide char at the boundary", "[grid][reflow]") {
+    // U+4E16, East Asian Wide. Spelled numerically so the test never depends
+    // on the source file's encoding surviving a toolchain change.
+    constexpr char32_t kCjk = 0x4E16;
+
+    Grid g(4, 6);
+    for (char32_t ch : {U'a', U'b', U'c', U'd'}) {
+        g.putChar(ch);
+    }
+    g.putChar(kCjk);
+    // Six columns exactly: four letters, then the pair in columns 4 and 5.
+    REQUIRE(g.cellAt(0, 4).ch == kCjk);
+    REQUIRE(isWideTrailing(g.cellAt(0, 5).ch));
+
+    g.resize(4, 5);
+
+    // The pair no longer fits after "abcd", and splitting it would put half a
+    // glyph on each row. It moves whole and leaves column 4 blank instead.
+    CHECK(g.cellAt(0, 3).ch == U'd');
+    CHECK(g.cellAt(0, 4).ch == 0);
+    CHECK(g.lineAt(1).wrappedFromPrev);
+    CHECK(g.cellAt(1, 0).ch == kCjk);
+    CHECK(isWideTrailing(g.cellAt(1, 1).ch));
+
+    // The invariant that matters more than any single position: a trailing
+    // half never exists without its lead immediately to the left.
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 5; ++c) {
+            if (isWideTrailing(g.cellAt(r, c).ch)) {
+                REQUIRE(c > 0);
+                CHECK_FALSE(g.cellAt(r, c - 1).ch == 0);
+                CHECK_FALSE(isWideTrailing(g.cellAt(r, c - 1).ch));
+            }
+        }
+    }
 }
 
-TEST_CASE("grid: shrinking columns keeps the active prompt readable", "[grid][!mayfail]") {
+TEST_CASE("grid: shrinking columns keeps the active prompt readable", "[grid][reflow]") {
     Grid g(4, 10);
     const char32_t prompt[] = {U'>', U' ', U'l', U's'};
     for (char32_t ch : prompt) {

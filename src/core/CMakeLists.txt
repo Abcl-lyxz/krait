@@ -9,7 +9,9 @@ find_package(utf8proc CONFIG REQUIRED)
 
 add_library(krait-core STATIC
     caps/caps.cpp
+    grid/cluster_pool.cpp
     grid/grid.cpp
+    grid/reflow.cpp
     parser/csi_cursor.cpp
     parser/csi_mode.cpp
     parser/csi_scroll.cpp
