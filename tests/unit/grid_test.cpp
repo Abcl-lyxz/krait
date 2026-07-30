@@ -427,3 +427,67 @@ TEST_CASE("grid: shrinking columns keeps the active prompt readable", "[grid][re
     CHECK(g.lineAt(1).wrappedFromPrev);
     CHECK(g.cellAt(1, 0).ch == U's');
 }
+
+TEST_CASE("grid: overwriting a wide cluster's lead does not strand its trailing", "[grid][wide]") {
+    // Found by the fuzzer, minimised to: U+FFFD, a wide char, CR, a wide char.
+    // The second write put its own trailing on the first pair's LEAD, leaving
+    // that pair's trailing beside it — two adjacent trailing halves. That is
+    // not cosmetic: the renderer walks LEFT from a trailing to find the lead
+    // whose glyph it belongs to, and finding another trailing is how a wide
+    // cell bug becomes an out-of-bounds read.
+    Grid g(2, 8);
+    constexpr char32_t kWide = 0x4E16;  // East Asian Wide
+
+    g.putChar(U'�');   // one cell, column 0
+    g.putChar(kWide);  // lead at 1, trailing at 2
+    REQUIRE(isWideTrailing(g.cellAt(0, 2).ch));
+
+    g.cursorSet(0, 0);
+    g.putChar(kWide);  // lead at 0, trailing at 1 — over the old lead
+
+    CHECK(g.cellAt(0, 0).ch == kWide);
+    CHECK(isWideTrailing(g.cellAt(0, 1).ch));
+    // The orphan is blanked, not left behind.
+    CHECK_FALSE(isWideTrailing(g.cellAt(0, 2).ch));
+    CHECK(g.cellAt(0, 2).ch == 0);
+}
+
+TEST_CASE("grid: overwriting a wide cluster's trailing does not strand its lead", "[grid][wide]") {
+    // The mirror case. A lead with no trailing draws a two-column glyph over a
+    // cell that now belongs to something else.
+    Grid g(2, 8);
+    constexpr char32_t kWide = 0x4E16;
+
+    g.putChar(kWide);  // lead at 0, trailing at 1
+    REQUIRE(isWideTrailing(g.cellAt(0, 1).ch));
+
+    g.cursorSet(0, 1);
+    g.putChar(U'x');  // lands on the trailing half
+
+    CHECK(g.cellAt(0, 1).ch == U'x');
+    CHECK(g.cellAt(0, 0).ch == 0);  // the orphaned lead is blanked
+}
+
+TEST_CASE("grid: a wide cluster overwriting another wide cluster leaves no orphan",
+          "[grid][wide]") {
+    // Offset by one, so the new pair straddles both halves of the old one.
+    Grid g(2, 8);
+    constexpr char32_t kWide = 0x4E16;
+
+    g.putChar(U'a');
+    g.putChar(kWide);  // lead at 1, trailing at 2
+    g.cursorSet(0, 2);
+    g.putChar(kWide);  // lead at 2, trailing at 3 — over the old trailing
+
+    CHECK(g.cellAt(0, 0).ch == U'a');
+    CHECK(g.cellAt(0, 1).ch == 0);  // the old lead, orphaned and blanked
+    CHECK(g.cellAt(0, 2).ch == kWide);
+    CHECK(isWideTrailing(g.cellAt(0, 3).ch));
+    // The invariant the fuzz harness asserts: no trailing follows a trailing.
+    for (int c = 1; c < 8; ++c) {
+        INFO("column " << c);
+        const bool adjacentTrailings =
+            isWideTrailing(g.cellAt(0, c).ch) && isWideTrailing(g.cellAt(0, c - 1).ch);
+        CHECK_FALSE(adjacentTrailings);
+    }
+}

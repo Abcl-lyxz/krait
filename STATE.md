@@ -1,11 +1,11 @@
 # STATE
 
-Phase: **M1 COMPLETE** — T17-T35 done. **Next task: M2** (SSH backend), once
-PR #22 is merged.
+Phase: **M1 COMPLETE and MERGED** — T17-T35 done, on `main`.
+**Next task: M2** (SSH backend, `docs/plan/01-milestones.md`).
 
 ## Now
 
-Everything from T26 to T35 is on `t26-device` as **PR #22**:
+Nothing is in flight. T26-T35 merged as PR #22 (`0768f16`):
 
 | Commit | Task |
 |---|---|
@@ -16,9 +16,13 @@ Everything from T26 to T35 is on `t26-device` as **PR #22**:
 | `a041e3f` | T31 + T34 — settings reach the subsystems; the config has a home |
 | `2bdca53` | T33 — backend errors as per-tab banners |
 | `7c16829` | T32 — EN and TH ship together |
-| _this one_ | T35 — M1 wrap |
+| `fa9798c` | T35 — M1 wrap: release preset, vttest gate, baselines, milestone flip |
+| `2dc6224` | Review fixes — three blocking, and the rest of the battery |
 
-**PR #22 is not merged.** Merge it before starting M2.
+M2's first task starts from a clean `main`. Read the "Open, not blocking" list
+below FIRST: two of those items are things M1 could not verify rather than
+things it chose to skip, and one of them (the unmeasured hardware flood leg)
+should be closed out early rather than at the end of M2.
 
 ## What landed in M1's second half
 

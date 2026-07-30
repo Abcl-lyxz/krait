@@ -123,6 +123,28 @@ void Grid::wrapToNextRow() {
     col = 0;
 }
 
+void Grid::breakWidePairs(int r, int first, int last) {
+    // A 2-column cluster occupies two cells that only mean anything together.
+    // Writing into either half strands the other, and a stranded half is not
+    // cosmetic: two adjacent trailings make the renderer walk left looking for
+    // a lead and find another trailing, and a lead with no trailing draws a
+    // wide glyph over a cell somebody else owns. Found by the fuzzer —
+    // `U+FFFD`, a wide CJK char, CR, another wide char — where the second
+    // write landed its own trailing on the first pair's LEAD and left that
+    // pair's trailing beside it.
+    //
+    // Blanks with default cells, matching eraseScreen: BCE is one undecided
+    // question across the whole grid and this is not the place to answer it.
+    if (first > 0 && cellAt(r, first).ch == kWideTrailing) {
+        cellAt(r, first - 1) = Cell{};  // its lead loses the right half
+        damage.mark(r, first - 1, first - 1);
+    }
+    if (last + 1 < cols && cellAt(r, last + 1).ch == kWideTrailing) {
+        cellAt(r, last + 1) = Cell{};  // its lead is about to be overwritten
+        damage.mark(r, last + 1, last + 1);
+    }
+}
+
 void Grid::advanceCursor(int width) {
     if (width == 2 && col + 1 < cols) {
         // The right half of a wide cluster. It owns nothing; it exists so the
@@ -156,6 +178,10 @@ void Grid::beginCluster(char32_t ch) {
     if (width == 2 && col + 1 >= cols && cols >= 2) {
         wrapToNextRow();
     }
+    // BEFORE the write, and covering both cells a wide cluster will occupy:
+    // afterwards the lead is already in place and the left-edge check would
+    // read the cell we just wrote.
+    breakWidePairs(row, col, width == 2 && col + 1 < cols ? col + 1 : col);
     cellAt(row, col) = {ch, pen};
     damage.mark(row, col, col);
     m_clusterRow = row;
@@ -193,6 +219,10 @@ void Grid::appendToCluster(char32_t ch) {
     // and the cluster stays one cell wide (recorded in docs/conformance.md).
     if (unicode::clusterWidth({m_cluster.data(), m_clusterLen}, ambiguous) == 2 &&
         row == m_clusterRow && col == m_clusterCol + 1 && !pendingWrap) {
+        // Widening onto a cell that was the lead of another pair strands that
+        // pair's trailing. The left edge is our OWN lead, so the span starts
+        // there rather than at col.
+        breakWidePairs(row, m_clusterCol, col);
         cellAt(row, col) = {kWideTrailing, pen};
         damage.mark(row, col, col);
         if (col + 1 < cols) {
