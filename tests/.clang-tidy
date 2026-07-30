@@ -1,0 +1,13 @@
+# Test-only overlay on the root policy (which still applies — see
+# InheritParentConfig). Tests are held to the same bug/UB/lifetime bar as src.
+InheritParentConfig: true
+
+Checks: >
+  -bugprone-unchecked-optional-access
+
+# Why: clang-tidy cannot see through Catch2's REQUIRE. After
+# `REQUIRE(x.has_value());` the very next `*x` is reported as unchecked access,
+# because REQUIRE expands to a macro that throws rather than to an `if`. It is a
+# WarningsAsErrors check, so every optional-returning API under test would have
+# to be re-asserted with a hand-written `if (!x) { FAIL(); return; }`. The
+# assertion IS the check; the checker just cannot read it.
