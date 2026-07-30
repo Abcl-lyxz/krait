@@ -9,10 +9,6 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(krait-app
     main.cpp
-    ../net/conpty/conpty_backend.cpp
-    ../net/conpty/conpty_backend.h
-    ../net/error.h
-    ../net/ibackend.h
     ../render/spike/glyph_atlas.cpp
     ../render/spike/glyph_atlas.h
 )
@@ -66,7 +62,8 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # krait-shaper carries krait-core, HarfBuzz, FreeType and DirectWrite: the whole
 # T23/T24/T25 render pipeline the spike path was replaced with.
 target_link_libraries(krait-app
-    PRIVATE krait-core krait-render krait-input krait-settings Qt6::Quick Qt6::GuiPrivate freetype)
+    PRIVATE krait-core krait-render krait-input krait-settings krait-net Qt6::Quick Qt6::GuiPrivate
+            freetype)
 
 # Translations (plan T32). EN and TH ship together: rules/ui.md makes Thai a
 # first-class locale, not an afterthought, so a string that lands without both
@@ -79,7 +76,7 @@ target_link_libraries(krait-app
 # The .qm files are embedded under ":/i18n", so a portable copy carries its own
 # translations instead of depending on files next to the exe.
 qt_add_translations(krait-app
-    SOURCE_TARGETS krait-app krait-input krait-settings
+    SOURCE_TARGETS krait-app krait-input krait-settings krait-net
     TS_FILES
         i18n/krait_en.ts
         i18n/krait_th.ts

@@ -30,6 +30,7 @@ catch_discover_tests(krait-core-tests)
 # QGuiApplication — linking even Qt6::Core into it costs that property, since
 # the binary then will not start without Qt6Core.dll beside it.
 add_executable(krait-qt-tests
+    backend_contract_test.cpp
     error_banner_test.cpp
     gpu_resources_test.cpp
     i18n_test.cpp
@@ -39,7 +40,12 @@ add_executable(krait-qt-tests
     settings_test.cpp
 )
 target_link_libraries(krait-qt-tests
-    PRIVATE krait-render krait-input krait-settings Qt6::Test Qt6::Xml Catch2::Catch2WithMain)
+    PRIVATE krait-render krait-input krait-settings krait-net Qt6::Test Qt6::Xml
+            Catch2::Catch2WithMain)
+# On this target only. backend_contract_test.cpp declares a Q_OBJECT subclass of
+# IBackend and needs moc; krait-core-tests deliberately links no Qt at all, so a
+# directory-wide set(CMAKE_AUTOMOC ON) would be aimed at the wrong binary.
+set_target_properties(krait-qt-tests PROPERTIES AUTOMOC ON)
 
 # The real shaders, not stubs: QRhi's FRONTEND rejects an empty QShader
 # ("Empty shader passed to graphics pipeline") before any backend sees it, even

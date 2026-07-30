@@ -79,8 +79,8 @@ TerminalItem::TerminalItem() {
     }
 
     m_backend = new net::ConptyBackend(this);  // owned by this
-    connect(m_backend, &net::ConptyBackend::outputReceived, this, &TerminalItem::handleOutput);
-    connect(m_backend, &net::ConptyBackend::errorOccurred, this,
+    connect(m_backend, &net::IBackend::outputReceived, this, &TerminalItem::handleOutput);
+    connect(m_backend, &net::IBackend::errorOccurred, this,
             [this](const QString& code, const QString& message) {
                 qWarning("backend error [%s]: %s", qPrintable(code), qPrintable(message));
                 const ErrorBanner banner = describeError(code);
@@ -91,7 +91,7 @@ TerminalItem::TerminalItem() {
                     banner.hint.isEmpty() ? message : banner.hint + QStringLiteral(" ") + message;
                 emit errorRaised(banner.message, hint);
             });
-    connect(m_backend, &net::ConptyBackend::exited, this, [this](int exitCode) {
+    connect(m_backend, &net::IBackend::exited, this, [this](int exitCode) {
         qInfo("shell exited (%d)", exitCode);
         // A shell that ran `exit` is NOT an error. Raising a banner here is how
         // a banner teaches people to ignore banners.

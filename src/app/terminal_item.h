@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../net/conpty/conpty_backend.h"
+#include "../net/ibackend.h"
 #include "core/terminal/session.h"
 #include "input/ime.h"
 #include "input/mouse.h"
@@ -151,7 +152,9 @@ class TerminalItem : public QQuickRhiItem {
     std::unique_ptr<render::FrameBuilder> m_builder;
     std::unique_ptr<core::vt::Session> m_session;
     settings::Registry* m_settings = nullptr;  // borrowed; owned by main()
-    net::ConptyBackend* m_backend = nullptr;   // owned by this (QObject parent)
+    // The seam, not a concrete backend: M2 swaps a session profile's SSH
+    // backend in here without this class knowing which protocol it drives.
+    net::IBackend* m_backend = nullptr;  // owned by this (QObject parent)
 
     render::RasterFn m_raster;
     std::string m_family;            // what ensureFont() actually resolved

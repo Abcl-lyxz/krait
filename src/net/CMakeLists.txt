@@ -1,0 +1,21 @@
+# The backend layer (rules/net.md). A library rather than sources compiled
+# straight into krait-app, because the shared IBackend contract tests have to
+# link the backends and you cannot link an executable.
+#
+# Qt6::Core only: a backend that needed Qt Gui to run would be a backend you
+# could not test without a display, and net.md's contract suite is the point.
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
+
+# Q_OBJECT in ibackend.h and conpty_backend.h; without AUTOMOC the vtables are
+# undefined at link (same reason as src/app/settings).
+set(CMAKE_AUTOMOC ON)
+
+add_library(krait-net STATIC
+    error.h
+    ibackend.h
+    conpty/conpty_backend.cpp
+    conpty/conpty_backend.h
+)
+
+target_include_directories(krait-net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(krait-net PUBLIC Qt6::Core)
