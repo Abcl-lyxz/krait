@@ -40,6 +40,7 @@ add_executable(krait-qt-tests
     ime_test.cpp
     keymap_test.cpp
     paste_test.cpp
+    remote_text_test.cpp
     settings_test.cpp
     vault_test.cpp
 )

@@ -17,6 +17,11 @@
 
 namespace krait::net {
 
+// Which method to use. Mirrors session::SshAuth deliberately rather than
+// sharing it: src/net must not depend on the app layer, and a five-value enum
+// is a cheaper price than that dependency.
+enum class SshAuthPreference { Auto, Agent, Password, PublicKey, KeyboardInteractive };
+
 // What the profile hands the backend. No secrets: a password or passphrase is
 // fetched from the Vault by `vaultKey`, or asked for interactively.
 struct SshConfig {
@@ -26,6 +31,7 @@ struct SshConfig {
     // "" = libssh's default (~/.ssh/known_hosts). Set in tests so a run cannot
     // touch the developer's real file.
     std::string knownHostsPath;
+    SshAuthPreference auth = SshAuthPreference::Auto;
     std::string keyPath;
     // Vault key prefix — the profile id. ":password" and ":passphrase" are
     // appended (rules/net.md: nothing plaintext leaves the vault).
@@ -110,6 +116,17 @@ class SshBackend : public IBackend {
     bool connectSession();
     bool verifyHostKey();
     bool authenticate();
+    // Each returns an SSH_AUTH_* code. Split out because "which methods, in
+    // which order" is a policy question and the policy is easier to read when
+    // it is not tangled with libssh's calling conventions.
+    int tryAgent();
+    int tryPublicKey();
+    int tryKeyboardInteractive();
+    int tryPassword();
+    // Prompts for one secret and returns it. Empty means cancelled or timed
+    // out. `remember` says whether the user asked to store it.
+    Secret askForSecret(const QString& prompt, bool echo, bool* remember);
+
     bool openShell(int cols, int rows);
     void pump();
 

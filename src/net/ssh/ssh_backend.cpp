@@ -1,13 +1,19 @@
+// These two must precede EVERY include, which is what the position here buys —
+// the Qt headers reached through ssh_backend.h pull in <windows.h> themselves,
+// so a define placed after them is dead and the min/max macros land in scope
+// for the whole translation unit. std::min in tryKeyboardInteractive is where
+// that showed up. Same lesson as src/app/main.cpp.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include "ssh_backend.h"
 
+#include "../remote_text.h"
 #include "hostkey_art.h"
+#include <windows.h>
 
 #include <libssh/libssh.h>
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -32,6 +38,12 @@ constexpr std::size_t kReadChunk = 16 * 1024;
 // A human has this long to answer a host-key or password prompt before the
 // connection gives up. rules/cpp.md: every wait has a timeout.
 constexpr int kPromptTimeoutMs = 5 * 60 * 1000;
+
+// Several libssh getters return NULL rather than "" when a field is absent,
+// and std::string_view has no NULL. One place to get that wrong is enough.
+std::string_view nullSafe(const char* text) {
+    return text != nullptr ? std::string_view{text} : std::string_view{};
+}
 
 }  // namespace
 
@@ -130,7 +142,7 @@ bool SshBackend::connectSession() {
     if (ssh_connect(session) != SSH_OK) {
         // ssh_get_error is the server's or the resolver's text. It names a host
         // and a reason, never a credential, so it is safe in a banner.
-        fail(ErrorCode::ConnectFailed, QString::fromUtf8(ssh_get_error(session)));
+        fail(ErrorCode::ConnectFailed, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
         return false;
     }
     return true;
@@ -193,7 +205,7 @@ bool SshBackend::verifyHostKey() {
         break;
     case SSH_KNOWN_HOSTS_ERROR:
     default:
-        fail(ErrorCode::HostKeyRejected, QString::fromUtf8(ssh_get_error(session)));
+        fail(ErrorCode::HostKeyRejected, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
         return false;
     }
 
@@ -235,6 +247,167 @@ bool SshBackend::verifyHostKey() {
     return true;
 }
 
+Secret SshBackend::askForSecret(const QString& prompt, bool echo, bool* remember) {
+    emit credentialPrompt(prompt, echo);
+    if (!waitForAnswer(kPromptTimeoutMs)) {
+        return {};
+    }
+    const std::lock_guard lock(m_mutex);
+    if (remember != nullptr) {
+        *remember = m_rememberCredential;
+    }
+    return std::move(m_credential);
+}
+
+int SshBackend::tryAgent() {
+    // On Windows this reaches the OpenSSH named-pipe agent through libssh's own
+    // transport. Nothing to configure and nothing to shell out to.
+    return ssh_userauth_agent(m_impl->session, nullptr);
+}
+
+int SshBackend::tryPublicKey() {
+    ssh_session session = m_impl->session;
+
+    if (m_config.keyPath.empty()) {
+        // No key named: let libssh walk the agent and the default identities.
+        // Passing a passphrase here would apply it to every key it tries, which
+        // is how an account gets locked out on the third identity.
+        return ssh_userauth_publickey_auto(session, nullptr, nullptr);
+    }
+
+    // A named key. Try it with no passphrase first — most keys on a Windows box
+    // are unencrypted or already held by the agent, and asking for a passphrase
+    // that is not needed teaches people to type it reflexively.
+    ssh_key key = nullptr;
+    int rc = ssh_pki_import_privkey_file(m_config.keyPath.c_str(), nullptr, nullptr, nullptr, &key);
+
+    if (rc == SSH_ERROR) {
+        // Encrypted, or unreadable. The vault first, then a prompt.
+        Secret passphrase;
+        bool remember = false;
+        bool fromVault = false;
+        if (m_vault != nullptr && !m_config.vaultKey.empty()) {
+            fromVault = m_vault->retrieve(m_config.vaultKey + ":passphrase", &passphrase);
+        }
+        if (!fromVault) {
+            passphrase =
+                askForSecret(tr("Passphrase for %1").arg(QString::fromStdString(m_config.keyPath)),
+                             false, &remember);
+        }
+        if (passphrase.empty()) {
+            return SSH_AUTH_DENIED;
+        }
+        std::vector<char> nulTerminated(passphrase.size() + 1, '\0');
+        std::memcpy(nulTerminated.data(), passphrase.data(), passphrase.size());
+        rc = ssh_pki_import_privkey_file(m_config.keyPath.c_str(), nulTerminated.data(), nullptr,
+                                         nullptr, &key);
+        SecureZeroMemory(nulTerminated.data(), nulTerminated.size());
+
+        if (rc == SSH_OK && remember && m_vault != nullptr && !m_config.vaultKey.empty()) {
+            // Only once the key actually decrypted. A vault full of wrong
+            // passphrases is worse than an empty one.
+            m_vault->store(m_config.vaultKey + ":passphrase", passphrase);
+            m_vault->save();
+        }
+    }
+    if (rc != SSH_OK || key == nullptr) {
+        return SSH_AUTH_DENIED;
+    }
+
+    const int auth = ssh_userauth_publickey(session, nullptr, key);
+    ssh_key_free(key);
+    return auth;
+}
+
+int SshBackend::tryKeyboardInteractive() {
+    ssh_session session = m_impl->session;
+    int rc = ssh_userauth_kbdint(session, nullptr, nullptr);
+
+    // Bounded, because the loop is driven by the SERVER: a hostile one can keep
+    // answering SSH_AUTH_INFO forever and turn the prompt into a denial of
+    // service against the person sitting in front of it.
+    constexpr int kMaxRounds = 8;
+    constexpr unsigned int kMaxPromptsPerRound = 8;
+
+    for (int round = 0; rc == SSH_AUTH_INFO && round < kMaxRounds; ++round) {
+        const QString name = sanitizeRemoteText(nullSafe(ssh_userauth_kbdint_getname(session)));
+        const QString instruction =
+            sanitizeRemoteText(nullSafe(ssh_userauth_kbdint_getinstruction(session)));
+
+        const int prompts = ssh_userauth_kbdint_getnprompts(session);
+        if (prompts < 0) {
+            return SSH_AUTH_ERROR;
+        }
+        const unsigned int count =
+            std::min(static_cast<unsigned int>(prompts), kMaxPromptsPerRound);
+        for (unsigned int i = 0; i < count; ++i) {
+            char echo = 0;
+            const QString prompt =
+                sanitizeRemoteText(nullSafe(ssh_userauth_kbdint_getprompt(session, i, &echo)));
+
+            // All three of these are SERVER text, already stripped of controls
+            // and bounded. The UI shows them as plain text — Banner.qml learned
+            // that in M1, when a pasted tag could restyle the warning about it.
+            QString shown = prompt;
+            if (!instruction.isEmpty()) {
+                shown = instruction + QStringLiteral("\n") + shown;
+            }
+            if (!name.isEmpty()) {
+                shown = name + QStringLiteral("\n") + shown;
+            }
+
+            Secret answer = askForSecret(shown, echo != 0, nullptr);
+            if (answer.empty()) {
+                return SSH_AUTH_DENIED;
+            }
+            std::vector<char> nulTerminated(answer.size() + 1, '\0');
+            std::memcpy(nulTerminated.data(), answer.data(), answer.size());
+            const int set = ssh_userauth_kbdint_setanswer(session, i, nulTerminated.data());
+            SecureZeroMemory(nulTerminated.data(), nulTerminated.size());
+            if (set < 0) {
+                return SSH_AUTH_ERROR;
+            }
+        }
+        rc = ssh_userauth_kbdint(session, nullptr, nullptr);
+    }
+    return rc == SSH_AUTH_INFO ? SSH_AUTH_DENIED : rc;
+}
+
+int SshBackend::tryPassword() {
+    ssh_session session = m_impl->session;
+
+    Secret password;
+    bool remember = false;
+    bool fromVault = false;
+    if (m_vault != nullptr && !m_config.vaultKey.empty()) {
+        fromVault = m_vault->retrieve(m_config.vaultKey + ":password", &password);
+    }
+    if (!fromVault) {
+        password = askForSecret(
+            tr("Password for %1@%2")
+                .arg(QString::fromStdString(m_config.user), QString::fromStdString(m_config.host)),
+            false, &remember);
+    }
+    if (password.empty()) {
+        return SSH_AUTH_DENIED;
+    }
+
+    // libssh wants a NUL-terminated string; a Secret is sized bytes. The copy is
+    // zeroed the moment the call returns.
+    std::vector<char> nulTerminated(password.size() + 1, '\0');
+    std::memcpy(nulTerminated.data(), password.data(), password.size());
+    const int rc = ssh_userauth_password(session, nullptr, nulTerminated.data());
+    SecureZeroMemory(nulTerminated.data(), nulTerminated.size());
+
+    if (rc == SSH_AUTH_SUCCESS && remember && m_vault != nullptr && !m_config.vaultKey.empty()) {
+        // Only after it WORKED. Storing a password the server rejected is how a
+        // vault fills up with typos.
+        m_vault->store(m_config.vaultKey + ":password", password);
+        m_vault->save();
+    }
+    return rc;
+}
+
 bool SshBackend::authenticate() {
     ssh_session session = m_impl->session;
 
@@ -245,65 +418,61 @@ bool SshBackend::authenticate() {
         return true;
     }
     if (none == SSH_AUTH_ERROR) {
-        fail(ErrorCode::AuthFailed, QString::fromUtf8(ssh_get_error(session)));
+        fail(ErrorCode::AuthFailed, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
         return false;
     }
-    const int methods = ssh_userauth_list(session, nullptr);
+    const int offered = ssh_userauth_list(session, nullptr);
 
-    // Public key, which is also how the agent gets its turn: publickey_auto
-    // walks the agent first and then the default identities.
-    if ((methods & SSH_AUTH_METHOD_PUBLICKEY) != 0) {
-        const int rc = ssh_userauth_publickey_auto(session, nullptr, nullptr);
+    // The ladder. Auto is agent, then keys, then the two interactive methods —
+    // cheapest and least annoying first, so the common case (an agent that
+    // already holds the key) never prompts at all. A profile that NAMES a
+    // method gets only that method: "use the agent" has to mean it, or a broken
+    // agent silently degrades into typing a password every day and nobody
+    // notices it broke.
+    struct Step {
+        int method;  // the SSH_AUTH_METHOD_* bit the server must offer
+        int (SshBackend::*run)();
+    };
+
+    std::vector<Step> ladder;
+    switch (m_config.auth) {
+    case SshAuthPreference::Agent:
+        ladder = {{SSH_AUTH_METHOD_PUBLICKEY, &SshBackend::tryAgent}};
+        break;
+    case SshAuthPreference::PublicKey:
+        ladder = {{SSH_AUTH_METHOD_PUBLICKEY, &SshBackend::tryPublicKey}};
+        break;
+    case SshAuthPreference::Password:
+        ladder = {{SSH_AUTH_METHOD_PASSWORD, &SshBackend::tryPassword}};
+        break;
+    case SshAuthPreference::KeyboardInteractive:
+        ladder = {{SSH_AUTH_METHOD_INTERACTIVE, &SshBackend::tryKeyboardInteractive}};
+        break;
+    case SshAuthPreference::Auto:
+        ladder = {{SSH_AUTH_METHOD_PUBLICKEY, &SshBackend::tryAgent},
+                  {SSH_AUTH_METHOD_PUBLICKEY, &SshBackend::tryPublicKey},
+                  {SSH_AUTH_METHOD_INTERACTIVE, &SshBackend::tryKeyboardInteractive},
+                  {SSH_AUTH_METHOD_PASSWORD, &SshBackend::tryPassword}};
+        break;
+    }
+
+    for (const Step& step : ladder) {
+        if ((offered & step.method) == 0) {
+            continue;  // the server will not take it; do not waste the attempt
+        }
+        if (m_shutdown.load()) {
+            return false;  // the tab closed mid-prompt
+        }
+        const int rc = (this->*step.run)();
         if (rc == SSH_AUTH_SUCCESS) {
             return true;
         }
         if (rc == SSH_AUTH_ERROR) {
-            fail(ErrorCode::AuthFailed, QString::fromUtf8(ssh_get_error(session)));
+            fail(ErrorCode::AuthFailed, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
             return false;
         }
-    }
-
-    if ((methods & SSH_AUTH_METHOD_PASSWORD) != 0) {
-        Secret password;
-        bool remember = false;
-        bool fromVault = false;
-        if (m_vault != nullptr && !m_config.vaultKey.empty()) {
-            fromVault = m_vault->retrieve(m_config.vaultKey + ":password", &password);
-        }
-        if (!fromVault) {
-            emit credentialPrompt(tr("Password for %1@%2")
-                                      .arg(QString::fromStdString(m_config.user),
-                                           QString::fromStdString(m_config.host)),
-                                  false);
-            if (!waitForAnswer(kPromptTimeoutMs)) {
-                fail(ErrorCode::AuthFailed, tr("No password was given."));
-                return false;
-            }
-            const std::lock_guard lock(m_mutex);
-            password = std::move(m_credential);
-            remember = m_rememberCredential;
-        }
-        if (password.empty()) {
-            fail(ErrorCode::AuthFailed, tr("Authentication was cancelled."));
-            return false;
-        }
-
-        // libssh wants a NUL-terminated string; a Secret is sized bytes. The
-        // copy is zeroed the moment the call returns.
-        std::vector<char> nulTerminated(password.size() + 1, '\0');
-        std::memcpy(nulTerminated.data(), password.data(), password.size());
-        const int rc = ssh_userauth_password(session, nullptr, nulTerminated.data());
-        SecureZeroMemory(nulTerminated.data(), nulTerminated.size());
-
-        if (rc == SSH_AUTH_SUCCESS) {
-            if (remember && m_vault != nullptr && !m_config.vaultKey.empty()) {
-                // Only after it WORKED. Storing a password the server rejected
-                // is how a vault fills up with typos.
-                m_vault->store(m_config.vaultKey + ":password", password);
-                m_vault->save();
-            }
-            return true;
-        }
+        // SSH_AUTH_PARTIAL means the server wants ANOTHER factor, which is
+        // exactly what the next rung is for, so it falls through like a denial.
     }
 
     fail(ErrorCode::AuthFailed, tr("%1 refused every authentication method we could offer.")
@@ -321,7 +490,7 @@ bool SshBackend::openShell(int cols, int rows) {
     ssh_channel channel = m_impl->channel;
 
     if (ssh_channel_open_session(channel) != SSH_OK) {
-        fail(ErrorCode::ConnectFailed, QString::fromUtf8(ssh_get_error(session)));
+        fail(ErrorCode::ConnectFailed, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
         return false;
     }
     // A zero-sized pty is what an item asks for before its geometry is applied
@@ -331,11 +500,11 @@ bool SshBackend::openShell(int cols, int rows) {
     const int safeRows = rows > 0 ? rows : 24;
     if (ssh_channel_request_pty_size(channel, m_config.termType.c_str(), safeCols, safeRows) !=
         SSH_OK) {
-        fail(ErrorCode::ConnectFailed, QString::fromUtf8(ssh_get_error(session)));
+        fail(ErrorCode::ConnectFailed, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
         return false;
     }
     if (ssh_channel_request_shell(channel) != SSH_OK) {
-        fail(ErrorCode::ConnectFailed, QString::fromUtf8(ssh_get_error(session)));
+        fail(ErrorCode::ConnectFailed, sanitizeRemoteText(nullSafe(ssh_get_error(session))));
         return false;
     }
     return true;
@@ -366,7 +535,8 @@ void SshBackend::pump() {
                 const int n = ssh_channel_write(channel, bytes.constData() + written,
                                                 static_cast<std::uint32_t>(bytes.size() - written));
                 if (n == SSH_ERROR) {
-                    fail(ErrorCode::IoFailed, QString::fromUtf8(ssh_get_error(m_impl->session)));
+                    fail(ErrorCode::IoFailed,
+                         sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
                     return;
                 }
                 written += n;
@@ -379,7 +549,7 @@ void SshBackend::pump() {
         const int n = ssh_channel_read_timeout(
             channel, buffer.data(), static_cast<std::uint32_t>(buffer.size()), 0, kPollMs);
         if (n == SSH_ERROR) {
-            fail(ErrorCode::IoFailed, QString::fromUtf8(ssh_get_error(m_impl->session)));
+            fail(ErrorCode::IoFailed, sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
             return;
         }
         if (n > 0) {
