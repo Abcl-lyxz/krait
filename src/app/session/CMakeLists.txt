@@ -8,6 +8,8 @@
 find_package(tomlplusplus CONFIG REQUIRED)
 
 add_library(krait-session STATIC
+    cli.cpp
+    cli.h
     fuzzy.cpp
     fuzzy.h
     profile.cpp

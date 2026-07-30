@@ -62,7 +62,7 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # krait-shaper carries krait-core, HarfBuzz, FreeType and DirectWrite: the whole
 # T23/T24/T25 render pipeline the spike path was replaced with.
 target_link_libraries(krait-app
-    PRIVATE krait-core krait-render krait-input krait-settings krait-net Qt6::Quick Qt6::GuiPrivate
+    PRIVATE krait-core krait-render krait-input krait-settings krait-session krait-net Qt6::Quick Qt6::GuiPrivate
             freetype)
 
 # Translations (plan T32). EN and TH ship together: rules/ui.md makes Thai a
@@ -76,7 +76,7 @@ target_link_libraries(krait-app
 # The .qm files are embedded under ":/i18n", so a portable copy carries its own
 # translations instead of depending on files next to the exe.
 qt_add_translations(krait-app
-    SOURCE_TARGETS krait-app krait-input krait-settings krait-net
+    SOURCE_TARGETS krait-app krait-input krait-settings krait-session krait-net
     TS_FILES
         i18n/krait_en.ts
         i18n/krait_th.ts

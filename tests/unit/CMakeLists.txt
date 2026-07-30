@@ -7,6 +7,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS Gui ShaderTools Test Xml)
 
 add_executable(krait-core-tests
     atlas_test.cpp
+    cli_test.cpp
     grid_test.cpp
     modes_test.cpp
     osc_test.cpp
