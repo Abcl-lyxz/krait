@@ -42,7 +42,18 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
         break;
 
     default:
-        break;  // consumed and ignored; nothing may report it as recognised
+        // Consumed and ignored. Nothing may report an unrecognised mode as
+        // recognised, which is why this handler keeps an explicit list above
+        // rather than a catch-all setter.
+        //
+        // Mode 2027 (grapheme clustering) lands here on purpose and needs no
+        // case of its own: our width model is always cluster-based (T19), so
+        // there is no per-codepoint mode to switch to and both DECSET and
+        // DECRST are correctly inert. It is NOT merely unrecognised though —
+        // DECRQM (T22) must answer 3 (permanently set) for it, never 1, and the
+        // fact lives in Capabilities::graphemeClusteringAlwaysOn where that
+        // reply will be generated from.
+        break;
     }
 }
 

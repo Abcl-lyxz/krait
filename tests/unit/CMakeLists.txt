@@ -4,6 +4,7 @@ add_executable(krait-core-tests
     grid_test.cpp
     session_test.cpp
     smoke_test.cpp
+    width_test.cpp
 )
 target_link_libraries(krait-core-tests PRIVATE krait-core Catch2::Catch2WithMain)
 

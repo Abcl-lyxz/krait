@@ -1,264 +1,179 @@
 # STATE
 
-Phase: **M0 COMPLETE** — M1 not started
+Phase: **M1 in progress** — T17 merged, T18 and T19 built and awaiting merge
 
 ## Now
 
-M0 is done and merged. `main` is at the T16 merge, all 12 PRs landed, and
-`fast-gate` is green on `main` and required for merge.
+Two stacked branches are ahead of `main`, both fully built and tested locally:
 
-**Next task: T17** (`docs/plan/02-m0-tasks.md` §M1) — SGR extended:
-38/48 truecolor+256 in colon AND semicolon forms, 58/59, 4:x underline
-styles, cell attr storage widened. T7 already consumes 38/48/58 with correct
-arity but keeps them inert, and collapses 4:x to on/off — those two lines in
-`docs/conformance.md` are what T17 flips.
+| Branch | Contents | PR | State |
+|---|---|---|---|
+| `t18-scroll` | T18 complete: DECSTBM, IL/DL/SU/SD, DECOM, alt screen 1049 | **#15** | CI was red twice, both causes fixed, latest run pending at handoff |
+| `t19-width` | T19 complete: grapheme/width engine | none yet | branched off `t18-scroll`, **not pushed** |
 
-## M0 acceptance — evidence, not assertion
+**First actions next session, in order:**
 
-Every line of `docs/plan/01-milestones.md` §M0, re-run on the final tree:
+1. `gh pr checks 15`. If green, `gh pr merge 15 --merge` (the stack has used
+   merge commits so far).
+2. `git push -u origin t19-width` and open its PR. **Retarget it to `main` with
+   `gh pr edit <N> --base main` before merging** — GitHub only auto-retargets a
+   stacked PR when the base branch is deleted, which bit this project during M0
+   closeout.
+3. Then T20 (reflow). See "T20 starts here" below — T19 deliberately left the
+   grid untouched, and T20 is where wide characters actually start rendering.
+
+## What T18 and T19 landed
+
+T18 — three commits. `handleScroll` (DECSTBM/IL/DL/SU/SD) plus a new
+`handleMode` seam for the `?`-private DECSET/DECRST forms carrying DECOM and
+1049. Full behavior notes are in `docs/conformance.md`; the short version is
+that xterm's source was treated as the authority over DEC prose wherever they
+disagreed, and every such divergence is written down in the ledger rather than
+left implicit in the code.
+
+T19 — `src/core/unicode/width.h`, now the ONLY sanctioned way to ask how many
+cells something occupies. Nothing consumes it yet, by design.
+
+### Three bugs T18 fixed in already-merged code
+
+1. **CUU/CUD were not margin-aware.** xterm's `CursorUp`/`CursorDown` read the
+   scrolling margins and never the flags, so they clamp to the region
+   regardless of DECOM. We clamped to the page.
+2. **DSR 6 CPR ignored origin mode**, breaking the CPR round trip every
+   full-screen app performs. Its subtraction is now clamped at 0 — a 1049
+   restore can leave the cursor above the top margin, and `ESC [ -18 ; 1 R`
+   contains a byte that is not a CSI parameter byte (ECMA-48 §5.4), so the
+   application drops the whole reply and anything blocking on CPR hangs.
+3. **The fuzz target routed neither `handleScroll` nor `handleMode`.** So
+   `scroll.seed` AND `mode.seed` were inert — T18's fuzz-seed requirement was
+   satisfied only on paper. Both are wired now, plus margin and row-width
+   invariant asserts.
+
+## Evidence, not assertion
+
+Re-run on the final `t19-width` tree:
 
 | Gate | Result |
 |---|---|
-| `cmake --preset dev` + `--build` | pass — MSVC 19.51.36243, Qt 6.10.3, 48/48 |
-| `ctest --preset dev` | pass — **22/22**, 0.48 s |
-| `tests\fuzz\run-smoke.cmd` | pass — 278,238 execs, **0 crashes** |
-| `bench\spike\flood-report.cmd` | pass — table emitted, both adapters |
-| dev GPU 4K flood | 180.0 fps / 0.419 ms GPU — gate ≥60 fps, <10 ms |
-| WARP flood | 152.4 fps / 5.14 ms GPU — gate ≥30 fps, <10 ms |
-| Manual demo | pass — `dir` renders through the grid, `cls` clears to a fresh prompt at home (captured via KRAIT_TERM_INJECT + KRAIT_SPIKE_SCREENSHOT) |
-| Go/no-go ADR | ADR-0013, verdict GO |
-| CI fast gate | green on `main`, **5m34s** vs ADR-0008's <15 min target |
+| `cmake --build --preset dev` | pass, no warnings beyond the known Qt D9025 noise |
+| `ctest --preset dev` | **47/47** |
+| `tests\fuzz\run-smoke.cmd` | pass — 174,174 execs, **0 crashes**, exit 0 |
+| standalone zero-dep proof, Qt blanked | pass, including utf8proc |
+| clang-tidy on every changed TU | clean (see the local-repro recipe below) |
+| clang-format | clean |
 
-NOT verified: the parenthetical "vttest menu renders legibly" in the M0
-acceptance block. vttest is not wired up; `tools/vttest-check.cmd` is M1 T35.
-Do not claim it.
+Corpus grew by ~48 assertions: `csi/origin.case` (31 cases),
+`sgr/mode.case` (17), and three DECOM cases added to `reports/basic.case`,
+which had **zero** DECOM coverage before. `[width]` adds 11 unit tests.
+
+## Run clang-tidy LOCALLY — it is installed, and I wasted two CI cycles not doing it
+
+`clang-tidy` and `clang-format` are on PATH (LLVM 22.1.0, via the Python
+scripts dir). Two red CI runs on PR #15 were both lint-only and both
+reproducible locally in ~90 s instead of 5 minutes.
+
+**It must run inside a VS x64 dev shell.** Without MSVC's `INCLUDE`, clang-tidy
+cannot find `<cstdint>`, every TU becomes parse garbage, and it reports findings
+that do NOT reproduce in CI (`bugprone-branch-clone` false hits, in my case).
+The CI file already carries this warning; heed it.
+
+```
+# in a VS x64 dev shell, from the repo root
+clang-tidy -p build/dev --extra-arg=-Wno-unknown-argument \
+  --extra-arg=-Wno-unused-command-line-argument <changed .cpp files>
+```
+
+Gating is `.clang-tidy`'s `WarningsAsErrors` (`bugprone-*,concurrency-*`).
+Everything else is advisory in the fast gate. Exclude `tests/fuzz/*.cpp`: it is
+built only by the fuzz presets, so it has no `compile_commands.json` entry and
+falls back to C++17, where every `std::span` becomes a fatal
+`clang-diagnostic-error` about nothing. The CI step now filters those out and
+logs what it skipped.
+
+## T20 starts here
+
+T20 is reflow, and it is the task T8's grid was built to enable — three
+`[!mayfail]` cases in `tests/unit/grid_test.cpp` are already in the tree waiting
+to be flipped green.
+
+**T20 also owns the wide-cell work T19 deliberately did not do.** The grid still
+stores one codepoint per cell and reserves no second cell for a wide cluster, so
+wide characters and multi-codepoint clusters do not render correctly today. That
+needs a `Cell` storage decision first — a cluster is base + marks, and `Cell`
+currently holds a single `char32_t`. Options are an inline small array or an
+interned cluster table; nothing has been decided, and no code assumes either.
+`docs/conformance.md`'s "Width & clustering" row states this gap plainly.
+
+There is also a deferred `ponytail:` note in `src/core/grid/cell.h` from T17:
+packing `Color` into a uint32 would make `Cell` 20 bytes and save ~19 MB at full
+scrollback. T21 (scrollback) is the natural place for it, and it interacts with
+whatever cluster storage T20 picks — decide them together.
+
+## Watchouts, all of them earned this session
+
+- **Branch protection is on for `main`.** Commit on a `tN-*` branch and open a
+  PR; direct pushes are rejected.
+- **Stacked PRs do not auto-retarget.** `gh pr edit N --base main` before merge.
+- **ctest TEST_CASE names must stay ASCII.** `catch_discover_tests` round-trips
+  the name through a ctest filter; an em-dash gets mangled by the console
+  codepage until the test cannot be matched by its own name, and it reports as a
+  failure that has nothing to do with the assertions. Cost one debug cycle.
+- **`if errorlevel 1` in cmd is a SIGNED comparison** and misses -1
+  (`[code=4294967295]`). Use `if %ERRORLEVEL% neq 0`.
+- **pwsh does not throw on a native non-zero exit mid-script**, so a failing
+  `git` silently turns a lint gate into a green no-op. Check `$LASTEXITCODE`.
+- **`bugprone-misplaced-widening-cast` gates the build.** Widen each operand
+  before arithmetic (`static_cast<size_t>(r) + 1`), never the sum.
+- The corpus harness only understands `\xNN` escapes — **not** `\r\n`.
+- **`run-smoke.cmd` now needs `VCPKG_ROOT`** (the fuzz presets gained the vcpkg
+  toolchain in T19 so they can resolve utf8proc). It fails with a clear message
+  if unset. A `toolchainFile` change does NOT apply to an already-configured
+  build dir — delete `build\fuzz-msvc` if the utf8proc error persists.
+- **Re-run every gate AFTER the change that could invalidate it.** T19's first
+  CI run died in the fuzz step because I had measured the fuzz smoke before
+  linking utf8proc and carried the stale number forward into the PR body.
+
+## Known-not-fixed
+
+- `bench/baselines/m0-spike.json` is ~1.9x stale in the FAVOURABLE direction
+  (WARP measured 152.4 fps vs 80.7 recorded), so M1's ">5% regression" gate is
+  miscalibrated and will not catch a real regression. Re-baseline before T25.
+- ADR-0010's clang-cl `fuzz` preset cannot link (`lld-link` ignores
+  `-fsanitize=fuzzer,address`); needs explicit `clang_rt` import libs. Default
+  is `fuzz-msvc`, which works.
+- Qt is pinned to 6.10.3, not the plan's 6.11.1 — aqtinstall 3.3.0 cannot
+  resolve 6.11's per-arch repo layout.
+- 14x D9025 `/std` override warnings from Qt's `cxx_std_17` INTERFACE compile
+  feature. Cosmetic.
+- vttest is still not wired up (`tools/vttest-check.cmd` is T35). Do not claim
+  vttest conformance.
+- 1049's clear uses default cells where xterm fills with the current pen.
+  Deferred deliberately so BCE stays ONE decision across ED/EL/IL/DL/SU/SD/1049.
+- `?7` DECAWM and `?25` DECTCEM are accepted but not honored — declared in the
+  ledger as modes that make output wrong rather than merely absent.
+- T19 wrote no `tools/gen-width-tables.py`. Deliberate plan deviation: utf8proc
+  2.11.3 ships UCD 17.0.0 already. Reasoning and the measured probe output are
+  in `docs/research/t19-width-findings.md`.
 
 ## Done so far
 
-- T1 ✔ (c941753): repo live at https://github.com/Abcl-lyxz/krait, MIT, main.
-- T2 ✔ (3ceac79): CMakePresets (`dev`), root CMakeLists, vcpkg.json (baseline
-  9d7f79f5). Toolchain: MSVC 19.51 (VS2026 18 Community), CMake 4.2.3 + Ninja
-  from VS, vcpkg at `C:\vcpkg` (`VCPKG_ROOT=C:\vcpkg` in the dev shell).
-  No wrapper scripts exist in-repo — build via a VS x64 dev shell.
-- T3 ✔ (0920812): `krait-core` static lib + Catch2 wiring + standalone
-  zero-dep proof (`cmake -S tests/core-standalone -B build/core-standalone -G Ninja`).
-- T4 ✔ (c65553e): WHATWG UTF-8 decoder + corpus harness + utf8 cases.
-- T5 ✔: parser state machine — 14 states/14 actions as constexpr tables
-  (`src/core/parser/{events,tables,machine}.*`), dispatching to `ParserEvents`.
-  Deviations implemented: UTF-8 outside the machine, 0x3A subparam-legal in
-  CSI, C1 policy flag (`acceptC1`, default off), param cap 32 / clamp 16383,
-  BEL ends OSC, DEL prints in ground (display layer decides), aborted-string
-  flag on `oscEnd`/`dcsUnhook` (CAN/SUB/C1 = aborted; ESC assumed ST).
-  Corpus: `tests/corpus/parser/{basic,interrupted,garbage,c1}.case`, every
-  case run whole-buffer AND byte-at-a-time. Harness grew `MODE c1` directive
-  and event-token EXPECT format (documented in harness.cpp header).
-  vt-spec-auditor watch items live in
-  `.claude/agent-memory/vt-spec-auditor/t5-audit-findings.md`.
+T1-T16 = M0, complete and merged (see git history; ADR-0013 records the GO
+verdict). M1: T17 merged (SGR extended). T18 and T19 as described above.
 
-- T6 ✔: C0 controls (BEL BS HT LF CR SO SI) + CSI cursor family
-  (CUU CUD CUF CUB CUP HVP CHA VPA) on `StubGrid`
-  (`src/core/parser/csi_cursor.*`, 24x80, no scroll/margins/DECOM/LNM/SCS —
-  partials declared in the ledger). Colon subparams and intermediates reject
-  the sequence (xterm: subparams are SGR-only). `docs/conformance.md`
-  existed from the scaffold as a FAMILY ledger — T6 flipped its two rows
-  ✗→◐; fuzz seeds started (`tests/fuzz/seeds/`, 10 files).
-  Corpus `tests/corpus/csi/{cursor,c0}.case` asserts final grid state
-  (`cur:R,C` / `g1:on` / `bell:N` tokens via CursorSink).
+Task numbering: **M0 = T1-T16, M1 = T17-T35**, both in
+`docs/plan/02-m0-tasks.md`. M2-M6 exist in `docs/plan/01-milestones.md` as
+scope prose only — no task numbers assigned yet.
 
-- T7 ✔: SGR basic (`src/core/parser/sgr.*`, `src/core/grid/cell.h`
-  Color/Attr/Cell) + ED/EL on the stub grid (now has cells + pen +
-  putChar, no wrap). 38/48/58 consumed with correct arity (colon+legacy)
-  but inert until M1; 21≈underline, 4:x collapses to on/off — declared in
-  ledger. Non-SGR handlers (cursor, erase) reject colon subparams — that's
-  now a PATTERN both reviewers enforce; keep it for every new CSI family.
-  Corpus `tests/corpus/sgr/{basic,erase}.case`.
+## Process notes that paid off
 
-- T8 ✔: real Grid (`src/core/grid/{grid,line,damage}.*`) REPLACED StubGrid
-  everywhere — row storage with explicit `wrappedFromPrev` wrap flags
-  (reflow-from-day-one), DEC deferred wrap (`pendingWrap`; cleared by
-  BS/HT/CR/LF/cursor-family AND by EL/ED per DEC STD 070+xterm ResetWrap —
-  spec-audit catch), erase-to-EOL severs the wrap join to the next row,
-  scroll into 10k-capped deque scrollback, per-row coalesced DamageList,
-  naive resize clamped to 1x1 (rows shrink feeds top into scrollback; no
-  rewrap until M1 — 3 `[!mayfail]` scaffolds in tests/unit/grid_test.cpp
-  document desired reflow). Watch item for new sequence work: every op
-  touching the cursor line must decide `pendingWrap` explicitly
-  (ICH/DCH/IL/DL when they come).
-
-- T9 ✔: capability table + honest replies (`src/core/caps/caps.*`) — DA1
-  generated from the table (VT100+AVO `?1;2c`; VT220 identity only when a
-  real VT220 feature flips), DSR 5 OK + DSR 6 CPR; DA2/DECXCPR/?-DSR =
-  honest silence. ReplyLimiter: clock-free token bucket, 8 replies per 256
-  INPUT bytes — integrator must call addInput(chunk) before each feed
-  (contract documented in caps.h; harness wires it that way). Corpus
-  `tests/corpus/reports/basic.case` incl. refill-across-window burst and
-  8-bit C1 request. Watch item (M1): ansiColor deliberately under-claimed
-  until the 62-identity is honest.
-
-- T10 ✔: fuzz target (`tests/fuzz/parser_fuzz.cpp` — FuzzSink with cursor/
-  params/amplification invariant asserts, both C1 policies by input parity),
-  presets `fuzz` (clang-cl+ASan, ADR-0010 primary — **BROKEN, see Debts**)
-  and `fuzz-msvc` (the verified path). Seeds: `tools/extract-seeds.mjs`
-  (node) extracts every corpus IN payload byte-exactly (latin1 read) +
-  tests/fuzz/seeds → 189 files. `tests/fuzz/run-smoke.cmd` = the per-commit
-  gate; replays tests/fuzz/regressions/ first (empty). RelWithDebInfo
-  override keeps asserts live in fuzz builds.
-
-- T11 ✔: Qt shell + D3D11 triangle spike. `krait-app` (console subsystem
-  for M0 so gates read stdout): main.cpp sets D3D11, loads Krait/Main.qml;
-  `Triangle` = QQuickRhiItem spike (src/render/spike) with qsb shaders via
-  qt_add_shaders; pipeline-create failure degrades to clear-only. VERIFIED:
-  `rhi backend: D3D11` logged, autoquit hook KRAIT_SPIKE_AUTOQUIT. Qt
-  DEVIATION: pin 6.11.1 not installable via aqt — built against 6.10.3 +
-  qtshadertools module, floor 6.8, `QT_ROOT` env feeds CMAKE_PREFIX_PATH
-  (SETUP.md). GuiPrivate linked for rhi/qrhi.h; QML module SOURCES +
-  include dir needed for qmltyperegistrations. sceneGraphInitialized signal
-  unreliable cross-thread — backend logged via 1s singleShot instead.
-
-- T12 ✔: glyph-atlas spike renderer. FreeType (vcpkg) rasterizes ASCII
-  into an R8 atlas (`src/render/spike/glyph_atlas.*`); `SpikeGrid`
-  QQuickRhiItem draws 240×63 instanced quads, per-cell glyph+fg+bg in a
-  DYNAMIC PER-INSTANCE BUFFER (bench-equivalent deviation from the plan's
-  storage-buffer wording — ratified by T13/T14 numbers). VERIFIED via
-  screenshot (KRAIT_SPIKE_SCREENSHOT hook). HARD-WON QRhi FACTS:
-  (1) first initialize() runs BEFORE first synchronize() — create
-  resources lazily, re-attempt from render(); (2) cb->setShaderResources()
-  after setGraphicsPipeline or all bindings read zeros (black screen);
-  (3) KRAIT_SPIKE_ATLAS_DUMP env dumps the atlas PNG for debugging.
-
-- T13 ✔ (PR #9): flood bench. KRAIT_BENCH/_4K/_WARP env drive the spike;
-  `bench/spike/flood-report.cmd`; baseline `bench/baselines/m0-spike.json`
-  (machine HomeCenter, RTX 4060). WARP selected via
-  QQuickGraphicsConfiguration::setPreferSoftwareDevice; timestamps via
-  setTimestamps — BOTH only take effect if set BEFORE first expose, hence
-  Main.qml visible:false + show-after-config in main().
-
-- T14 ✔ (PR #10): ADR-0013 verdict = **GO**, all gates cleared with margin.
-
-- T15 ✔ (PR #11): ConPTY backend + full wiring — KRAIT IS A TERMINAL.
-  `third_party/openconsole/` = REPACKAGED Microsoft.Windows.Console.ConPTY
-  v1.24 nupkg (ADR-0011; conpty.dll + OpenConsole.exe + conpty.h + MS
-  LICENSE + VERSION.md pin). `src/net/{ibackend,error}.h`,
-  `src/net/conpty/` (bundled-dll Conpty* exports, reader/writer threads,
-  3s-timeout stop). `src/core/terminal/session.*` = parser+grid+handlers
-  behind feed(). `src/app/terminal_item.*` = TerminalView (keyboard map,
-  resize, cursor inversion). HARD-WON: STARTF_USESTDHANDLES with NULL std
-  handles is MANDATORY — without it the child bypasses the pty through
-  inherited std pipes (prompt leaked to parent console).
-
-- T16 ✔ (PR #12): CI fast gate — `.github/workflows/ci.yml`, ADR-0008 shape
-  exactly: configure+build → ctest → krait-core standalone zero-dep proof →
-  60 s fuzz smoke → clang-format → clang-tidy on changed files. Green on
-  `main` in 5m34s. Branch protection ON: `fast-gate` required + strict, no
-  force-push, no deletion, `enforce_admins` deliberately OFF (solo owner
-  needs an escape hatch; the local guard hook already blocks direct commits).
-  ENVIRONMENT FACTS THAT COST RUNS — do not re-derive:
-  * `install-qt-action@v4` exports `QT_ROOT_DIR`, **not** `QT_ROOT`, and only
-    `Qt5_DIR`, never `Qt6_DIR`. The image exports `VCPKG_INSTALLATION_ROOT`,
-    not `VCPKG_ROOT`. Both bridged into `GITHUB_ENV`.
-  * Pinning `builtin-baseline` is NOT enough on a runner: vcpkg reads the
-    version DATABASE (`versions/`) off disk and only `baseline.json` from the
-    commit, so a 2026 baseline against the image's 2024 `versions/` tree dies
-    with "no version database entry for <port> at <date>". CI checks the whole
-    registry out at the baseline.
-  * vcpkg's `x-gha` binary-cache backend was REMOVED upstream in 2025 —
-    `actions/cache` over `%LOCALAPPDATA%\vcpkg\archives` is what remains.
-  * The `windows-2025-vs2026` label resolves cl to MSVC 14.51.36231, matching
-    the dev machine. Plain `windows-latest` is reportedly still VS2022 17.14,
-    which contradicts ADR-0008's premise — see Open questions.
-
-## Environment debts (blocked on the owner, or on real work)
-
-1. **ADR-0010's primary fuzz preset does not link — and cannot as written.**
-   Not merely "untested" any more; CI executed it and produced the diagnosis.
-   CMake drives an MSVC-like toolchain through `lld-link` **directly** rather
-   than through the compiler driver, so `tests/fuzz/CMakeLists.txt:10`'s
-   `target_link_options(parser-fuzz PRIVATE -fsanitize=fuzzer,address)` is
-   discarded — `lld-link: warning: ignoring unknown argument` — and every
-   `__asan_*` / `__sanitizer_cov_*` symbol comes back undefined. The fix is to
-   name the `clang_rt` import libraries explicitly
-   (`clang_rt.asan_dynamic-x86_64.lib`, `clang_rt.fuzzer-x86_64.lib`, and the
-   thunk) plus their `lib/clang/<ver>/lib/windows` directory.
-   `run-smoke.cmd` now defaults to `fuzz-msvc` instead of auto-selecting the
-   broken preset whenever LLVM appears on PATH; `KRAIT_FUZZ_PRESET=fuzz` opts
-   back in. **This means the tool's default now contradicts ADR-0010's stated
-   primary/fallback order** — decide whether to fix the linking or write a
-   superseding ADR. Do not leave it implicit.
-2. **Qt 6.11.1 pin is not installable and now provably won't be soon.**
-   Qt 6.11+ moved to a per-arch repo layout; aqtinstall support is merged
-   upstream but UNRELEASED (newest on PyPI is 3.3.0, 2025-06-02), and
-   install-qt-action v4 pins `aqtversion: ==3.3.*`. So this blocks CI as well
-   as the dev machine. Everything builds on 6.10.3. To move: official Qt
-   installer locally, then flip `QT_ROOT`, `QT_VERSION` in ci.yml, SETUP.md
-   and the plan docs together. If you bump before aqt >3.3.0 ships, CI also
-   needs `aqtsource: 'git+https://github.com/miurahr/aqtinstall'`.
-3. clang-cl IS now exercised on CI (LLVM 20.1.8 is on the runner), so debt 1
-   no longer needs a local install to make progress. `winget install
-   LLVM.LLVM` (admin) is still wanted for local ASan work.
-
-## Known-not-fixed (deliberate, with reasons)
-
-- **`bench/baselines/m0-spike.json` is stale in the favourable direction.**
-  Measured this session: WARP 152.4 fps / 5.14 ms vs 80.7 fps / 10.07 ms
-  recorded; cpu_avg halved. Reproducible across two runs, so not noise —
-  likely display/vsync conditions (both runs log `qt.qpa.screen: "Unable to
-  open monitor interface to \\.\DISPLAY1"`, and the baseline notes say
-  cpu_*_ms include vsync pacing). Harmless for M0 (favourable), but it means
-  M1's "no >5% regression" gate is calibrated ~1.9x too slow — a real 40%
-  regression would pass. M1 T35 refreshes baselines; it must actually happen.
-- **14x `D9025: overriding '/std:c++17' with '/std:c++23preview'`** in
-  `krait-app`. `/WX` cannot catch these: it promotes C-series compilation
-  warnings, not D-series command-line ones, so exit 0 does not mean clean.
-  Root cause is NOT `qt_standard_project_setup` (the Qt 6.11 docs list what it
-  sets — AUTOMOC/AUTOUIC, GNUInstallDirs, RPATH, USE_FOLDERS, policies — and
-  the C++ standard is not among them); it is Qt's `cxx_std_17` INTERFACE
-  compile feature propagating through `Qt6::Core`, which CMake satisfies with
-  `-std:c++17` because the project sets its standard with a raw
-  `add_compile_options(/std:c++23preview)` flag CMake knows nothing about.
-  `/std:c++23preview` does win — that is what D9025 says — so the build is
-  correct. The real fix is a project-wide decision about adopting
-  `CMAKE_CXX_STANDARD`, which touches the root lists and both fuzz presets.
-  Evidence lives in `build/dev/build.ninja` (14 hits), NOT in CMakeCache, and
-  the flag is dash-form `-std:c++17` so a `/std:` grep misses it.
-- `src/render` still has no dedicated CMake target (promised at T12);
-  `src/app` compiles the render sources directly.
-
-## Open questions (non-blocking)
-
-- Code-signing certificate vendor + timing (needed by M6, decide by M4).
-- ADR-0008 states `windows-latest` is Server 2025 + VS2026 18.4 "verified
-  runner-images #14017". Live docs say VS Enterprise 2022 17.14 with a
-  separate `windows-2025-vs2026` label. One is stale; CI does not depend on
-  the answer (it names the label explicitly) but the ADR should be corrected.
-- clang-tidy config gaps from T5's preflight: `/Zc:preprocessor` triggers a
-  driver-arg complaint (CI passes `-Wno-unknown-argument`
-  `-Wno-unused-command-line-argument`), and `cppcoreguidelines-avoid-c-arrays`
-  still fires though its modernize alias is disabled. Non-gating; tidy's error
-  set (bugprone/concurrency) is clean and IS gating in CI.
-
-## Watchouts
-
-- Follow task order; interview decisions live in ADRs 0004–0008 — don't re-ask.
-- `.claude/settings.local.json` and `.claude/.cache/` are machine-local; never commit.
-- clang-tidy must run from the VS dev shell (needs `INCLUDE`); outside it,
-  MSVC headers don't resolve and findings are parse garbage.
-- The parser's `entry.next == m_state` early-return skips entry actions on
-  same-state table transitions — currently provably harmless, but re-verify
-  if you ever add a same-state transition with an entry action.
-- **`main` is protected on GitHub now, not just by the local hook.** Every
-  change needs a PR with `fast-gate` green, including doc-only ones. Do NOT
-  add `paths-ignore` to the workflow to speed those up: a required check that
-  is skipped stays pending forever and the PR becomes unmergeable.
-- **Merging a stacked PR chain:** GitHub only auto-retargets when the base
-  branch is DELETED on merge. With branches kept, retarget each to main first
-  (`gh pr edit N --base main`) or you merge into the predecessor branch.
-- **In batch scripts, never `if errorlevel 1`.** cmd compares SIGNED, so it is
-  false for negative exit codes — a failed link reported as `[code=4294967295]`
-  (-1) walked straight past it in `run-smoke.cmd` and the gate kept going with
-  no binary built. Use `if %ERRORLEVEL% neq 0`, and never inside a
-  parenthesised block (it expands at parse time, before the command runs).
-- In `pwsh` CI steps, a native command's non-zero exit does NOT throw
-  mid-script. Any `git`/tool call whose empty output is treated as "nothing to
-  do" must check `$LASTEXITCODE` first, or the step goes green having done
-  nothing.
-- First session on a new machine: follow `SETUP.md`.
+- `vt-spec-auditor` found 4 real T18 deviations, including **an idempotency
+  guard I invented and then mis-attributed to xterm in both a code comment and
+  the ledger**. Run it on every escape-sequence diff; do not skip it because the
+  code "looks right".
+- `cpp-reviewer` then found two unit tests that could not fail. Both now assert
+  content rather than shape.
+- `docs-verifier` returned verbatim xterm source for DECOM/1049 semantics. Every
+  T19 width expectation was MEASURED with a throwaway probe against the actual
+  installed utf8proc rather than recalled — which is how the Thai
+  two-cluster result and the `charwidth_ambiguous` trap were found before they
+  became bugs.

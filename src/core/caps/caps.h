@@ -22,6 +22,16 @@ struct Capabilities {
     bool sixel = false;
     bool selectiveErase = false;
     bool ansiColor = false;  // claimed only via the VT220+ identity, M1
+    // Mode 2027 (grapheme clustering). Our width model is ALWAYS cluster-based
+    // — utf8proc segmentation, never per-codepoint wcwidth (T19, ADR-0003) —
+    // so this is not a switch we own the "off" position of. DECRQM (T22) must
+    // therefore answer 3 (PERMANENTLY SET) for 2027, never 1 (set), and
+    // DECRST 2027 is accepted-and-ignored rather than obeyed. Reporting 1
+    // would promise an application it can turn clustering off.
+    //
+    // Deliberately NOT a DA1 code: DA1 advertises VT-level hardware features,
+    // and 2027 is negotiated through DECRQM alone.
+    bool graphemeClusteringAlwaysOn = true;
 };
 
 // Builds the DA1 reply from the table. With no VT220-level feature on, the

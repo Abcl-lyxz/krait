@@ -139,10 +139,23 @@ jobs:
         run: |
           # No vcpkg toolchain, no Qt on the path: proves src/core stayed pure.
           # Breaking this build is breaking the build (rules/vt-core.md).
+          #
+          # utf8proc is the ONE permitted external (ADR-0003), so from T19 it
+          # has to be findable here. Handed over as utf8proc_DIR and NOT as a
+          # prefix path over vcpkg_installed on purpose: the whole tree also
+          # holds fmt, freetype and Catch2, and making those resolvable would
+          # let a find_package(fmt) in src/core sail through the guard that
+          # exists to catch exactly that.
+          $u8 = "$env:GITHUB_WORKSPACE/build/dev/vcpkg_installed/x64-windows/share/utf8proc"
+          if (-not (Test-Path "$u8/utf8proc-config.cmake")) {
+            throw "utf8proc config not at $u8 — did the dev configure run first?"
+          }
           cmake -S tests/core-standalone -B build/core-standalone -G Ninja `
-                -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=cl
+                -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=cl `
+                "-Dutf8proc_DIR=$u8"
           if ($LASTEXITCODE -ne 0) { throw "standalone configure failed" }
           cmake --build build/core-standalone
+          if ($LASTEXITCODE -ne 0) { throw "standalone build failed" }
 
       - name: Fuzz smoke (60 s, zero crashes)
         shell: cmd
