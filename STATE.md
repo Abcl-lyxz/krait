@@ -4,10 +4,21 @@ Phase: **M3 code-complete — T52-T63 done**, on branch `t52-backend-factory`.
 **M2 IS MERGED** (PR #24, commit 2794cc4 on main). **M3 is PR #25**, opened
 2026-07-31 at commit 683eda3 and pushed.
 
-**Next: watch PR #25's CI, fix what it finds, merge.** Then M4. Read "What is
-NOT done" before telling anyone M3 is finished — several milestone bullets
-shipped as a deliberate, documented refusal rather than as code, and the fast
-gate has a history of being green while checking nothing.
+**CI is GREEN on PR #25 at commit 58e47ea** — fast-gate passed in 13m52s,
+mergeable and clean. **Next: a human reads the PR and merges it.** Then M4.
+
+Read "What is NOT done" before telling anyone M3 is finished — several milestone
+bullets shipped as a deliberate, documented refusal rather than as code, and
+that is the thing to review before merging, not the test count.
+
+The first CI attempt FAILED, on clang-format, in a file from T57 that this
+session never touched — an include out of order and a ternary wrapped the wrong
+way. It surfaced now because the fast gate had never once completed on a
+milestone-sized branch until it was fanned out; the failing run died at
+clang-format in 7m38s and the passing one took 13m52s, which is the difference
+between stopping there and actually running the translation check and the
+clang-tidy sweep over every changed .cpp. Treat "clang-tidy was clean" claims
+from before that fan-out as unverified.
 
 ## What landed
 
