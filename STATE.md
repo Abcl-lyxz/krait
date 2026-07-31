@@ -130,7 +130,7 @@ subparam read as a mode; `krait ssh []:22` yielding a host named "[]".
 | `ctest --preset release` | **278/278** (before the review fixes) |
 | clang-tidy + clang-format, changed files | clean |
 | `cpp-reviewer`, whole branch | 3 blocking + 6 others, all fixed |
-| `testsuzzun-smoke.cmd` | **60 s, 35,661 runs, zero crashes** |
+| `tests/fuzz/run-smoke.cmd` | **60 s, 35,661 runs, zero crashes** |
 | SSH contract suite vs in-process sshd | 8 cases, under 1 s |
 | Palette, 2000 profiles | well under the 100 ms budget |
 | Release flood, WARP, 60 fps budget | **PASS** — 177.6 fps, cpu 5.63 ms |
