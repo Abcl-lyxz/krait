@@ -90,6 +90,13 @@ in M1. The tab strip needs the same factory, so it follows naturally.
   backoff returns promptly. The waits it does NOT own — libssh's connect, agent
   and key-import calls — are not interruptible; see the `stop()` entry under
   "Open, not blocking".
+- **`ShapePool::shapeAll` defaults to an 8 ms timeout and returning false when
+  it expires is the DOCUMENTED graceful path**, not a failure — the frame draws
+  without those runs and the next one finds them cached. So a correctness test
+  must pass an explicit generous timeout, the way fontdb_test always did.
+  Five shaper cases were asserting the sub-frame budget instead; they passed
+  locally and on a quiet CI, then started failing once M2 made the suite heavy
+  enough to contend the runner. A latency budget belongs in the bench.
 - clang-tidy rejects PARTIAL designated initializers
   (`missing-designated-field-initializers`). CI catches it; a local check needs
   `clang-tidy -p build/dev` on the changed files, which `/preflight` does not do.
