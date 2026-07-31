@@ -235,6 +235,7 @@ int main(int argc, char* argv[]) try {
     }
     return app.exec();
 } catch (const std::exception& error) {
+
     // stderr, not a banner: by definition there is no window to put one in.
     std::fprintf(stderr, "krait: fatal: %s\n", error.what());
     return 4;
