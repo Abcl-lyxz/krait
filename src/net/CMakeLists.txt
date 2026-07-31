@@ -33,6 +33,8 @@ add_library(krait-net STATIC
     serial/serial_ports.h
     raw/raw_backend.cpp
     raw/raw_backend.h
+    ssh/forwards.cpp
+    ssh/forwards.h
     ssh/hostkey_art.cpp
     ssh/hostkey_art.h
     telnet/telnet_backend.cpp
