@@ -408,6 +408,10 @@
         <translation>ไม่สามารถสร้างเซสชัน SSH ได้</translation>
     </message>
     <message>
+        <source>%1 (jump host)</source>
+        <translation>%1 (โฮสต์ทางผ่าน)</translation>
+    </message>
+    <message>
         <source>The server did not present a host key.</source>
         <translation>เซิร์ฟเวอร์ไม่ได้แสดงกุญแจโฮสต์</translation>
     </message>

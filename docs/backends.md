@@ -69,6 +69,18 @@ Reconnect: on retryable failures only, with backoff. Never after a changed host
 key, a rejected key, or a bad password — retrying those is how a lockout
 happens.
 
+**Jump hosts** use the `proxy_jump` key, spelled the way OpenSSH spells
+ProxyJump: `bastion`, or `me@bastion:2222,inner` for a chain. libssh walks the
+chain in-process (ADR-0012) — nothing shells out to `ssh.exe`, and there are no
+direct-tcpip channels of ours to get wrong.
+
+The point of doing it this way is that Krait's own host-key and auth UX runs on
+EVERY hop, through libssh's per-hop callbacks. A bastion whose key changed
+matters exactly as much as the target's, and a refused key aborts the whole
+chain rather than letting the session's credentials travel through a machine
+nobody vouched for. The banner names which hop is asking, because "trust this
+key?" is unanswerable without knowing whose.
+
 Known gap: `mlkem768x25519-sha256` is disabled. libssh 0.12 advertises it and
 OpenSSH 10 prefers it, but the two ends negotiate it and the client then fails
 before sending its KEX init. `src/net/ssh/algorithms.h` records the evidence.

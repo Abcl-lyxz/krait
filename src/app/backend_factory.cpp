@@ -62,6 +62,7 @@ net::SshConfig sshConfigFor(const session::Profile& profile) {
     config.user = profile.user;
     config.auth = authFor(profile.auth);
     config.keyPath = profile.keyPath;
+    config.proxyJump = profile.proxyJump;
     // The id, not the name: profile.h pins the id precisely so a rename does
     // not orphan the stored passphrase, and that promise is kept here or
     // nowhere.

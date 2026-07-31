@@ -408,6 +408,10 @@
         <translation>Could not create an SSH session.</translation>
     </message>
     <message>
+        <source>%1 (jump host)</source>
+        <translation>%1 (jump host)</translation>
+    </message>
+    <message>
         <source>The server did not present a host key.</source>
         <translation>The server did not present a host key.</translation>
     </message>

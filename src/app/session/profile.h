@@ -44,6 +44,9 @@ struct Profile {
     std::string user;
     SshAuth auth = SshAuth::Auto;
     std::string keyPath;
+    // OpenSSH's ProxyJump spelling: "bastion" or "me@bastion:2222,inner".
+    // Empty means a direct connection.
+    std::string proxyJump;
 
     // rules/ui.md: safety accents (prod = red) are a core UX invariant, never
     // behind an "advanced" toggle. Empty means the theme decides.

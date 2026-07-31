@@ -13,6 +13,7 @@
 #include "hostkey_art.h"
 #include <windows.h>
 
+#include <libssh/callbacks.h>
 #include <libssh/libssh.h>
 // ssh_send_keepalive is declared in server.h but works for a CLIENT session:
 // it sends the keepalive@openssh.com global request. libssh puts it there
@@ -54,9 +55,49 @@ std::string_view nullSafe(const char* text) {
 }  // namespace
 
 // libssh handles live here so libssh.h never reaches a header of ours.
+
+// Empty segments are not counted: libssh ignores them, and appending a
+// callbacks struct for one would put the list out of step with the chain.
+std::size_t countProxyJumpHops(const std::string& spec) {
+    std::size_t hops = 0;
+    std::size_t start = 0;
+    while (start <= spec.size()) {
+        const std::size_t comma = spec.find(',', start);
+        const std::size_t end = comma == std::string::npos ? spec.size() : comma;
+        if (end > start) {
+            ++hops;
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return hops;
+}
+
+namespace {
+
+// What to call a hop in a banner. libssh knows the host it is connecting to,
+// and asking it beats re-parsing our own spec — which hop is being verified
+// right now is not something the spec string can tell us.
+QString hopLabel(ssh_session session) {
+    char* host = nullptr;
+    if (ssh_options_get(session, SSH_OPTIONS_HOST, &host) == SSH_OK && host != nullptr) {
+        const QString label = QString::fromUtf8(host);
+        ssh_string_free_char(host);
+        return label;
+    }
+    return QStringLiteral("the jump host");
+}
+
+}  // namespace
+
 struct SshBackend::Impl {
     ssh_session session = nullptr;
     ssh_channel channel = nullptr;
+    // libssh keeps the POINTER to each callbacks struct, so these must outlive
+    // ssh_connect — a vector member rather than anything on a stack frame.
+    std::vector<ssh_jump_callbacks_struct> jumpCallbacks;
 };
 
 SshBackend::SshBackend(SshConfig config, Vault* vault, QObject* parent)
@@ -149,7 +190,9 @@ SshBackend::Outcome SshBackend::runOnce(int cols, int rows) {
         }
     };
 
-    if (!connectSession() || !verifyHostKey() || !authenticate() || !openShell(cols, rows)) {
+    if (!connectSession() ||
+        !verifyHostKey(m_impl->session, QString::fromStdString(m_config.host)) ||
+        !authenticate(m_impl->session) || !openShell(cols, rows)) {
         // Every failure path has already emitted its own error, with the code
         // that names what went wrong; m_lastError carries it to run().
         teardown();
@@ -211,6 +254,31 @@ bool SshBackend::connectSession() {
         ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbosity);
     }
 
+    // ADR-0012: native in-process ProxyJump, with OUR host-key and auth UX on
+    // every hop. Set before ssh_connect, because ssh_connect is what walks the
+    // chain — by the time it returns, every hop has already been contacted.
+    if (!m_config.proxyJump.empty()) {
+        ssh_options_set(session, SSH_OPTIONS_PROXYJUMP, m_config.proxyJump.c_str());
+        // One callbacks struct per hop, appended in order. They are members
+        // rather than locals because libssh keeps the POINTER: a struct on this
+        // stack frame would be read long after ssh_connect returned.
+        //
+        // NOTE the struct has no `size` member, unlike libssh's other callback
+        // structs — so there is no ssh_callbacks_init() to forget here.
+        // Confirmed against callbacks.h in the pinned 0.12.0, which is the
+        // check ADR-0012 left open.
+        m_impl->jumpCallbacks.clear();
+        m_impl->jumpCallbacks.resize(countProxyJumpHops(m_config.proxyJump));
+        for (std::size_t hop = 0; hop < m_impl->jumpCallbacks.size(); ++hop) {
+            auto& callbacks = m_impl->jumpCallbacks[hop];
+            callbacks.userdata = this;
+            callbacks.before_connection = nullptr;
+            callbacks.verify_knownhost = &SshBackend::jumpVerifyHostKey;
+            callbacks.authenticate = &SshBackend::jumpAuthenticate;
+            ssh_options_set(session, SSH_OPTIONS_PROXYJUMP_CB_LIST_APPEND, &callbacks);
+        }
+    }
+
     if (ssh_connect(session) != SSH_OK) {
         // ssh_get_error is the server's or the resolver's text. It names a host
         // and a reason, never a credential, so it is safe in a banner.
@@ -220,8 +288,28 @@ bool SshBackend::connectSession() {
     return true;
 }
 
-bool SshBackend::verifyHostKey() {
-    ssh_session session = m_impl->session;
+// libssh calls these on ITS thread, which is our worker thread — ssh_connect
+// runs there and the whole chain is walked inside it. So the same rules apply
+// as everywhere else in this file: prompts are queued to the GUI and the worker
+// waits on the condition variable.
+//
+// Returning < 0 aborts the chain, which is what a refused key must do: a
+// bastion whose key changed is exactly as fatal as the target's, and continuing
+// past it would put the session's credentials through a machine nobody vouched
+// for.
+int SshBackend::jumpVerifyHostKey(ssh_session session, void* userdata) {
+    auto* self = static_cast<SshBackend*>(userdata);
+    const QString label = tr("%1 (jump host)").arg(hopLabel(session));
+    return self->verifyHostKey(session, label) ? 0 : -1;
+}
+
+int SshBackend::jumpAuthenticate(ssh_session session, void* userdata) {
+    auto* self = static_cast<SshBackend*>(userdata);
+    return self->authenticate(session) ? 0 : -1;
+}
+
+bool SshBackend::verifyHostKey(void* sessionHandle, const QString& label) {
+    auto session = static_cast<ssh_session>(sessionHandle);
 
     ssh_key serverKey = nullptr;
     if (ssh_get_server_publickey(session, &serverKey) != SSH_OK) {
@@ -290,10 +378,9 @@ bool SshBackend::verifyHostKey() {
         fail(state == HostKeyState::Changed ? ErrorCode::HostKeyChanged
                                             : ErrorCode::HostKeyRejected,
              state == HostKeyState::Changed
-                 ? tr("The host key for %1 has CHANGED. The connection was stopped.")
-                       .arg(QString::fromStdString(m_config.host))
+                 ? tr("The host key for %1 has CHANGED. The connection was stopped.").arg(label)
                  : tr("%1 offered a host key of a different type than the one on record.")
-                       .arg(QString::fromStdString(m_config.host)));
+                       .arg(label));
         return false;
     }
 
@@ -491,8 +578,8 @@ int SshBackend::tryPassword() {
     return rc;
 }
 
-bool SshBackend::authenticate() {
-    ssh_session session = m_impl->session;
+bool SshBackend::authenticate(void* sessionHandle) {
+    auto session = static_cast<ssh_session>(sessionHandle);
 
     // "none" first, because it is what makes ssh_userauth_list meaningful — and
     // occasionally it simply succeeds.

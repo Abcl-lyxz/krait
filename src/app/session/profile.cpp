@@ -27,6 +27,7 @@ constexpr const char* kKeyPath = "key_path";
 constexpr const char* kAccent = "accent";
 constexpr const char* kCommand = "command";
 constexpr const char* kBaud = "baud";
+constexpr const char* kProxyJump = "proxy_jump";
 
 std::string readText(const std::string& path, bool* exists) {
     std::ifstream file(path, std::ios::binary);
@@ -104,6 +105,8 @@ bool applyField(Profile& profile, std::string_view key, std::string_view value) 
         profile.auth = parseAuth(value);
     } else if (key == kKeyPath) {
         profile.keyPath = value;
+    } else if (key == kProxyJump) {
+        profile.proxyJump = value;
     } else if (key == kAccent) {
         profile.accent = value;
     } else if (key == kCommand) {
@@ -149,6 +152,9 @@ std::string fieldText(const Profile& profile, std::string_view key) {
     }
     if (key == kKeyPath) {
         return profile.keyPath;
+    }
+    if (key == kProxyJump) {
+        return profile.proxyJump;
     }
     if (key == kAccent) {
         return profile.accent;

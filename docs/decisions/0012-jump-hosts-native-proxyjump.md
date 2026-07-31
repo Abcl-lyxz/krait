@@ -26,8 +26,24 @@ delete our chaining code") has fired before we wrote any chaining code.
   forwarding and the visual tunnel manager — that part of ADR-0002 stands.
 - Everything else in ADR-0002 (libssh over libssh2, dynamic LGPL linking,
   never shell out to ssh.exe) stands unchanged.
-- Before M3 hop-UX work: pull the `ssh_jump_callbacks_struct` header to
-  confirm field layout (not verified in this pass).
+- ~~Before M3 hop-UX work: pull the `ssh_jump_callbacks_struct` header to
+  confirm field layout (not verified in this pass).~~ **Done at T56/T58**,
+  against the pinned libssh 0.12.0 `callbacks.h`:
+
+  ```c
+  struct ssh_jump_callbacks_struct {
+      void *userdata;
+      ssh_jump_before_connection_callback before_connection;  /* (session, userdata) -> int */
+      ssh_jump_verify_knownhost_callback  verify_knownhost;
+      ssh_jump_authenticate_callback      authenticate;
+  };
+  ```
+
+  Note it has **no `size` member**, unlike libssh's other callback structs — so
+  there is no `ssh_callbacks_init()` to forget. libssh keeps the POINTER, so
+  the structs must outlive `ssh_connect`; ours are a vector member of the
+  backend's pimpl rather than anything on a stack frame. Returning < 0 from a
+  callback aborts the chain, which is what a refused key must do.
 
 ## Alternatives considered
 
