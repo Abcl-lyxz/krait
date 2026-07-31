@@ -27,6 +27,7 @@ constexpr std::array kActions = {
     // preference — which is why they live here and not in the registry.
     Action{"view.hexdump", "Toggle hexdump", "Ctrl+Shift+H", "hex bytes raw debug dump"},
     Action{"session.log", "Start or stop logging this session", "", "record capture file"},
+    Action{"view.tunnels", "Show port forwards", "Ctrl+Shift+U", "tunnel forward port socks"},
     Action{"palette.open", "Command palette", "Ctrl+Shift+P", "commands run action"},
     Action{"sessions.open", "Open a saved session", "Ctrl+Shift+O", "connect profile ssh host"},
     Action{"sessions.manage", "Manage sessions", "", "profiles edit folders tree"},

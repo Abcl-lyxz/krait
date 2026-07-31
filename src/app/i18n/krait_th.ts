@@ -167,6 +167,10 @@
         <translation>ยกเลิก</translation>
     </message>
     <message>
+        <source>%1 open, %2 total</source>
+        <translation>เปิดอยู่ %1 ทั้งหมด %2</translation>
+    </message>
+    <message>
         <source>Trust this server</source>
         <translation>เชื่อถือเซิร์ฟเวอร์นี้</translation>
     </message>
@@ -259,6 +263,10 @@
     <message>
         <source>Start or stop logging this session</source>
         <translation>เริ่มหรือหยุดบันทึกเซสชันนี้</translation>
+    </message>
+    <message>
+        <source>Show port forwards</source>
+        <translation>แสดงการส่งต่อพอร์ต</translation>
     </message>
     <message>
         <source>Command palette</source>

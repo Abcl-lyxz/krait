@@ -167,6 +167,10 @@
         <translation>Cancel</translation>
     </message>
     <message>
+        <source>%1 open, %2 total</source>
+        <translation>%1 open, %2 total</translation>
+    </message>
+    <message>
         <source>Trust this server</source>
         <translation>Trust this server</translation>
     </message>
@@ -259,6 +263,10 @@
     <message>
         <source>Start or stop logging this session</source>
         <translation>Start or stop logging this session</translation>
+    </message>
+    <message>
+        <source>Show port forwards</source>
+        <translation>Show port forwards</translation>
     </message>
     <message>
         <source>Command palette</source>

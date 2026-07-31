@@ -107,6 +107,7 @@ Window {
     Shortcut { sequence: "Ctrl+Tab"; onActivated: root.stepTab(1) }
     Shortcut { sequence: "Ctrl+Shift+Tab"; onActivated: root.stepTab(-1) }
     Shortcut { sequence: "Ctrl+Shift+D"; onActivated: root.splitCurrent(false) }
+    Shortcut { sequence: "Ctrl+Shift+U"; onActivated: { const p = root.currentPane(); if (p) p.toggleTunnels() } }
     Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.splitCurrent(true) }
     Shortcut { sequence: "Ctrl+Alt+Right"; onActivated: root.stepPane(1) }
     Shortcut { sequence: "Ctrl+Alt+Left"; onActivated: root.stepPane(-1) }
@@ -219,6 +220,11 @@ Window {
             case "session.previous": root.stepTab(-1); return
             case "view.splitRight": root.splitCurrent(false); return
             case "view.splitDown": root.splitCurrent(true); return
+            case "view.tunnels": {
+                const pane = root.currentPane()
+                if (pane) pane.toggleTunnels()
+                return
+            }
             case "view.hexdump": {
                 const pane = root.currentPane()
                 if (pane && pane.terminal) {

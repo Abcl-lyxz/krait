@@ -3,6 +3,7 @@
 #include "net/conpty/conpty_backend.h"
 #include "net/ibackend.h"
 #include "net/raw/raw_backend.h"
+#include "net/ssh/forwards.h"
 #include "net/serial/serial_backend.h"
 #include "net/telnet/telnet_backend.h"
 
@@ -63,6 +64,10 @@ net::SshConfig sshConfigFor(const session::Profile& profile) {
     config.auth = authFor(profile.auth);
     config.keyPath = profile.keyPath;
     config.proxyJump = profile.proxyJump;
+    // Rejected specs are dropped here rather than reported, because makeBackend
+    // has no banner to reach. parseForwards names them for a caller that does;
+    // wiring that through is what the settings UI will want.
+    config.forwards = net::parseForwards(profile.forwards, nullptr);
     // The id, not the name: profile.h pins the id precisely so a rename does
     // not orphan the stored passphrase, and that promise is kept here or
     // nowhere.

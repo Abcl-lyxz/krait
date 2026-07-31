@@ -3,8 +3,11 @@
 #include "../error.h"
 #include "../ibackend.h"
 #include "../vault/vault.h"
+#include "forward_manager.h"
+#include "forwards.h"
 
 #include <QByteArray>
+#include <QVariantList>
 #include <QString>
 
 #include <atomic>
@@ -48,6 +51,10 @@ struct SshConfig {
     // host-key and auth UX runs for EVERY hop through the per-hop callbacks —
     // a bastion whose key changed matters exactly as much as the target's.
     std::string proxyJump;
+    // Port forwards to open once the session is up. Failures are per-tunnel:
+    // the session is what the user asked for, and a port already in use must
+    // not cost them the shell.
+    std::vector<Forward> forwards;
     // Vault key prefix — the profile id. ":password" and ":passphrase" are
     // appended (rules/net.md: nothing plaintext leaves the vault).
     std::string vaultKey;
@@ -138,6 +145,9 @@ class SshBackend : public IBackend {
     // for keyboard-interactive, so the UI must render it as plain text.
     void credentialPrompt(const QString& prompt, bool echo);
     void connected();
+    // The tunnel pane's model. Emitted from the worker thread, so the
+    // connection to it is queued like every other.
+    void forwardsChanged(const QVariantList& tunnels);
     // A retryable failure, and what happens next. The banner says "reconnecting
     // in 4 s (2 of 5)" rather than leaving a dead terminal that looks alive.
     void reconnecting(int attempt, int ofAttempts, int delayMs);
@@ -207,6 +217,9 @@ class SshBackend : public IBackend {
     SshConfig m_config;
     Vault* m_vault = nullptr;  // borrowed; owned by main()
     std::unique_ptr<Impl> m_impl;
+    // Tunnels. Lives here rather than in Impl because it holds no libssh type
+    // in its header, and it is touched only from the worker thread.
+    ForwardManager m_forwards;
 
     std::thread m_worker;
     // What fail() last reported. Written and read on the worker thread only —

@@ -3,6 +3,7 @@
 #include "../net/conpty/conpty_backend.h"
 #include "../net/ibackend.h"
 #include "../net/vault/vault.h"
+#include "capture.h"
 #include "core/terminal/session.h"
 #include "input/ime.h"
 #include "input/mouse.h"
@@ -13,13 +14,13 @@
 #include "render/ime_metrics.h"
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
-#include "capture.h"
 #include "session/profile.h"
 #include "settings/registry.h"
 #include <rhi/qrhi.h>
 
 #include <QElapsedTimer>
 #include <QQuickRhiItem>
+#include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
 #include <cstdint>
@@ -49,6 +50,10 @@ class TerminalItem : public QQuickRhiItem {
     // does that without the strip polling.
     Q_PROPERTY(QString sessionTitle READ sessionTitle NOTIFY sessionChanged)
     Q_PROPERTY(QString sessionAccent READ sessionAccent NOTIFY sessionChanged)
+    // The tunnel pane's model: one row per configured forward, with its live
+    // state. Empty for every backend that has no tunnels, which is all of them
+    // except SSH.
+    Q_PROPERTY(QVariantList tunnels READ tunnels NOTIFY tunnelsChanged)
 
   public:
     TerminalItem();
@@ -134,6 +139,8 @@ class TerminalItem : public QQuickRhiItem {
     // means the theme decides.
     QString sessionAccent() const;
 
+    const QVariantList& tunnels() const { return m_tunnels; }
+
     // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
     // has moved on, so a banner answered late cannot reach a different backend.
     Q_INVOKABLE void respondHostKey(bool trust);
@@ -175,6 +182,7 @@ class TerminalItem : public QQuickRhiItem {
     // different session. Without it a tab opened as "Shell" keeps saying so
     // after the palette turns it into a prod connection.
     void sessionChanged();
+    void tunnelsChanged();
 
     // rules/ui.md: a per-tab banner, never an app-modal dialog. `detail` is the
     // first line of what would be sent, so the user can see what they are
@@ -274,6 +282,9 @@ class TerminalItem : public QQuickRhiItem {
     net::IBackend* m_backend = nullptr;        // owned by this (QObject parent)
     net::Vault* m_vault = nullptr;             // borrowed; owned by main()
     session::ProfileStore* m_store = nullptr;  // borrowed; owned by main()
+    // The tunnel pane's rows, mirrored from the SSH backend. Empty for every
+    // backend that has no tunnels, which is all of them except SSH.
+    QVariantList m_tunnels;
     // What this terminal is pointed at. Default-constructed = a local shell,
     // which is what a window opened with no arguments should be.
     session::Profile m_profile;

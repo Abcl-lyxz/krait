@@ -47,6 +47,9 @@ struct Profile {
     // OpenSSH's ProxyJump spelling: "bastion" or "me@bastion:2222,inner".
     // Empty means a direct connection.
     std::string proxyJump;
+    // Port forwards, OpenSSH's spelling with the letter in front:
+    // "L 8080:internal:80, D 1080". Parsed by net::parseForwards.
+    std::string forwards;
 
     // rules/ui.md: safety accents (prod = red) are a core UX invariant, never
     // behind an "advanced" toggle. Empty means the theme decides.

@@ -202,8 +202,32 @@ SshBackend::Outcome SshBackend::runOnce(int cols, int rows) {
     m_connected = true;
     m_everConnected = true;
     emit connected();
+
+    // AFTER the shell, so a tunnel that cannot bind does not delay the thing
+    // the user actually opened. The callback runs on this thread and only
+    // converts to a QVariantList; the emit is queued like every other.
+    m_forwards.setStatusCallback([this](const std::vector<TunnelStatus>& tunnels) {
+        QVariantList rows;
+        for (const TunnelStatus& tunnel : tunnels) {
+            QVariantMap row;
+            row["label"] = QString::fromStdString(tunnel.forward.describe());
+            row["state"] = static_cast<int>(tunnel.state);
+            row["connections"] = tunnel.connections;
+            row["total"] = tunnel.totalConnections;
+            row["detail"] = QString::fromStdString(tunnel.detail);
+            rows.append(row);
+        }
+        emit forwardsChanged(rows);
+    });
+    m_forwards.start(m_impl->session, m_config.forwards);
+
     const Outcome outcome = pump();
     m_connected = false;
+    // Before the channel and session go: every tunnel holds a channel on this
+    // session, and freeing the session under them is a use-after-free on the
+    // next poll.
+    m_forwards.stop();
+    emit forwardsChanged({});
 
     if (m_impl->channel != nullptr) {
         ssh_channel_send_eof(m_impl->channel);
@@ -747,6 +771,11 @@ SshBackend::Outcome SshBackend::pump() {
         if (errBytes > 0) {
             emit outputReceived(QByteArray(buffer.data(), errBytes));
         }
+
+        // Tunnels, on the SAME thread as everything else that touches the
+        // session. Serviced after the shell read so the terminal keeps
+        // priority; the 20 ms poll bounds how long a tunnel waits.
+        m_forwards.service(m_impl->session);
 
         if (ssh_channel_is_eof(channel) != 0) {
             // The remote shell ended. That is an exit, not an error — telling

@@ -32,6 +32,15 @@ Item {
     // Emitted when the last pane is closed — the tab has nothing left in it.
     signal emptied
 
+    // T59: the tunnel pane. A strip rather than a window, for the same reason
+    // the banner is one — rules/ui.md bans app-modal surfaces in session flows,
+    // and a tunnel list you have to dismiss to type is one nobody leaves open.
+    property bool showTunnels: false
+
+    function toggleTunnels() {
+        tab.showTunnels = !tab.showTunnels
+    }
+
     // Credential prompts that arrived while the banner was busy with another
     // pane's. One banner and N panes means they have to queue somewhere, and
     // dropping them means a backend waits for an answer nobody can give.
@@ -201,13 +210,66 @@ Item {
             }
         }
 
+        // The live tunnel list. Hidden unless asked for AND unless there is
+        // something to show: an empty strip on every SSH tab would be a row of
+        // pixels that never says anything.
+        Rectangle {
+            id: tunnels
+            width: parent.width
+            visible: tab.showTunnels && tab.terminal && tab.terminal.tunnels.length > 0
+            height: visible ? tunnelRows.implicitHeight + 12 : 0
+            color: "#12141c"
+
+            Column {
+                id: tunnelRows
+                anchors.fill: parent
+                anchors.margins: 6
+                spacing: 2
+
+                Repeater {
+                    model: tab.terminal ? tab.terminal.tunnels : []
+
+                    delegate: Row {
+                        required property var modelData
+                        spacing: 8
+
+                        Text {
+                            // 0 Opening, 1 Listening, 2 Active, 3 Failed —
+                            // TunnelState in forward_manager.h. A dot rather
+                            // than a word so the row stays scannable.
+                            text: "●"
+                            color: modelData.state === 3 ? "#f38ba8"
+                                 : modelData.state === 2 ? "#a6e3a1"
+                                 : modelData.state === 1 ? "#7c869e" : "#f9e2af"
+                        }
+                        Text {
+                            text: modelData.label
+                            color: "#e6e9f0"
+                            font.family: "Cascadia Mono"
+                            textFormat: Text.PlainText
+                        }
+                        Text {
+                            // The count is what makes this a LIVE pane rather
+                            // than a restatement of the config file.
+                            text: modelData.detail.length > 0
+                                  ? modelData.detail
+                                  : qsTr("%1 open, %2 total").arg(modelData.connections)
+                                                             .arg(modelData.total)
+                            color: modelData.state === 3 ? "#f38ba8" : "#7c869e"
+                            textFormat: Text.PlainText
+                        }
+                    }
+                }
+            }
+        }
+
         // One axis, chosen by the first split. The panes are positioned by
         // weight rather than laid out in a Row, so a divider drag moves one
         // boundary instead of re-flowing everything after it.
         Item {
             id: area
             width: parent.width
-            height: parent.height - banner.height
+            height: parent.height - banner.height - tunnels.height
 
             Repeater {
                 id: repeater

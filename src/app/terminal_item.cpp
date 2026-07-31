@@ -219,6 +219,16 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
         },
         Qt::QueuedConnection);
     connect(
+        ssh, &net::SshBackend::forwardsChanged, this,
+        [this, backend](const QVariantList& rows) {
+            if (backend != m_backend) {
+                return;
+            }
+            m_tunnels = rows;
+            emit tunnelsChanged();
+        },
+        Qt::QueuedConnection);
+    connect(
         ssh, &net::SshBackend::reconnecting, this,
         [this, backend](int attempt, int ofAttempts, int delayMs) {
             if (backend != m_backend) {
@@ -276,6 +286,12 @@ void TerminalItem::resetSession() {
     }
     m_session.reset();
     m_started = false;
+    if (!m_tunnels.isEmpty()) {
+        // The tunnels belonged to the connection that just went. Leaving them
+        // on screen would show a pane full of listeners that no longer exist.
+        m_tunnels.clear();
+        emit tunnelsChanged();
+    }
 }
 
 void TerminalItem::openProfile(const session::Profile& profile) {
