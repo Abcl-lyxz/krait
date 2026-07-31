@@ -82,12 +82,20 @@ std::optional<Profile> profileFromPutty(std::string_view mungedName, const Putty
     // hand-made or very old key may not have it, and ssh is both the common
     // case and the safe one to guess.
     const std::string* protocol = valueOf(values, "Protocol");
-    if (protocol != nullptr && *protocol != "ssh") {
-        return std::nullopt;  // telnet/raw/serial arrive in M3
-    }
-
     Profile profile;
-    profile.backend = BackendKind::Ssh;
+    if (protocol == nullptr || *protocol == "ssh") {
+        profile.backend = BackendKind::Ssh;
+    } else if (*protocol == "telnet") {
+        // T54. Importing these as SSH would have produced a profile that fails
+        // at connect time with an error about the wrong protocol, which is why
+        // they were skipped rather than coerced.
+        profile.backend = BackendKind::Telnet;
+    } else {
+        // raw and serial still arrive later in M3. Skipped, and the caller
+        // names them, so the count of imported sessions is never a count the
+        // user has to reconcile against PuTTY by hand.
+        return std::nullopt;
+    }
     profile.markExplicit("backend");
 
     const std::string fullName = decodePuttyName(mungedName);

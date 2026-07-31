@@ -2,8 +2,11 @@
 
 #include "net/conpty/conpty_backend.h"
 #include "net/ibackend.h"
+#include "net/telnet/telnet_backend.h"
 
 #include <QString>
+
+#include <utility>
 
 namespace krait::app {
 namespace {
@@ -52,6 +55,16 @@ net::IBackend* makeBackend(const session::Profile& profile, net::Vault* vault, Q
     switch (profile.backend) {
     case session::BackendKind::Ssh:
         return new net::SshBackend(sshConfigFor(profile), vault, parent);  // owned by parent
+    case session::BackendKind::Telnet: {
+        net::TelnetConfig config;
+        config.host = profile.host;
+        // 23, not 22: the same out-of-range guard as SSH, with telnet's default.
+        config.port =
+            profile.port > 0 && profile.port <= 65535 ? static_cast<int>(profile.port) : 23;
+        // Telnet has no credentials of its own — whatever the far end asks for
+        // goes through the terminal like any other output — so no vault key.
+        return new net::TelnetBackend(std::move(config), parent);  // owned by parent
+    }
     case session::BackendKind::Conpty: {
         auto* backend = new net::ConptyBackend(parent);  // owned by parent
         backend->setCommand(QString::fromStdString(profile.command));

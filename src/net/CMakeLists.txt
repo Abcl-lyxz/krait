@@ -4,7 +4,10 @@
 #
 # Qt6::Core only: a backend that needed Qt Gui to run would be a backend you
 # could not test without a display, and net.md's contract suite is the point.
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core)
+# Network for the telnet and raw backends (T54/T55). Still no Gui: a backend
+# that needed it would be a backend you could not test without a display, and
+# net.md's contract suite is the point.
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Network)
 # ADR-0002: libssh, DYNAMICALLY linked (LGPL-2.1). The vcpkg x64-windows
 # triplet builds it as a DLL, which is what keeps relink ability — a static
 # libssh here would be a licensing change, not a build tweak.
@@ -24,6 +27,10 @@ add_library(krait-net STATIC
     conpty/conpty_backend.h
     ssh/hostkey_art.cpp
     ssh/hostkey_art.h
+    telnet/telnet_backend.cpp
+    telnet/telnet_backend.h
+    telnet/telnet_negotiation.cpp
+    telnet/telnet_negotiation.h
     ssh/ssh_backend.cpp
     ssh/ssh_backend.h
     vault/vault.cpp
@@ -32,4 +39,4 @@ add_library(krait-net STATIC
 
 target_include_directories(krait-net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Crypt32 for the DPAPI vault (CryptProtectData lives in Crypt32.dll).
-target_link_libraries(krait-net PUBLIC Qt6::Core PRIVATE Crypt32 ssh)
+target_link_libraries(krait-net PUBLIC Qt6::Core Qt6::Network PRIVATE Crypt32 ssh)

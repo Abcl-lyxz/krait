@@ -172,7 +172,17 @@ bool nodeToText(const toml::node& node, std::string* out) {
 }  // namespace
 
 std::string backendName(BackendKind kind) {
-    return kind == BackendKind::Ssh ? "ssh" : "conpty";
+    switch (kind) {
+    case BackendKind::Ssh:
+        return "ssh";
+    case BackendKind::Telnet:
+        return "telnet";
+    case BackendKind::Conpty:
+        return "conpty";
+    }
+    // No default label on purpose: adding a backend has to break this switch at
+    // COMPILE time rather than silently write "conpty" into someone's file.
+    return "conpty";
 }
 
 std::string authName(SshAuth auth) {
@@ -193,9 +203,17 @@ std::string authName(SshAuth auth) {
 
 BackendKind parseBackend(std::string_view text, bool* parseOk) {
     if (parseOk != nullptr) {
-        *parseOk = text == "ssh" || text == "conpty";
+        *parseOk = text == "ssh" || text == "conpty" || text == "telnet";
     }
-    return text == "ssh" ? BackendKind::Ssh : BackendKind::Conpty;
+    if (text == "ssh") {
+        return BackendKind::Ssh;
+    }
+    if (text == "telnet") {
+        return BackendKind::Telnet;
+    }
+    // Unknown text falls back to the local shell, which connects to nothing.
+    // `parseOk` is how load() knows to warn rather than silently rewrite.
+    return BackendKind::Conpty;
 }
 
 SshAuth parseAuth(std::string_view text, bool* parseOk) {

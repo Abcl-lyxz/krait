@@ -54,6 +54,10 @@ add_executable(krait-qt-tests
     remote_text_test.cpp
     settings_test.cpp
     ssh_contract_test.cpp
+    telnet_contract_test.cpp
+    telnet_test.cpp
+    ../support/telnet_test_server.cpp
+    ../support/telnet_test_server.h
     ../support/ssh_test_server.cpp
     ../support/ssh_test_server.h
     vault_test.cpp

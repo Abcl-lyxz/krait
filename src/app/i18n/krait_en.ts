@@ -406,6 +406,17 @@
     </message>
 </context>
 <context>
+    <name>krait::net::TelnetBackend</name>
+    <message>
+        <source>No answer from %1 after %2 seconds.</source>
+        <translation>No answer from %1 after %2 seconds.</translation>
+    </message>
+    <message>
+        <source>The server closed the connection immediately.</source>
+        <translation>The server closed the connection immediately.</translation>
+    </message>
+</context>
+<context>
     <name>main</name>
     <message>
         <source>No saved session is called that.</source>

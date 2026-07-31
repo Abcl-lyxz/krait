@@ -406,6 +406,17 @@
     </message>
 </context>
 <context>
+    <name>krait::net::TelnetBackend</name>
+    <message>
+        <source>No answer from %1 after %2 seconds.</source>
+        <translation>ไม่มีการตอบกลับจาก %1 หลังจาก %2 วินาที</translation>
+    </message>
+    <message>
+        <source>The server closed the connection immediately.</source>
+        <translation>เซิร์ฟเวอร์ปิดการเชื่อมต่อทันที</translation>
+    </message>
+</context>
+<context>
     <name>main</name>
     <message>
         <source>No saved session is called that.</source>

@@ -8,10 +8,10 @@
 
 namespace krait::app::session {
 
-// Which backend a profile drives. Telnet/raw/serial join in M3; the enum is
+// Which backend a profile drives. Raw and serial join later in M3; the enum is
 // closed on purpose so a TOML file naming a backend we do not have fails
 // loudly at load rather than opening a shell instead of a connection.
-enum class BackendKind { Conpty, Ssh };
+enum class BackendKind { Conpty, Ssh, Telnet };
 
 // Auth METHOD, not credentials — nothing here is ever a secret. Passwords and
 // passphrases live in the DPAPI vault keyed by the profile id (rules/net.md).
