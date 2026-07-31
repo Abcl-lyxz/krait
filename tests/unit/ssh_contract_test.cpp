@@ -291,3 +291,24 @@ TEST_CASE("a peer that vanishes is retried, with the numbers said out loud",
     backend.stop();  // must return promptly even mid-backoff
     server.stop();
 }
+
+TEST_CASE("a ProxyJump chain gets one callbacks struct per hop", "[net][ssh][jump]") {
+    // ADR-0012: libssh takes ONE callbacks struct per hop, and Krait's
+    // host-key and auth UX runs from those. A count short by one leaves that
+    // hop on libssh's DEFAULT host-key check — the connection still works, and
+    // a changed key on the bastion goes unremarked. There is no symptom to
+    // notice, which is why this is a test and not a comment.
+    CHECK(krait::net::countProxyJumpHops("") == 0);
+    CHECK(krait::net::countProxyJumpHops("bastion") == 1);
+    CHECK(krait::net::countProxyJumpHops("me@bastion:2222") == 1);
+    CHECK(krait::net::countProxyJumpHops("outer,inner") == 2);
+    CHECK(krait::net::countProxyJumpHops("a,b@c:22,d") == 3);
+
+    // Sloppy specs a person actually types. libssh ignores empty segments, so
+    // counting them would append a struct the chain never uses and push every
+    // later hop's callbacks onto the wrong session.
+    CHECK(krait::net::countProxyJumpHops(",") == 0);
+    CHECK(krait::net::countProxyJumpHops("outer,,inner") == 2);
+    CHECK(krait::net::countProxyJumpHops("outer,") == 1);
+    CHECK(krait::net::countProxyJumpHops(",outer") == 1);
+}

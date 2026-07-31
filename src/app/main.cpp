@@ -7,8 +7,10 @@
 // pulls it in.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#include "../net/vault/vault.h"
 #include "gpu_policy.h"
 #include "session/cli.h"
+#include "session_model.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
 #include "settings_model.h"
@@ -62,6 +64,9 @@ const char* apiName(QSGRendererInterface::GraphicsApi api) {
 // A function-try-block, because main() calls into toml++, the standard library
 // and Qt, none of which promise not to throw — and rules/cpp.md says exceptions
 // do not cross module boundaries, which makes this the boundary.
+//
+// The alternative is what was here before: an exception escaping main, which on
+// Windows is a silent abort with no message and an exit code nobody can read.
 int main(int argc, char* argv[]) try {
     // ADR-0001: D3D11 is the primary QRhi backend on Windows.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
@@ -118,6 +123,22 @@ int main(int argc, char* argv[]) try {
     qInfo("settings: %s (%s)", qPrintable(ks::configFilePath(configDir.dir)),
           qPrintable(ks::describeSource(configDir.source)));
 
+    // The DPAPI secret store (T38), declared HERE — before the QML engine —
+    // rather than beside the wiring below. Destruction runs in reverse
+    // declaration order, so a vault declared after the engine would be gone
+    // while the backends that borrow it were still shutting down.
+    //
+    // One instance for the whole app: two Vaults over one file would each save
+    // a copy of what the other did not know about.
+    krait::net::Vault vault;
+    const QString vaultPath = QDir(configDir.dir).filePath(QStringLiteral("secrets.vault"));
+    if (!vault.load(vaultPath.toStdString())) {
+        // Not fatal, and never a dialog: a broken vault means credentials get
+        // asked for, which is worse than convenient but better than not
+        // starting. The error text never contains a secret (rules/net.md).
+        qWarning("vault: %s (%s)", vault.error().c_str(), qPrintable(vaultPath));
+    }
+
     // Language (T32). "system" follows the OS; "en"/"th" pin it. Installed
     // BEFORE the QML engine loads, because qsTr() bindings evaluate as objects
     // are created and a translator installed afterwards leaves the first window
@@ -145,8 +166,69 @@ int main(int argc, char* argv[]) try {
     qInfo("locale: %s (setting '%s'), krait translations %s", qPrintable(locale.name()),
           language.c_str(), translationsLoaded ? "loaded" : "NOT FOUND");
 
+    // The saved sessions, loaded ONCE here (T53). Before tabs, each SessionModel
+    // opened its own copy of the file; with tabs there are several readers and
+    // an importer that writes, and two copies of a session list disagree the
+    // moment one of them saves.
+    kses::ProfileStore store;
+    const QString sessionsPath = ks::sessionsFilePath(configDir.dir);
+    if (!store.load(sessionsPath.toStdString())) {
+        // A hand-edited file is user input: a broken one degrades to "no
+        // sessions" and says why, rather than refusing to start. SessionModel
+        // turns store.error() into the banner.
+        qWarning("sessions: %s (%s)", store.error().c_str(), qPrintable(sessionsPath));
+    }
+    qInfo("sessions: %s (%zu profiles)", qPrintable(sessionsPath), store.profiles().size());
+
+    // Handed over BEFORE the engine builds anything, because QML constructs
+    // these objects — including every terminal a new tab creates, long after
+    // startup. The findChildren() sweep this replaces could only reach the ones
+    // that existed when main() ran.
+    krait::app::TerminalItem::setServices(&registry, &vault, &store);
+    krait::app::SessionModel::setStore(&store);
+
+    // BEFORE the engine builds the tree. TerminalView gets its geometry during
+    // loadFromModule(), and geometry is what starts the first shell — so a
+    // launch profile handed over afterwards would mean spawning PowerShell and
+    // killing it again a few lines later, paying a process create and a wait on
+    // the UI thread to show nothing.
+    //
+    // Both kinds resolve here now that the store is loaded before the engine:
+    // `krait ssh user@host` carries its own profile, and `krait prod` is a
+    // lookup this can finally do.
+    QString launchError;
+    QString launchErrorDetail;
+    if (launch.kind == kses::Launch::Kind::Adhoc) {
+        krait::app::TerminalItem::setLaunchProfile(launch.profile);
+    } else if (launch.kind == kses::Launch::Kind::Profile) {
+        const kses::Profile* named = nullptr;
+        for (const kses::Profile& profile : store.profiles()) {
+            if (profile.name == launch.profileName) {
+                named = &profile;
+                break;
+            }
+        }
+        if (named != nullptr) {
+            krait::app::TerminalItem::setLaunchProfile(store.resolve(*named));
+        } else {
+            // Named something that is not there. The window still opens — with
+            // a local shell and a banner saying why — because exiting would
+            // leave a typo looking like a crash.
+            launchError = QCoreApplication::translate("main", "No saved session is called that.");
+            launchErrorDetail = QString::fromStdString(launch.profileName);
+        }
+    }
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("benchMode", qEnvironmentVariableIsSet("KRAIT_BENCH"));
+    // Read once by Main.qml on completion. A context property rather than a
+    // call into the item: the banner belongs to whichever tab exists, and at
+    // this point none do.
+    engine.rootContext()->setContextProperty("launchError", launchError);
+    engine.rootContext()->setContextProperty("launchErrorDetail", launchErrorDetail);
+    // No uiSelfTest context property: the self-test is invoked by name below,
+    // after the tree exists. A context property nothing reads is a global name
+    // waiting to shadow a real one.
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
@@ -155,17 +237,11 @@ int main(int argc, char* argv[]) try {
         return 1;
     }
 
-    // Every terminal reads the same live registry rather than caching its own
-    // copy, so a hot reload reaches all of them.
-    for (QObject* root : engine.rootObjects()) {
-        for (krait::app::TerminalItem* item : root->findChildren<krait::app::TerminalItem*>()) {
-            item->setSettings(&registry);
-        }
-    }
-
-    // The settings page reads the same one, for the same reason — and it is
-    // where a hot reload has to land visibly, since a page showing stale values
-    // is a page that will be edited on top of them.
+    // The settings page reads the same live registry, and it is where a hot
+    // reload has to land visibly since a page showing stale values is a page
+    // that will be edited on top of them. Still a findChildren() sweep because
+    // there is exactly one settings page and it exists from startup — unlike a
+    // terminal, which a new tab creates whenever it likes.
     for (QObject* root : engine.rootObjects()) {
         for (krait::app::SettingsModel* model : root->findChildren<krait::app::SettingsModel*>()) {
             model->setRegistry(&registry);
@@ -226,6 +302,20 @@ int main(int argc, char* argv[]) try {
                 qInfo("screenshot %s: %s", ok ? "saved" : "FAILED", shotPath.constData());
             });
         }
+    }
+
+    // KRAIT_UI_SELFTEST: drive the tab and split actions and log what came out
+    // (T53). Called from HERE rather than from a QML Timer, which reports
+    // running == true and never triggers in a window that is never composited
+    // — which is exactly how an unattended run works.
+    if (qEnvironmentVariableIsSet("KRAIT_UI_SELFTEST") && !engine.rootObjects().isEmpty()) {
+        QObject* uiRoot = engine.rootObjects().first();
+        QTimer::singleShot(1500, uiRoot, [uiRoot] {
+            if (!QMetaObject::invokeMethod(uiRoot, "runSelfTest")) {
+                qCritical("selftest: Main.qml has no runSelfTest()");
+                QCoreApplication::exit(4);
+            }
+        });
     }
 
     // Headless verification hook: KRAIT_SPIKE_AUTOQUIT closes after 2 s so

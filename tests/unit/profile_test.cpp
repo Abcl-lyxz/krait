@@ -169,6 +169,49 @@ TEST_CASE("a missing file is a first run, a broken one is an error", "[session]"
     CHECK(store.profiles().empty());
 }
 
+TEST_CASE("cert_path survives a load and a save", "[session]") {
+    // T61. A key the file format gained late. The two switches in profile.cpp
+    // that have to learn about it — applyField and fieldText — are separate, so
+    // teaching only one of them reads the value and then writes it back out as
+    // nothing, silently emptying the field on the first save.
+    TempFile file("krait-profile-cert.toml");
+    file.write(R"([[session]]
+id = "ca-host"
+name = "ca-host"
+backend = "ssh"
+host = "ca.example.com"
+key_path = "C:/keys/id_ed25519"
+cert_path = "C:/keys/prod-ca-cert.pub"
+)");
+
+    ProfileStore store;
+    REQUIRE(store.load(file.path()));
+    REQUIRE(store.find("ca-host") != nullptr);
+    CHECK(store.find("ca-host")->certPath == "C:/keys/prod-ca-cert.pub");
+
+    REQUIRE(store.save());
+    CHECK(file.read().find("cert_path") != std::string::npos);
+
+    ProfileStore reloaded;
+    REQUIRE(reloaded.load(file.path()));
+    CHECK(reloaded.find("ca-host")->certPath == "C:/keys/prod-ca-cert.pub");
+}
+
+TEST_CASE("bulkSet reaches cert_path by its TOML name", "[session]") {
+    // The bulk editor takes the FILE's spelling of a field, which is what makes
+    // "set cert_path across these twenty hosts" work at all. A field applyField
+    // does not know returns false and changes nothing, rather than half-applying
+    // across the selection.
+    ProfileStore store;
+    Profile host;
+    host.name = "one";
+    const std::string id = store.add(host);
+    CHECK(store.bulkSet({id}, "cert_path", "C:/keys/one-cert.pub"));
+    CHECK(store.find(id)->certPath == "C:/keys/one-cert.pub");
+    CHECK_FALSE(store.bulkSet({id}, "certificate", "C:/keys/typo-cert.pub"));
+    CHECK(store.find(id)->certPath == "C:/keys/one-cert.pub");
+}
+
 TEST_CASE("add assigns and de-duplicates ids", "[session]") {
     ProfileStore store;
     Profile first;

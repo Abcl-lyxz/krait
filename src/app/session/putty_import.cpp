@@ -82,12 +82,25 @@ std::optional<Profile> profileFromPutty(std::string_view mungedName, const Putty
     // hand-made or very old key may not have it, and ssh is both the common
     // case and the safe one to guess.
     const std::string* protocol = valueOf(values, "Protocol");
-    if (protocol != nullptr && *protocol != "ssh") {
-        return std::nullopt;  // telnet/raw/serial arrive in M3
-    }
-
     Profile profile;
-    profile.backend = BackendKind::Ssh;
+    if (protocol == nullptr || *protocol == "ssh") {
+        profile.backend = BackendKind::Ssh;
+    } else if (*protocol == "serial") {
+        // T56. PuTTY keeps the line in SerialLine and the speed in SerialSpeed,
+        // and Krait keeps the line in `host` for the same reason PuTTY does.
+        profile.backend = BackendKind::Serial;
+    } else if (*protocol == "telnet") {
+        // T54. Importing these as SSH would have produced a profile that fails
+        // at connect time with an error about the wrong protocol, which is why
+        // they were skipped rather than coerced.
+        profile.backend = BackendKind::Telnet;
+    } else {
+        // raw is the one left: PuTTY stores no port for it in a form worth
+        // trusting, so importing one would produce a profile that cannot
+        // connect. Skipped, and the caller names it, so the count of imported
+        // sessions is never a count the user has to reconcile by hand.
+        return std::nullopt;
+    }
     profile.markExplicit("backend");
 
     const std::string fullName = decodePuttyName(mungedName);
@@ -98,7 +111,21 @@ std::optional<Profile> profileFromPutty(std::string_view mungedName, const Putty
     }
     profile.id = slugify(fullName);
 
-    if (const std::string* host = valueOf(values, "HostName"); host != nullptr && !host->empty()) {
+    if (const std::string* line = valueOf(values, "SerialLine");
+        profile.backend == BackendKind::Serial && line != nullptr && !line->empty()) {
+        profile.host = *line;
+        profile.markExplicit("host");
+    }
+    if (const std::string* speed = valueOf(values, "SerialSpeed"); speed != nullptr) {
+        std::int64_t baud = 0;
+        std::from_chars(speed->data(), speed->data() + speed->size(), baud);
+        if (baud > 0) {
+            profile.baud = baud;
+            profile.markExplicit("baud");
+        }
+    }
+    if (const std::string* host = valueOf(values, "HostName");
+        profile.backend != BackendKind::Serial && host != nullptr && !host->empty()) {
         profile.host = *host;
         profile.markExplicit("host");
     }

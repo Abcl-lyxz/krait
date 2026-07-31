@@ -33,4 +33,70 @@ T39-T43 SshBackend added three more (2026-07-31), all generalisable:
 10. Shared secret stores (Vault) are touched from worker threads: check for a
     mutex before the first backend calls retrieve/store/save off the GUI thread.
 
-**How to apply:** checklist for any src/net diff with std::thread + Win32 handles. See [[project-watch-items]].
+T52 backend swap added one more (2026-07-31), and it is the sharpest:
+
+11. **Know WHERE a backend's queued emission is posted before trusting a
+    swap/teardown.** ConptyBackend does `QMetaObject::invokeMethod(this, ...,
+    QueuedConnection)` — the event goes to the BACKEND, so a later
+    `backend->disconnect(receiver)` really does drop it. SshBackend does a plain
+    `emit outputReceived(...)` on the worker — AutoConnection posts the
+    QMetaCallEvent to the RECEIVER, and disconnect() cancels nothing already in
+    the queue. Any "stop(); disconnect(); deleteLater()" swap therefore needs an
+    identity guard in the slot (`if (sender() != m_backend) return;` or capture
+    the backend pointer in the lambda), not just a disconnect. Cross-session
+    consequences: old host's bytes parsed into the new grid, DA/DSR answerbacks
+    written to the NEW connection, host A's credential prompt answered with a
+    password that is then sent to host B.
+12. **Two signals emitted back-to-back from a worker = the second banner wins.**
+    verifyHostKey emits hostKeyPrompt(Changed) then fail(); both queue to the
+    GUI in order, so the generic error banner overwrites the danger banner in
+    the same turn. Check every prompt-then-fail pair against what the user
+    actually ends up looking at.
+
+**How to apply:** checklist for any src/net diff with std::thread + Win32 handles, and for any src/app code that tears down or replaces a backend. See [[project-watch-items]].
+
+T54 telnet added the inverse of 11/12 (2026-07-31):
+
+13. **`TerminalItem::resetSession()` calls `old->stop()` on a QThreadPool
+    thread — unconditionally, for every backend.** That was designed for
+    SshBackend (blocking libssh join) and ConptyBackend (Win32 handles), both
+    of which are thread-agnostic. Any NEW backend built on Qt objects
+    (QTcpSocket, QTimer, QSerialPort, QLocalSocket) has a `stop()` that is
+    illegal off the owning thread: `QTimer::stop()` → killTimer prints
+    "Timers cannot be stopped from another thread" and does NOTHING (the
+    pending reconnect survives), and `QAbstractSocket::abort()` races the GUI
+    thread's read notifier. Check this on T55 (raw) and T56 (serial) too.
+    Fix shape: guard at the top of stop() —
+    `if (thread() != QThread::currentThread()) { QMetaObject::invokeMethod(this, &X::stop, Qt::QueuedConnection); return; }`
+    Do NOT use BlockingQueuedConnection: ~QThreadPool waits on the GUI thread
+    at shutdown, so a blocking hop deadlocks.
+
+T60 agent bridge added the Win32 half of item 7 (2026-07-31):
+
+14. **`CancelIoEx` is not a cancel *token*, it is a one-shot sweep.** It only
+    marks I/O that is outstanding at the instant it is called. Any thread that
+    can still *issue* a fresh blocking `ReadFile`/`WriteFile` after the sweep is
+    uncancellable, so the following `join()` is unbounded no matter what the
+    comment above it claims. A correct Win32 cancel needs BOTH an atomic flag
+    the pumping thread checks before each I/O call AND either a re-issued cancel
+    on a bounded loop or `FILE_FLAG_OVERLAPPED` + `WaitForMultipleObjects` on
+    {io event, stop event}. Same trap as item 3's `CancelSynchronousIo`.
+15. **Every NEW blocking call added to the SSH auth ladder must have a cancel
+    path wired into `SshBackend::stop()`.** `m_shutdown` + `notify_all` only
+    releases OUR condition variables; the ladder is only checked BETWEEN rungs.
+    T60 put an agent round-trip (a FIDO/smartcard touch = human-scale latency)
+    inside a rung with nothing to cancel it. Check this on every new rung.
+
+T61/T62 additions (2026-07-31):
+
+16. **A start/cancel/stop trio is only correct if `start()` joins the mutex
+    too.** Reviewing cancel() and stop() in isolation misses the lost-cancel
+    window: if start() publishes handles unlocked, a cancel() that arrives
+    before the publish sees stale zeros and does nothing — and if start() also
+    clears the stop flag, the cancel is erased outright. Check start() first,
+    then the cancel path. (`AgentBridge::start`, T60.)
+17. **libssh path options vs. libssh pki file calls are NOT interchangeable.**
+    `ssh_options_set(SSH_OPTIONS_IDENTITY/CERTIFICATE)` gets `~`/`%d` expansion
+    via `ssh_options_apply`; `ssh_pki_import_privkey_file` /
+    `ssh_pki_import_cert_file` do not. Whenever a diff adds an importer that
+    writes config paths into `Profile`, check which of the two consumes them.

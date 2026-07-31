@@ -3,9 +3,12 @@
 #include "../error.h"
 #include "../ibackend.h"
 #include "../vault/vault.h"
+#include "forward_manager.h"
+#include "forwards.h"
 
 #include <QByteArray>
 #include <QString>
+#include <QVariantList>
 
 #include <atomic>
 #include <condition_variable>
@@ -14,6 +17,13 @@
 #include <mutex>
 #include <string>
 #include <thread>
+
+// At GLOBAL scope, and deliberately: `struct ssh_session_struct*` written
+// inside the namespace below declares a NEW type called
+// krait::net::ssh_session_struct, which then does not match libssh's callback
+// signatures. Forward-declaring it here is what keeps libssh.h out of this
+// header without lying about the type.
+struct ssh_session_struct;
 
 namespace krait::net {
 
@@ -33,6 +43,23 @@ struct SshConfig {
     std::string knownHostsPath;
     SshAuthPreference auth = SshAuthPreference::Auto;
     std::string keyPath;
+    // T61. An OpenSSH user certificate for `keyPath`. Empty does NOT mean "no
+    // certificate": libssh finds a `<key>-cert.pub` sibling by itself, and so
+    // does this backend for a named key. This is for the case where the CA
+    // handed the certificate out somewhere else.
+    std::string certPath;
+    // Comma-separated hops, OpenSSH's ProxyJump spelling:
+    // "bastion", "user@bastion:2222,inner". Empty means a direct connection.
+    //
+    // ADR-0012: libssh 0.11 gained native in-process ProxyJump, so these are
+    // its hops rather than direct-tcpip channels we chain ourselves. Krait's
+    // host-key and auth UX runs for EVERY hop through the per-hop callbacks —
+    // a bastion whose key changed matters exactly as much as the target's.
+    std::string proxyJump;
+    // Port forwards to open once the session is up. Failures are per-tunnel:
+    // the session is what the user asked for, and a port already in use must
+    // not cost them the shell.
+    std::vector<Forward> forwards;
     // Vault key prefix — the profile id. ":password" and ":passphrase" are
     // appended (rules/net.md: nothing plaintext leaves the vault).
     std::string vaultKey;
@@ -60,6 +87,15 @@ enum class HostKeyState {
     OtherType,  // a key of a different type exists: also blocking
     Error,
 };
+
+// Hops in an OpenSSH ProxyJump string: "a,b@c:22,d" is three.
+//
+// Exposed rather than kept private because getting it wrong is a SECURITY bug
+// with no visible symptom: libssh takes one callbacks struct per hop, so a
+// count that is short by one leaves that hop using libssh's DEFAULT host-key
+// check instead of Krait's — the connection still works, and a changed key on
+// the bastion goes unremarked.
+std::size_t countProxyJumpHops(const std::string& spec);
 
 // SSH over libssh (ADR-0002). The whole libssh session lives on ONE worker
 // thread, because a libssh session is not thread-safe and the alternative is a
@@ -114,6 +150,9 @@ class SshBackend : public IBackend {
     // for keyboard-interactive, so the UI must render it as plain text.
     void credentialPrompt(const QString& prompt, bool echo);
     void connected();
+    // The tunnel pane's model. Emitted from the worker thread, so the
+    // connection to it is queued like every other.
+    void forwardsChanged(const QVariantList& tunnels);
     // A retryable failure, and what happens next. The banner says "reconnecting
     // in 4 s (2 of 5)" rather than leaving a dead terminal that looks alive.
     void reconnecting(int attempt, int ofAttempts, int delayMs);
@@ -136,8 +175,25 @@ class SshBackend : public IBackend {
 
     // Each returns false with errorOccurred already emitted.
     bool connectSession();
-    bool verifyHostKey();
-    bool authenticate();
+    // `session` is an ssh_session, passed as void* so libssh.h stays in the
+    // .cpp with the rest of the pimpl. It is NOT always m_impl->session: a
+    // ProxyJump hop hands its own session to these through the callbacks, and
+    // that is the whole reason they take one.
+    //
+    // `label` is what the banner calls this hop — "bastion.example.com (jump
+    // host)" rather than the target's name, because a user asked to trust a
+    // key needs to know which machine is asking.
+    bool verifyHostKey(void* session, const QString& label);
+    // libssh's per-hop callbacks. Static with `this` in userdata, because a C
+    // API cannot call a member function. Declared here rather than as file
+    // statics so they can reach the private methods above.
+    //
+    // The parameter is an ssh_session; spelled `struct ssh_session_struct*`
+    // rather than the typedef so libssh.h still does not have to be included
+    // by anything that includes this header.
+    static int jumpVerifyHostKey(::ssh_session_struct* session, void* userdata);
+    static int jumpAuthenticate(::ssh_session_struct* session, void* userdata);
+    bool authenticate(void* session);
     // Each returns an SSH_AUTH_* code. Split out because "which methods, in
     // which order" is a policy question and the policy is easier to read when
     // it is not tangled with libssh's calling conventions.
@@ -166,8 +222,15 @@ class SshBackend : public IBackend {
     SshConfig m_config;
     Vault* m_vault = nullptr;  // borrowed; owned by main()
     std::unique_ptr<Impl> m_impl;
+    // Tunnels. Lives here rather than in Impl because it holds no libssh type
+    // in its header, and it is touched only from the worker thread.
+    ForwardManager m_forwards;
 
     std::thread m_worker;
+    // Why a rung of the auth ladder could not work, when it knows something the
+    // generic "refused every method" line does not. Worker thread only, cleared
+    // at the start of every authenticate().
+    QString m_authHint;
     // What fail() last reported. Written and read on the worker thread only —
     // it exists so run() can ask isRetryable() about the actual failure rather
     // than guessing from a bool.

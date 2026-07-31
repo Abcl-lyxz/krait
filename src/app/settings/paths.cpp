@@ -20,6 +20,10 @@ QString configFilePath(const QString& dir) {
     return QDir(dir).filePath(QString::fromLatin1(kConfigName));
 }
 
+QString sessionsFilePath(const QString& dir) {
+    return QDir(dir).filePath(QStringLiteral("sessions.toml"));
+}
+
 Resolution resolveConfigDir(const PathInputs& inputs,
                             const std::function<bool(const QString&)>& exists) {
     if (!inputs.envOverride.isEmpty()) {

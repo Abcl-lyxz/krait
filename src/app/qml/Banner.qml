@@ -11,9 +11,40 @@ import QtQuick
 Rectangle {
     id: banner
 
-    // "warning" (a risky paste) or "error" (a backend failure, T33).
+    // "warning" (a risky paste, an unknown host key), "error" (a backend
+    // failure, T33) or "danger" (T52: a changed host key — the one case where
+    // the right answer is to stop, so it does not share the error palette).
     property string severity: "warning"
     property string message: ""
+
+    // T52: a credential prompt. The banner grows a field rather than opening a
+    // dialog, because rules/ui.md bans app-modal surfaces in session flows and
+    // a password box is exactly where every other terminal reaches for one.
+    property bool showInput: false
+    property bool inputEcho: true
+    // Whether to offer storing it in the vault, and the current answer.
+    property bool showRemember: false
+    property bool remember: false
+    property alias inputText: input.text
+
+    function beginInput(echo, offerRemember) {
+        input.text = ""
+        banner.inputEcho = echo
+        banner.showRemember = offerRemember
+        banner.remember = false
+        banner.showInput = true
+        input.forceActiveFocus()
+    }
+
+    function endInput() {
+        // Overwritten, not just hidden: a QString holding a password that stays
+        // reachable from QML is one more copy than rules/net.md wants. The
+        // copies TextInput already made are the ceiling here (see the note on
+        // SshBackend::respondCredential).
+        input.text = ""
+        banner.showInput = false
+        banner.showRemember = false
+    }
     // Optional second line: the detail a user needs in order to decide, e.g.
     // the first line of what is about to be pasted.
     property string detail: ""
@@ -31,9 +62,16 @@ Rectangle {
     readonly property color warningFg: "#f9e2af"
     readonly property color errorBg: "#3a1f26"
     readonly property color errorFg: "#f38ba8"
-    readonly property color foreground: severity === "error" ? errorFg : warningFg
+    // Louder than error on purpose: a changed host key is the only banner in
+    // the app that says "stop", and it must not look like the one that says
+    // "the shell exited".
+    readonly property color dangerBg: "#4a1420"
+    readonly property color dangerFg: "#ffb3c1"
+    readonly property color foreground: severity === "danger"
+                                        ? dangerFg
+                                        : severity === "error" ? errorFg : warningFg
 
-    color: severity === "error" ? errorBg : warningBg
+    color: severity === "danger" ? dangerBg : severity === "error" ? errorBg : warningBg
     height: visible ? layout.implicitHeight + 20 : 0
     visible: message.length > 0
 
@@ -48,7 +86,12 @@ Rectangle {
     Keys.onEnterPressed: (event) => banner.handleConfirmKey(event)
 
     function handleConfirmKey(event) {
-        if (showAccept && (event.modifiers & Qt.ControlModifier)) {
+        // The Ctrl requirement exists for the PASTE guard, where Enter is the
+        // reflex keystroke right after pasting and would confirm a `sudo` line
+        // nobody read. A credential field is the opposite case: Enter is what
+        // everyone presses after typing a password, and demanding Ctrl there
+        // would read as the field being broken.
+        if (showAccept && (showInput || (event.modifiers & Qt.ControlModifier))) {
             accepted()
         } else {
             event.accepted = true  // swallow it: never fall through to the terminal
@@ -70,6 +113,13 @@ Rectangle {
                 text: banner.message
                 color: banner.foreground
                 wrapMode: Text.WordWrap
+                // Bounded, like `detail` below. A keyboard-interactive prompt
+                // is server-controlled and the sanitiser allows twelve lines
+                // per field across three fields — thirty-six lines of banner
+                // would drive TerminalView's height negative and stop the grid
+                // updating at all.
+                maximumLineCount: 6
+                elide: Text.ElideRight
                 // PlainText, not the AutoText default: `detail` below carries
                 // raw clipboard text, and AutoText would let a pasted <b> or
                 // <img src="http://..."> restyle the very warning that is about
@@ -88,6 +138,63 @@ Rectangle {
                 wrapMode: Text.WrapAnywhere
                 textFormat: Text.PlainText  // see above: this is hostile input
                 font.family: "Cascadia Mono"
+            }
+
+            // T52: the credential field. TextInput and not QtQuick.Controls,
+            // for the same reason BannerButton is hand-rolled — this needs one
+            // field, and Controls would pull a styling stack in for it.
+            Rectangle {
+                width: parent.width
+                height: banner.showInput ? input.implicitHeight + 10 : 0
+                visible: banner.showInput
+                color: Qt.rgba(0, 0, 0, 0.35)
+                radius: 3
+                border.width: 1
+                border.color: Qt.rgba(banner.foreground.r, banner.foreground.g,
+                                      banner.foreground.b, input.activeFocus ? 0.8 : 0.35)
+
+                TextInput {
+                    id: input
+                    anchors.fill: parent
+                    anchors.margins: 5
+                    color: banner.foreground
+                    font.family: "Cascadia Mono"
+                    selectByMouse: true
+                    // Password by default. echoMode is the only thing standing
+                    // between a shoulder and a passphrase, so it is driven by
+                    // the backend's `echo` flag rather than guessed from the
+                    // prompt text, which is server-controlled.
+                    echoMode: banner.inputEcho ? TextInput.Normal : TextInput.Password
+
+                    Keys.onEscapePressed: banner.rejected()
+                    Keys.onReturnPressed: banner.accepted()
+                    Keys.onEnterPressed: banner.accepted()
+                    // Keyboard-first (rules/ui.md): the remember toggle is
+                    // reachable without the mouse, and the label below says so
+                    // rather than leaving it to be discovered.
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
+                            banner.remember = !banner.remember
+                            event.accepted = true
+                        }
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                visible: banner.showRemember
+                color: banner.foreground
+                opacity: 0.75
+                textFormat: Text.PlainText
+                text: banner.remember
+                      ? qsTr("Will be saved to the Windows vault — Ctrl+R to stop")
+                      : qsTr("Not saved — Ctrl+R to remember it")
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: banner.remember = !banner.remember
+                }
             }
         }
 

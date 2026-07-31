@@ -24,8 +24,12 @@ constexpr const char* kPort = "port";
 constexpr const char* kUser = "user";
 constexpr const char* kAuth = "auth";
 constexpr const char* kKeyPath = "key_path";
+constexpr const char* kCertPath = "cert_path";
 constexpr const char* kAccent = "accent";
 constexpr const char* kCommand = "command";
+constexpr const char* kBaud = "baud";
+constexpr const char* kProxyJump = "proxy_jump";
+constexpr const char* kForwards = "forwards";
 
 std::string readText(const std::string& path, bool* exists) {
     std::ifstream file(path, std::ios::binary);
@@ -103,10 +107,24 @@ bool applyField(Profile& profile, std::string_view key, std::string_view value) 
         profile.auth = parseAuth(value);
     } else if (key == kKeyPath) {
         profile.keyPath = value;
+    } else if (key == kCertPath) {
+        profile.certPath = value;
+    } else if (key == kProxyJump) {
+        profile.proxyJump = value;
+    } else if (key == kForwards) {
+        profile.forwards = value;
     } else if (key == kAccent) {
         profile.accent = value;
     } else if (key == kCommand) {
         profile.command = value;
+    } else if (key == kBaud) {
+        std::int64_t baud = 0;
+        std::from_chars(value.data(), value.data() + value.size(), baud);
+        // A nonsense baud rate is a typo, not a configuration: keep the
+        // previous value rather than asking the driver for 0 bits a second.
+        if (baud > 0) {
+            profile.baud = baud;
+        }
     } else {
         return false;
     }
@@ -141,11 +159,23 @@ std::string fieldText(const Profile& profile, std::string_view key) {
     if (key == kKeyPath) {
         return profile.keyPath;
     }
+    if (key == kCertPath) {
+        return profile.certPath;
+    }
+    if (key == kProxyJump) {
+        return profile.proxyJump;
+    }
+    if (key == kForwards) {
+        return profile.forwards;
+    }
     if (key == kAccent) {
         return profile.accent;
     }
     if (key == kCommand) {
         return profile.command;
+    }
+    if (key == kBaud) {
+        return std::to_string(profile.baud);
     }
     return {};
 }
@@ -172,7 +202,21 @@ bool nodeToText(const toml::node& node, std::string* out) {
 }  // namespace
 
 std::string backendName(BackendKind kind) {
-    return kind == BackendKind::Ssh ? "ssh" : "conpty";
+    switch (kind) {
+    case BackendKind::Ssh:
+        return "ssh";
+    case BackendKind::Telnet:
+        return "telnet";
+    case BackendKind::Raw:
+        return "raw";
+    case BackendKind::Serial:
+        return "serial";
+    case BackendKind::Conpty:
+        return "conpty";
+    }
+    // No default label on purpose: adding a backend has to break this switch at
+    // COMPILE time rather than silently write "conpty" into someone's file.
+    return "conpty";
 }
 
 std::string authName(SshAuth auth) {
@@ -193,9 +237,24 @@ std::string authName(SshAuth auth) {
 
 BackendKind parseBackend(std::string_view text, bool* parseOk) {
     if (parseOk != nullptr) {
-        *parseOk = text == "ssh" || text == "conpty";
+        *parseOk = text == "ssh" || text == "conpty" || text == "telnet" || text == "raw" ||
+                   text == "serial";
     }
-    return text == "ssh" ? BackendKind::Ssh : BackendKind::Conpty;
+    if (text == "ssh") {
+        return BackendKind::Ssh;
+    }
+    if (text == "telnet") {
+        return BackendKind::Telnet;
+    }
+    if (text == "raw") {
+        return BackendKind::Raw;
+    }
+    if (text == "serial") {
+        return BackendKind::Serial;
+    }
+    // Unknown text falls back to the local shell, which connects to nothing.
+    // `parseOk` is how load() knows to warn rather than silently rewrite.
+    return BackendKind::Conpty;
 }
 
 SshAuth parseAuth(std::string_view text, bool* parseOk) {

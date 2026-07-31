@@ -1,10 +1,25 @@
 // T32 — the locale gate.
 //
 // rules/ui.md: "English + Thai ship together — a string landing without both
-// locales is incomplete work." That is a rule about every FUTURE string, not
-// just today's, so this reads the .ts files themselves and fails the moment
-// someone adds a string and does not translate it. lrelease reporting
-// "0 unfinished" only says the files are consistent with themselves.
+// locales is incomplete work."
+//
+// WHAT THIS FILE CAN AND CANNOT DO. It reads the two .ts files and checks them
+// against EACH OTHER: no unfinished/vanished markers, the same messages in the
+// same order, placeholders surviving translation. That catches a half-finished
+// translation pass, a hand-edit that desynchronised the files, and a %1 dropped
+// on the way into Thai.
+//
+// It does NOT catch a string that is missing from BOTH files, because nothing
+// here reads the C++ or QML sources — a new tr() simply is not present, the two
+// files stay consistent, and all three cases below pass. This comment used to
+// claim the opposite ("fails the moment someone adds a string and does not
+// translate it"), and believing it is exactly how T52 came within one review of
+// shipping fifteen untranslated strings.
+//
+// The check that DOES read the sources is the "Translations cover every string"
+// step in .github/workflows/ci.yml: it re-runs lupdate and fails if the
+// catalogues change. Only lupdate knows what the sources contain, so that check
+// cannot live here. Keep both — they fail on different things.
 
 #include <catch2/catch_test_macros.hpp>
 

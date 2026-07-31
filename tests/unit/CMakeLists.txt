@@ -14,6 +14,7 @@ add_executable(krait-core-tests
     osc_test.cpp
     profile_test.cpp
     putty_import_test.cpp
+    ssh_config_import_test.cpp
     reflow_test.cpp
     scrollback_test.cpp
     search_test.cpp
@@ -38,8 +39,15 @@ catch_discover_tests(krait-core-tests)
 # the binary then will not start without Qt6Core.dll beside it.
 add_executable(krait-qt-tests
     action_labels_test.cpp
+    agent_bridge_test.cpp
     ../../src/app/session_model.cpp
+    ../../src/app/backend_factory.cpp
+    ../../src/app/mremoteng_import.cpp
+    mremoteng_import_test.cpp
+    ../../src/app/capture.cpp
+    capture_test.cpp
     backend_contract_test.cpp
+    backend_factory_test.cpp
     error_banner_test.cpp
     gpu_resources_test.cpp
     hostkey_art_test.cpp
@@ -51,7 +59,15 @@ add_executable(krait-qt-tests
     reconnect_test.cpp
     remote_text_test.cpp
     settings_test.cpp
+    forwards_test.cpp
+    socks5_test.cpp
+    raw_contract_test.cpp
+    serial_test.cpp
     ssh_contract_test.cpp
+    telnet_contract_test.cpp
+    telnet_test.cpp
+    ../support/telnet_test_server.cpp
+    ../support/telnet_test_server.h
     ../support/ssh_test_server.cpp
     ../support/ssh_test_server.h
     vault_test.cpp

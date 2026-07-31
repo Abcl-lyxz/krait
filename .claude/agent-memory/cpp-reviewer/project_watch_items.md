@@ -229,3 +229,189 @@ Watch items from past reviews (verify still true before flagging):
   never splits a UTF-8 sequence; TOML_EXCEPTIONS=0 is set for krait-session.
 - SshBackend/Vault are NOT wired into the app yet (TerminalItem still news
   ConptyBackend); the factory is T45. Thread/UI findings are latent until then.
+
+## T52 backend factory + UI wiring (t52-backend-factory, uncommitted, reviewed 2026-07-31 — 3 BLOCKING)
+- Blocked on: (1) terminal_item.cpp resetSession() assumes `disconnect(this)`
+  cancels in-flight queued emissions — true for ConPTY (posts invokeMethod to
+  ITSELF) but FALSE for SshBackend (emits from the worker, so the QMetaCallEvent
+  is posted to the TerminalItem) → old host's bytes/prompts land in the NEXT
+  session; (2) verifyHostKey emits hostKeyPrompt then fail() back-to-back, so
+  Main.qml onErrorRaised overwrites the Changed-key "danger" banner (fingerprint
+  + randomart lost) in the same event-loop turn; (3) m_started is true with
+  m_backend null in the KRAIT_TERM_BENCH path → any keystroke null-derefs at
+  terminal_item.cpp:821 (also 683/907/992/303).
+- Accepted latent / re-check later:
+  - QML banner is a mode machine; only dismiss() calls endInput(). onErrorRaised
+    / onConnectionNotice / onPasteConfirmRequested leave a typed password in the
+    TextInput and leave mode=="credential".
+  - banner.message takes server text raw: empty kbdint prompt → `visible:
+    message.length > 0` false → invisible banner + 5-min silent auth hang; 36
+    sanitised lines → TerminalView height goes negative.
+  - SshBackend::stop() (unbounded join) now runs on the GUI thread on every
+    palette session switch, not just at exit. ConPTY adds a 500 ms
+    WaitForSingleObject.
+  - Every `krait <profile>` launch spawns a default PowerShell during
+    engine.loadFromModule and main() immediately tears it down.
+  - splitCommand/expandEnv (quote parsing, two-shot buffer growth) are in an
+    anonymous namespace with zero tests; backend_factory_test covers only the
+    enum/port mapping.
+  - The five new SSH connect() calls are AutoConnection, not the explicit
+    Qt::QueuedConnection cpp.md demands.
+- Verified CORRECT, do not re-flag: main.cpp declaration order (app → registry →
+  vault → engine) genuinely outlives the backends, ~QQmlApplicationEngine
+  deletes root objects first; describeHostKey askable=false for Changed/
+  OtherType/Error and Main.qml hides the accept button (showAccept gates both
+  the button and handleConfirmKey); Vault now HAS its mutex; armAnswer()/stop()
+  now clear m_credential; ExpandEnvironmentStringsW `written <= buffer.size()`
+  and SearchPathW `length >= MAX_PATH` comparisons match the documented
+  count-includes-null semantics; function-local `static const bool safeSearch`
+  init is thread-safe (magic statics); deleteLater on a parented child is fine;
+  respondCredential wipes its QByteArray with SecureZeroMemory.
+
+## T54 telnet backend (reviewed 2026-07-31, branch t54-backend-factory)
+
+- BLOCKING: `TelnetBackend::stop()` runs on a QThreadPool thread via
+  `TerminalItem::resetSession()` — see thread pattern 13.
+- BLOCKING: no write backpressure. `flushReply()`/`writeInput()` call
+  `QTcpSocket::write` unconditionally; Qt's write buffer has no cap
+  (`setReadBufferSize` caps reads only, there is no write equivalent). A server
+  that agrees TERMINAL-TYPE then streams `IAC SB 24 01 IAC SE` and stops
+  reading gets a 3.3x amplifier (6 bytes in, 20 out) into an unbounded buffer.
+  net.md wants both a cap and answerback rate-limiting.
+- HIGH: initial NAWS reports 80x24, always. `openSocket()` copies
+  `m_config.settings` into the Negotiator BEFORE `handleConnected()` writes
+  m_cols/m_rows into it. Only a later window resize corrects it. Contract test
+  uses 80x24 so it cannot see this.
+- MED: the connect timer only calls `fail()`; it never aborts the socket. With
+  the production default maxReconnectAttempts=0 the stale connect survives and
+  can emit `connected()` after the connect-failed banner, or error again for a
+  second banner (m_sawError is not set on the timer path).
+- MED: `TelnetConfig::maxReconnectAttempts` defaults to 0 and
+  `backend_factory.cpp` never sets it (SshConfig defaults to 5) — retry timer,
+  m_attempt, scheduleReconnect and the `reconnecting` signal are unreachable
+  outside the contract test.
+- Fuzz honesty: `telnet_fuzz.cpp` never asserts anything about `data` (its own
+  header comment names that as THE invariant), and it feeds at chunk 1/3/whole
+  but discards all three results instead of comparing them. It also never calls
+  `start()`, so the WANTYES rows of RFC 1143 are unfuzzed. The reply walker is
+  not IAC-doubling-aware (latent false alarm if resize's range widens past
+  cols=0xFF00).
+- `run-smoke.cmd` passes `tests\fuzz\seeds-telnet` as libFuzzer's writable
+  corpus dir, so the committed seed dir grows every run (~200 SHA-named files
+  already sitting there next to the 14 hand-written seeds). parser-fuzz avoids
+  this by using `build\%PRESET%\corpus`.
+- Verified CORRECT, do not re-flag: the RFC 1143 tables in
+  receiveWill/Wont/Do/Dont match docs/research/t54-telnet-findings.md row for
+  row, INCLUDING the merged WantNoOpposite+WantYesEmpty case in receiveWill
+  (both are him=YES per the published table); `m_subData` is bounded on every
+  push and the overflow flag is reset on all three exits from SubIac; no
+  subnegotiation parameter byte can reach `data`; `encodeInput` doubles 0xFF in
+  both NVT and BINARY and there is no path that writes a lone 0xFF;
+  `m_negotiator` cannot be null in handleReadyRead/writeInput/handleConnected
+  (it is built in openSocket before the socket); openSocket's
+  disconnect+abort+deleteLater ordering is safe; the fuzz presets override
+  CMAKE_CXX_FLAGS_RELWITHDEBINFO to "/O2 /Zi" with no /DNDEBUG, so the asserts
+  really do fire; MSVC C4062 + /WX does make the defaultless switches in
+  profile.cpp/backend_factory.cpp break at compile time as their comments claim.
+
+## T60 — agent_bridge (libssh agent client ↔ Windows OpenSSH named pipe), 2026-07-31
+
+- BLOCKING: `SshBackend::stop()` never touches `m_impl->agent`. The worker can
+  be parked in `ssh_userauth_agent` → libssh `atomicio` recv on the bridge fd,
+  which only returns when the relay replies or `m_relayEnd` is shut down. Relay
+  is parked in `ReadFile` on the agent pipe. FIDO/smartcard touch, wedged agent
+  service, or a squatted pipe = join forever; `TerminalItem::~TerminalItem`
+  does that join on the GUI thread. This is memory item 7 coming true verbatim.
+  Fix shape: `AgentBridge::cancel()` (shutdown + CancelIoEx under a mutex shared
+  with stop()) called from SshBackend::stop() before the worker join.
+- BLOCKING: `CancelIoEx` only marks I/O **outstanding at the moment of the
+  call**. `pump()` between `WriteFile` and the reply `ReadFile` has nothing to
+  cancel, so the next ReadFile is uncancellable and `join()` is unbounded — the
+  code comment claiming otherwise is wrong. Needs an atomic checked before every
+  pipe read PLUS a re-issued/bounded cancel (or FILE_FLAG_OVERLAPPED + event).
+- MED: the pipe direction is the only genuinely untrusted framing in the file
+  (the socket side is our own libssh) and it has zero malformed-input tests —
+  reply length 0, > 256 KiB, truncated body, close-after-header. FakeAgent
+  already takes an arbitrary reply, so each case is ~4 lines. net.md.
+- MED (test): `FakeAgent::serve()` reads the request body with one un-looped
+  `ReadFile` and never checks `got == length` → the byte-for-byte request
+  assertion can flake on a byte-mode pipe.
+- LOW: `openPipe` never checks who owns `\\.\pipe\openssh-ssh-agent`. If the
+  agent service is down, any local process can create the name first and feed
+  Krait chosen identities/signatures. The loopback side is explicitly hardened
+  against this exact class; the pipe side is not. `GetNamedPipeServerProcessId`
+  + owner-SID check.
+- LOW: we read SSH_AUTH_SOCK with `GetEnvironmentVariableA` (live process env),
+  libssh reads it with `getenv` (MSVC CRT snapshot, agent.c:256). A runtime
+  `SetEnvironmentVariableA` desynchronizes them and silently kills agent auth.
+  `getenv_s`/`_dupenv_s` is the same source libssh reads.
+- Verified CORRECT, do not re-flag: `loopbackPair`'s
+  `getsockname(dialled) == getpeername(accepted)` check IS sufficient — the
+  4-tuple is unique, so the reverse comparison is redundant and an impostor
+  cannot duplicate our source port to the same listener port; worst case is a
+  DoS that falls through to the next auth rung. All framing arithmetic is
+  exact and overflow-free (`size_t(length)+4`, `4-filled`, `length-filled`,
+  every DWORD cast bounded by the 256 KiB cap); both pipe read loops handle
+  partial reads. Ignoring `ssh_set_agent_socket`'s return is safe: `socket.c`
+  `ssh_socket_set_fd` assigns `s->fd` before any failure return, so `ssh_free`
+  owns the fd on every path — no leak and no double close, including the
+  reconnect cycle (`join()` makes `m_relay` non-joinable, so `start()` re-arms).
+  `GetEnvironmentVariableA(.., nullptr, 0) > 1` is the right set-and-non-empty
+  test. `ssh_userauth_agent`/`ssh_socket_unix` are NOT `#ifndef _WIN32`-guarded
+  in libssh 0.12, so honouring SSH_AUTH_SOCK is not a dead branch.
+
+## T60 re-review + T61/T62 (2026-07-31, second pass)
+
+T60 fixes VERIFIED CORRECT — do not re-derive or re-flag:
+- `stop()` joining outside `m_mutex` is safe: `m_relay` is touched only by
+  start()/stop() on one thread and `cancel()` never touches it, so the join
+  races nothing and the documented cancel-blocks-on-mutex deadlock is real.
+- `pipeIo` cannot return with the kernel owning its stack `OVERLAPPED`/buffer:
+  all three exits are pre-issue flag check, start-failed-not-PENDING, or
+  `CancelIoEx` + blocking `GetOverlappedResult`.
+- `m_stopping` reset at the END of `stop()` is right for reconnect (runOnce
+  teardown calls `agent.stop()` every cycle).
+- The `SO_RCVTIMEO` on the relay socket is measured, not defensive. Leave it.
+
+- BLOCKING (found this pass): `AgentBridge::start()` takes NO lock and does
+  `m_stopping.store(false)` before publishing handles, so a `cancel()` landing
+  during `openPipe` (up to `kPipeBusyWaitMs`=1000 ms in `WaitNamedPipeW`) is
+  erased and the GUI thread hangs in `SshBackend::stop()`'s join again. Pattern
+  to check on EVERY start/cancel/stop trio in this repo: the *start* side must
+  join the same mutex and must not clear the stop flag.
+
+T61 verified against THIS TREE's libssh 0.12 source
+(`build/fuzz-msvc/vcpkg_installed/vcpkg/blds/libssh/src/libssh-0-*/src/`) —
+that source tree is the authoritative local answer for libssh questions:
+- `ssh_userauth_publickey(session, user, const ssh_key)` never frees or mutates
+  the key; reusing it after DENIED is exactly libssh's own `_auto` order.
+- `ssh_pki_copy_cert_to_privkey` DEEP-copies into `privkey->cert` and requires
+  `ssh_key_cmp(..., SSH_KEY_CMP_PUBLIC)==0`; freeing `cert` right after is
+  correct, `ssh_key_free(key)` releases the copy. No leak on any path.
+- sk-* refusal IS reachable: pki.c parses `SSH_KEYTYPE_SK_*` unconditionally,
+  only signing is `#ifdef WITH_FIDO2`. The two `_CERT01` switch cases are dead
+  (a privkey file never imports as a cert type) but harmless.
+- `m_authHint` is worker-thread only (written in tryPublicKey, cleared+read in
+  authenticate, both inside runOnce). Not a race.
+
+- **libssh expands `~`/`%d` ONLY on paths that pass through
+  `ssh_options_apply`** (`SSH_OPT_EXP_FLAG_IDENTITY`, the certificate loop).
+  `ssh_pki_import_privkey_file` / `ssh_pki_import_cert_file` `fopen()` the
+  string verbatim. Any code path that feeds a config path straight to a
+  `ssh_pki_import_*_file` needs its own tilde expansion. T62's ssh_config
+  importer makes `~/.ssh/id_ed25519` the common case; the failure is SILENT
+  (`SSH_EOF` = -2, not `SSH_ERROR` = -1, so no passphrase prompt, no hint).
+
+T62 verified CORRECT, do not re-flag:
+- `defaultSshConfigPath`'s `getenv_s` two-call pattern has no off-by-one
+  (`needed` includes the NUL; `string(needed,'\0')`; `resize(needed-1)`).
+- mRemoteNG `openNodes` is balanced on every path; `folders`/`inherited` are
+  pushed/popped together and cannot desync; malformed XML exits via `atEnd()`
+  after the reader errors. Self-closing-sibling regression IS covered by the
+  "containers become folders" test.
+- No `%N` format-marker injection through `QString::arg`: importer text always
+  goes through the multi-arg `arg(QString, QString)` overload, which does not
+  re-substitute.
+- Open, LOW: no size cap in `SessionModel::readTextFile` (GUI thread,
+  `readAll()`), `Block::set` is O(k^2) in distinct keywords, mRemoteNG is
+  O(N*depth) in `folders.join()` per leaf. Fixed paths, so hang not privilege.

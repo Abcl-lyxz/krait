@@ -8,10 +8,10 @@
 
 namespace krait::app::session {
 
-// Which backend a profile drives. Telnet/raw/serial join in M3; the enum is
+// Which backend a profile drives. The enum is
 // closed on purpose so a TOML file naming a backend we do not have fails
 // loudly at load rather than opening a shell instead of a connection.
-enum class BackendKind { Conpty, Ssh };
+enum class BackendKind { Conpty, Ssh, Telnet, Raw, Serial };
 
 // Auth METHOD, not credentials — nothing here is ever a secret. Passwords and
 // passphrases live in the DPAPI vault keyed by the profile id (rules/net.md).
@@ -44,6 +44,18 @@ struct Profile {
     std::string user;
     SshAuth auth = SshAuth::Auto;
     std::string keyPath;
+    // An OpenSSH user certificate (`*-cert.pub`) for `keyPath`. Empty is the
+    // normal case, and does NOT mean "no certificate": libssh looks for a
+    // `<key>-cert.pub` sibling on its own, the way ssh does. This field is for
+    // a certificate that does not sit beside its key — which is what a CA that
+    // hands them out separately produces.
+    std::string certPath;
+    // OpenSSH's ProxyJump spelling: "bastion" or "me@bastion:2222,inner".
+    // Empty means a direct connection.
+    std::string proxyJump;
+    // Port forwards, OpenSSH's spelling with the letter in front:
+    // "L 8080:internal:80, D 1080". Parsed by net::parseForwards.
+    std::string forwards;
 
     // rules/ui.md: safety accents (prod = red) are a core UX invariant, never
     // behind an "advanced" toggle. Empty means the theme decides.
@@ -51,6 +63,11 @@ struct Profile {
 
     // ConPTY only: the shell to spawn. Empty means the configured default.
     std::string command;
+
+    // Serial only. The PORT is `host`, the way PuTTY stores a serial line in
+    // its host field — a profile has one "where", and a second field for it
+    // would mean every importer and every editor learning about both.
+    std::int64_t baud = 115200;
 
     // Which keys this profile set ITSELF, as opposed to inheriting from
     // [defaults] or a [folders."..."] table. Save writes only these, so the

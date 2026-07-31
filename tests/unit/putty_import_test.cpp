@@ -51,8 +51,37 @@ TEST_CASE("an ssh session maps across with its fields", "[session][putty]") {
     CHECK_FALSE(profile->isExplicit("accent"));
 }
 
+TEST_CASE("a telnet session imports as telnet", "[session][putty]") {
+    // T54 gave Krait a telnet backend, so these stop being skipped. The value
+    // of this test is the assertion that it does NOT come back as ssh: that is
+    // the shape of the bug — a profile that imports cleanly and then fails at
+    // connect time complaining about the wrong protocol.
+    PuttyValues values = sshSession();
+    values.front().second = "telnet";
+    const std::optional<Profile> profile = profileFromPutty("switch-1", values);
+    REQUIRE(profile.has_value());
+    CHECK(profile->backend == BackendKind::Telnet);
+    CHECK(profile->isExplicit("backend"));
+}
+
+TEST_CASE("a serial session keeps its line and speed", "[session][putty]") {
+    // T56. PuTTY stores the line in SerialLine and the speed in SerialSpeed,
+    // and puts nothing useful in HostName for these — so a serial session
+    // imported through the host field would come out pointing at nothing.
+    PuttyValues values = sshSession();
+    values.front().second = "serial";
+    values.emplace_back("SerialLine", "COM7");
+    values.emplace_back("SerialSpeed", "9600");
+    const std::optional<Profile> profile = profileFromPutty("console", values);
+    REQUIRE(profile.has_value());
+    CHECK(profile->backend == BackendKind::Serial);
+    CHECK(profile->host == "COM7");
+    CHECK(profile->baud == 9600);
+    CHECK(profile->isExplicit("baud"));
+}
+
 TEST_CASE("protocols we do not have yet are reported, not mangled", "[session][putty]") {
-    for (const char* protocol : {"telnet", "raw", "serial"}) {
+    for (const char* protocol : {"raw"}) {
         PuttyValues values = sshSession();
         values.front().second = protocol;
         // Importing these AS ssh would produce a profile that fails at connect

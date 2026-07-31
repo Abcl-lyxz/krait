@@ -1,5 +1,7 @@
 #include "terminal_item.h"
 
+#include "backend_factory.h"
+#include "capture.h"
 #include "core/unicode/width.h"
 #include "error_banner.h"
 #include "input/ime.h"
@@ -7,6 +9,7 @@
 #include "input/mouse.h"
 #include "input/paste.h"
 #include "render/shaper/run_splitter.h"
+#include "settings/paths.h"
 #include "settings/registry.h"
 
 #include <QClipboard>
@@ -19,6 +22,7 @@
 #include <QKeySequence>
 #include <QMouseEvent>
 #include <QQuickWindow>
+#include <QThreadPool>
 #include <QTimer>
 #include <QWheelEvent>
 
@@ -47,9 +51,44 @@ QShader loadShader(const QString& path) {
     return QShader::fromSerialized(file.readAll());
 }
 
+// What the command line asked for, waiting for the first terminal to claim it.
+// File-scope because it models something genuinely process-global — argv — and
+// because QML constructs the item, so there is no other moment to hand it over
+// before geometry arrives and the first shell starts.
+std::optional<session::Profile> g_launchProfile;
+
+// What every terminal borrows. See TerminalItem::setServices for why these are
+// file-scope rather than passed in: QML builds terminals on demand now.
+settings::Registry* g_registry = nullptr;
+net::Vault* g_vault = nullptr;
+session::ProfileStore* g_store = nullptr;
+
 }  // namespace
 
+void TerminalItem::setLaunchProfile(const session::Profile& profile) {
+    g_launchProfile = profile;
+}
+
+void TerminalItem::setServices(settings::Registry* registry, net::Vault* vault,
+                               session::ProfileStore* store) {
+    g_registry = registry;
+    g_vault = vault;
+    g_store = store;
+}
+
 TerminalItem::TerminalItem() {
+    m_vault = g_vault;
+    m_store = g_store;
+    // Through setSettings(), not a bare assignment: it also subscribes to hot
+    // reloads and applies the current values, and a tab opened after startup
+    // needs both exactly as much as the first one did.
+    setSettings(g_registry);
+    // Claimed, not copied: the SECOND terminal (a new tab) must open a default
+    // shell rather than a second copy of whatever was on the command line.
+    if (g_launchProfile) {
+        m_profile = *g_launchProfile;
+        g_launchProfile.reset();
+    }
     setAcceptedMouseButtons(Qt::AllButtons);
     // Without this Qt never routes composition to us and Thai or Japanese input
     // silently falls back to whatever the IME does with an unaware widget.
@@ -77,28 +116,276 @@ TerminalItem::TerminalItem() {
             m_benchRows = 63;
         }
     }
+}
 
-    m_backend = new net::ConptyBackend(this);  // owned by this
-    connect(m_backend, &net::IBackend::outputReceived, this, &TerminalItem::handleOutput);
-    connect(m_backend, &net::IBackend::errorOccurred, this,
-            [this](const QString& code, const QString& message) {
-                qWarning("backend error [%s]: %s", qPrintable(code), qPrintable(message));
-                const ErrorBanner banner = describeError(code);
-                // The backend's own message is the DETAIL, and the taxonomy
-                // supplies the headline: a raw Win32 string is not a sentence a
-                // user can act on, but it is exactly what a bug report needs.
-                const QString hint =
-                    banner.hint.isEmpty() ? message : banner.hint + QStringLiteral(" ") + message;
-                emit errorRaised(banner.message, hint);
-            });
-    connect(m_backend, &net::IBackend::exited, this, [this](int exitCode) {
-        qInfo("shell exited (%d)", exitCode);
-        // A shell that ran `exit` is NOT an error. Raising a banner here is how
-        // a banner teaches people to ignore banners.
-        if (exitCode != 0) {
-            emit errorRaised(tr("The shell exited with code %1.").arg(exitCode), QString());
-        }
-    });
+void TerminalItem::adoptBackend(net::IBackend* backend) {
+    m_backend = backend;
+    // EVERY lambda below re-checks that `backend` is still the current one, and
+    // that is not belt-and-braces — it is the whole correctness argument for
+    // switching sessions.
+    //
+    // disconnect() does NOT cancel emissions that are already in flight.
+    // ConptyBackend posts its own invokeMethod to ITSELF, so disconnecting it
+    // really does drop those. SshBackend emits straight from the worker thread,
+    // and a queued cross-thread emission posts a QMetaCallEvent to the
+    // RECEIVER — this item — where disconnect cannot reach it. Without the
+    // guard, the last chunk from the host you just navigated away from is
+    // parsed into the grid of the host you navigated to; a DA/DSR inside it
+    // answers back over the NEW connection, and a credential prompt from the
+    // old host collects a password and hands it to the new one.
+    //
+    // Qt::QueuedConnection explicitly, per rules/cpp.md: these cross a thread
+    // boundary and must not be left to AutoConnection to work out.
+    connect(
+        m_backend, &net::IBackend::outputReceived, this,
+        [this, backend](const QByteArray& bytes) {
+            if (backend != m_backend) {
+                return;
+            }
+            handleOutput(bytes);
+        },
+        Qt::QueuedConnection);
+    connect(
+        m_backend, &net::IBackend::errorOccurred, this,
+        [this, backend](const QString& code, const QString& message) {
+            if (backend != m_backend) {
+                return;
+            }
+            qWarning("backend error [%s]: %s", qPrintable(code), qPrintable(message));
+            const ErrorBanner banner = describeError(code);
+            // The backend's own message is the DETAIL, and the taxonomy
+            // supplies the headline: a raw Win32 string is not a sentence a
+            // user can act on, but it is exactly what a bug report needs.
+            const QString hint =
+                banner.hint.isEmpty() ? message : banner.hint + QStringLiteral(" ") + message;
+            emit errorRaised(banner.message, hint);
+        },
+        Qt::QueuedConnection);
+    connect(
+        m_backend, &net::IBackend::exited, this,
+        [this, backend](int exitCode) {
+            if (backend != m_backend) {
+                return;
+            }
+            qInfo("shell exited (%d)", exitCode);
+            // A shell that ran `exit` is NOT an error. Raising a banner here is
+            // how a banner teaches people to ignore banners.
+            if (exitCode != 0) {
+                emit errorRaised(tr("The shell exited with code %1.").arg(exitCode), QString());
+            }
+        },
+        Qt::QueuedConnection);
+
+    // The SSH-only half. Cast rather than a virtual on IBackend: host-key trust
+    // and credential prompts are not things a serial port or a local shell has,
+    // and putting them on the seam would give four backends a method that can
+    // only ever return "not me".
+    auto* ssh = qobject_cast<net::SshBackend*>(m_backend);
+    if (ssh == nullptr) {
+        return;
+    }
+    connect(
+        ssh, &net::SshBackend::hostKeyPrompt, this,
+        [this, backend](int state, const QString& detail) {
+            if (backend != m_backend) {
+                return;
+            }
+            const HostKeyPrompt prompt = describeHostKey(static_cast<net::HostKeyState>(state));
+            emit hostKeyPromptRequested(prompt.message, detail, prompt.askable);
+        },
+        Qt::QueuedConnection);
+    connect(
+        ssh, &net::SshBackend::credentialPrompt, this,
+        [this, backend](const QString& prompt, bool echo) {
+            // The guard matters most HERE: a prompt from the connection the
+            // user just left would otherwise collect a password and
+            // respondCredential() would hand it to whatever is current now.
+            if (backend != m_backend) {
+                return;
+            }
+            emit credentialPromptRequested(prompt, echo);
+        },
+        Qt::QueuedConnection);
+    connect(
+        ssh, &net::SshBackend::connected, this,
+        [this, backend] {
+            if (backend != m_backend) {
+                return;
+            }
+            // Clears whatever the last reconnect notice said. A banner that
+            // stays up after the thing it describes is over is a banner people
+            // stop reading.
+            emit connectionNotice(QString());
+        },
+        Qt::QueuedConnection);
+    connect(
+        ssh, &net::SshBackend::forwardsChanged, this,
+        [this, backend](const QVariantList& rows) {
+            if (backend != m_backend) {
+                return;
+            }
+            m_tunnels = rows;
+            emit tunnelsChanged();
+        },
+        Qt::QueuedConnection);
+    connect(
+        ssh, &net::SshBackend::reconnecting, this,
+        [this, backend](int attempt, int ofAttempts, int delayMs) {
+            if (backend != m_backend) {
+                return;
+            }
+            emit connectionNotice(tr("Connection lost. Reconnecting in %1 s (%2 of %3)…")
+                                      .arg(QString::number((delayMs + 999) / 1000),
+                                           QString::number(attempt), QString::number(ofAttempts)));
+        },
+        Qt::QueuedConnection);
+}
+
+void TerminalItem::setVault(net::Vault* vault) {
+    m_vault = vault;
+}
+
+void TerminalItem::sendInput(const QByteArray& bytes) {
+    // The item outlives its backend and predates it: a bench run has none by
+    // design, and openProfile() leaves a window with none while the next one is
+    // built. Every keypress, paste, mouse report, IME commit and answerback
+    // funnels through here so that window is one check rather than five.
+    if (m_backend == nullptr || bytes.isEmpty()) {
+        return;
+    }
+    m_log.writeInput(bytes);
+    m_backend->writeInput(bytes);
+}
+
+void TerminalItem::resetSession() {
+    if (m_backend != nullptr) {
+        net::IBackend* old = m_backend;
+        // Cleared FIRST. Every connection made in adoptBackend() compares its
+        // captured pointer against this member, so from here on any emission
+        // still in flight from `old` is dropped rather than delivered into the
+        // session that replaces it.
+        m_backend = nullptr;
+        old->disconnect(this);
+
+        // Unparented and torn down OFF the UI thread. stop() joins a worker
+        // that can be sitting inside an uninterruptible libssh call
+        // (ssh_connect against a host that is not answering blocks until the
+        // connect timeout), and rules/net.md is explicit that a network wait
+        // never runs on the UI thread — switching sessions must not freeze the
+        // window for fifteen seconds.
+        //
+        // Unparenting matters: while the pool thread is inside stop(), this
+        // item must not be able to delete the backend out from under it as a
+        // child. deleteLater() then posts the deletion back to the GUI thread,
+        // where the object lives.
+        old->setParent(nullptr);
+        QThreadPool::globalInstance()->start([old] {
+            old->stop();
+            old->deleteLater();
+        });
+    }
+    m_session.reset();
+    m_started = false;
+    if (!m_tunnels.isEmpty()) {
+        // The tunnels belonged to the connection that just went. Leaving them
+        // on screen would show a pane full of listeners that no longer exist.
+        m_tunnels.clear();
+        emit tunnelsChanged();
+    }
+}
+
+void TerminalItem::openProfile(const session::Profile& profile) {
+    m_profile = profile;
+    resetSession();
+    // Nothing else to do before the first geometry: ensureStarted() bails until
+    // the grid size is known, and updateGrid() calls it again once it is.
+    ensureStarted();
+    if (m_started) {
+        rebuildFrame();
+        update();
+    }
+    emit sessionChanged();
+}
+
+bool TerminalItem::openProfileById(const QString& profileId) {
+    if (m_store == nullptr) {
+        return false;
+    }
+    const session::Profile* raw = m_store->find(profileId.toStdString());
+    if (raw == nullptr) {
+        return false;
+    }
+    // resolve(), not the stored profile: the store holds only the keys each
+    // profile owns, so one inheriting its user from [folders."prod"] would
+    // otherwise reach the backend with an empty user.
+    openProfile(m_store->resolve(*raw));
+    return true;
+}
+
+QString TerminalItem::sessionTitle() const {
+    if (!m_profile.name.empty()) {
+        return QString::fromStdString(m_profile.name);
+    }
+    // An unnamed profile is the default local shell. "Shell" rather than the
+    // executable name: the tab says what it is, not how it was spelled.
+    return tr("Shell");
+}
+
+QString TerminalItem::sessionAccent() const {
+    return QString::fromStdString(m_profile.accent);
+}
+
+void TerminalItem::respondHostKey(bool trust) {
+    if (auto* ssh = qobject_cast<net::SshBackend*>(m_backend); ssh != nullptr) {
+        ssh->respondHostKey(trust);
+    }
+}
+
+void TerminalItem::setHexdump(bool on) {
+    if (m_hexdump == on) {
+        return;
+    }
+    m_hexdump = on;
+    // The offset restarts with the view. It counts bytes SEEN in this dump,
+    // and carrying a count across a period when nothing was being counted
+    // would make it a number that means nothing.
+    m_hexdumpOffset = 0;
+    if (m_session) {
+        // A banner line so the transition is legible in the scrollback rather
+        // than the output silently changing shape mid-screen.
+        const QByteArray note = on ? QByteArrayLiteral("\r\n--- hexdump on ---\r\n")
+                                   : QByteArrayLiteral("\r\n--- hexdump off ---\r\n");
+        m_session->feed({reinterpret_cast<const std::uint8_t*>(note.constData()),
+                         static_cast<std::size_t>(note.size())});
+        rebuildFrame();
+        update();
+    }
+}
+
+QString TerminalItem::toggleLogging() {
+    if (m_log.isOpen()) {
+        m_log.close();
+        return {};
+    }
+    namespace ks = settings;
+    const ks::Resolution dir = ks::resolveConfigDir(
+        ks::systemPathInputs(), [](const QString& path) { return QFile::exists(path); });
+    const QString path = sessionLogPath(dir.dir, sessionTitle());
+    if (!m_log.open(path)) {
+        emit errorRaised(tr("Could not start logging."), m_log.error());
+        return {};
+    }
+    return path;
+}
+
+void TerminalItem::raiseError(const QString& message, const QString& hint) {
+    emit errorRaised(message, hint);
+}
+
+void TerminalItem::respondCredential(const QString& text, bool remember) {
+    if (auto* ssh = qobject_cast<net::SshBackend*>(m_backend); ssh != nullptr) {
+        ssh->respondCredential(text, remember);
+    }
 }
 
 TerminalItem::~TerminalItem() {
@@ -176,7 +463,13 @@ void TerminalItem::ensureStarted() {
     }
     m_session = std::make_unique<core::vt::Session>(m_rows, m_cols);
     m_session->onReply = [this](const std::string& reply) {
-        m_backend->writeInput(QByteArray(reply.data(), static_cast<qsizetype>(reply.size())));
+        // Null during a bench run, which has no backend by design, and between
+        // resetSession() and the next start. A dropped answerback is the right
+        // outcome in both: there is nothing on the other end to read it.
+        if (m_backend == nullptr) {
+            return;
+        }
+        sendInput(QByteArray(reply.data(), static_cast<qsizetype>(reply.size())));
     };
     if (m_benchFrames > 0) {
         // A bench run needs no shell: the flood is synthesised so the numbers
@@ -202,13 +495,18 @@ void TerminalItem::ensureStarted() {
         rebuildFrame();
         return;
     }
+    if (m_backend == nullptr) {
+        // T52: the profile decides, not this class. A default-constructed
+        // Profile is a local shell, which is what an unadorned window is.
+        adoptBackend(makeBackend(m_profile, m_vault, this));
+    }
     if (m_backend->start(m_cols, m_rows)) {
         m_started = true;
-        qInfo("terminal started: %dx%d (powershell)", m_cols, m_rows);
+        qInfo("terminal started: %dx%d (%s)", m_cols, m_rows,
+              session::backendName(m_profile.backend).c_str());
         const QByteArray inject = qgetenv("KRAIT_TERM_INJECT");
         if (!inject.isEmpty()) {
-            QTimer::singleShot(1200, this,
-                               [this, inject] { m_backend->writeInput(inject + "\r"); });
+            QTimer::singleShot(1200, this, [this, inject] { sendInput(inject + "\r"); });
         }
     }
 }
@@ -391,6 +689,18 @@ void TerminalItem::updateGrid() {
 
 void TerminalItem::handleOutput(const QByteArray& bytes) {
     if (!m_session) {
+        return;
+    }
+    m_log.writeOutput(bytes);
+    if (m_hexdump) {
+        // The DUMP is fed to the parser, not the bytes. Feeding both would put
+        // the escape sequences on screen twice — once as hex and once as their
+        // effect — and the effect is exactly what a hexdump is for avoiding.
+        const std::string dump = formatHexdump(bytes, m_hexdumpOffset);
+        m_hexdumpOffset += static_cast<std::uint64_t>(bytes.size());
+        m_session->feed({reinterpret_cast<const std::uint8_t*>(dump.data()), dump.size()});
+        rebuildFrame();
+        update();
         return;
     }
     m_session->feed({reinterpret_cast<const std::uint8_t*>(bytes.constData()),
@@ -588,7 +898,7 @@ bool TerminalItem::reportMouse(input::MouseAction action, Qt::MouseButton button
     if (report.isEmpty()) {
         return false;  // not tracked, or not expressible: the event stays ours
     }
-    m_backend->writeInput(report);
+    sendInput(report);
     return true;
 }
 
@@ -726,7 +1036,7 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
     // selection, which is what every terminal does.
     m_session->grid().scrollViewToBottom();
     m_selection.active = false;
-    m_backend->writeInput(bytes);
+    sendInput(bytes);
     rebuildFrame();
     update();
     event->accept();
@@ -812,7 +1122,7 @@ void TerminalItem::sendPaste(const QByteArray& bytes) {
     // A paste, like a keypress, snaps the viewport back to the live screen.
     m_session->grid().scrollViewToBottom();
     m_selection.active = false;
-    m_backend->writeInput(bytes);
+    sendInput(bytes);
     rebuildFrame();
     update();
 }
@@ -897,7 +1207,7 @@ void TerminalItem::inputMethodEvent(QInputMethodEvent* event) {
     if (!commit.isEmpty()) {
         m_composition.clear();
         m_session->grid().scrollViewToBottom();
-        m_backend->writeInput(commit.toUtf8());
+        sendInput(commit.toUtf8());
     }
 
     auto cursorInChars = static_cast<int>(event->preeditString().size());

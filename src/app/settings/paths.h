@@ -54,6 +54,11 @@ PathInputs systemPathInputs();
 // The config file inside a resolved directory.
 QString configFilePath(const QString& dir);
 
+// The session list, beside it. Same directory on purpose: portable mode and
+// KRAIT_CONFIG_DIR move both together, and a config directory that holds the
+// settings but not the sessions is a surprise nobody wants twice.
+QString sessionsFilePath(const QString& dir);
+
 // The marker filename that turns portable mode on.
 QString portableMarkerName();
 

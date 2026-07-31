@@ -36,6 +36,19 @@ Item {
         palette.dismissed()
     }
 
+    // T62. The importers live behind the palette's model because that is the
+    // object that owns the session store here; Main.qml holds the action
+    // dispatch but has no model of its own. Returns the summary to show — the
+    // count, plus what was left behind and why.
+    function runImport(actionId) {
+        switch (actionId) {
+        case "sessions.import.putty": return sessions.importFromPutty()
+        case "sessions.import.sshconfig": return sessions.importFromSshConfig()
+        case "sessions.import.mremoteng": return sessions.importFromMremoteng()
+        }
+        return ""
+    }
+
     SessionModel {
         id: sessions
         onActionRequested: (actionId) => {
