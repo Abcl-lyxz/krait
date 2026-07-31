@@ -60,7 +60,14 @@ void wakeAccept(int port) {
     addr.sin_family = AF_INET;
     addr.sin_port = ::htons(static_cast<u_short>(port));
     ::InetPtonA(AF_INET, "127.0.0.1", &addr.sin_addr);
-    ::connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    // This connect exists only to make a parked accept() return, so being
+    // refused is a success as far as the caller is concerned. The result is
+    // still looked at rather than discarded: a failure for some OTHER reason
+    // means the wake did not happen and the test is about to hang, and that
+    // deserves a line in the output instead of silence.
+    if (::connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
+        std::fprintf(stderr, "ssh_test_server: wake connect failed (%d)\n", ::WSAGetLastError());
+    }
     ::closesocket(sock);
 }
 
@@ -88,7 +95,13 @@ struct SshTestServer::Impl {
 SshTestServer::SshTestServer() : m_impl(std::make_unique<Impl>()) {}
 
 SshTestServer::~SshTestServer() {
-    stop();
+    // stop() joins a thread and touches libssh; nothing in it is declared
+    // noexcept, and an exception escaping a destructor terminates the whole
+    // run — turning a teardown hiccup into a suite with no results.
+    try {
+        stop();
+    } catch (...) {  // NOLINT(bugprone-empty-catch): see above
+    }
 }
 
 bool SshTestServer::start(Options options) {

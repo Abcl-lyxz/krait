@@ -48,7 +48,18 @@ class KnownHosts {
         std::filesystem::remove(m_path);
     }
 
-    ~KnownHosts() { std::filesystem::remove(m_path); }
+    // The error_code overload is noexcept, but building the filesystem::path
+    // from m_path is NOT — it allocates and, on Windows, converts narrow to
+    // wide. So the try is doing real work rather than decorating a call that
+    // could not throw anyway. A temp file that survives is not worth
+    // terminating the run over; an exception leaving a destructor is.
+    ~KnownHosts() {
+        try {
+            std::error_code ignored;
+            std::filesystem::remove(m_path, ignored);
+        } catch (...) {  // NOLINT(bugprone-empty-catch): see above
+        }
+    }
 
     KnownHosts(const KnownHosts&) = delete;
     KnownHosts& operator=(const KnownHosts&) = delete;
