@@ -2,7 +2,6 @@
 
 #include "backend_factory.h"
 #include "capture.h"
-#include "settings/paths.h"
 #include "core/unicode/width.h"
 #include "error_banner.h"
 #include "input/ime.h"
@@ -10,6 +9,7 @@
 #include "input/mouse.h"
 #include "input/paste.h"
 #include "render/shaper/run_splitter.h"
+#include "settings/paths.h"
 #include "settings/registry.h"
 
 #include <QClipboard>
@@ -353,9 +353,8 @@ void TerminalItem::setHexdump(bool on) {
     if (m_session) {
         // A banner line so the transition is legible in the scrollback rather
         // than the output silently changing shape mid-screen.
-        const QByteArray note =
-            on ? QByteArrayLiteral("\r\n--- hexdump on ---\r\n")
-               : QByteArrayLiteral("\r\n--- hexdump off ---\r\n");
+        const QByteArray note = on ? QByteArrayLiteral("\r\n--- hexdump on ---\r\n")
+                                   : QByteArrayLiteral("\r\n--- hexdump off ---\r\n");
         m_session->feed({reinterpret_cast<const std::uint8_t*>(note.constData()),
                          static_cast<std::size_t>(note.size())});
         rebuildFrame();
