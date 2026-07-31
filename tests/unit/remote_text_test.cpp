@@ -45,7 +45,10 @@ TEST_CASE("length and line count are bounded", "[net][remote]") {
 TEST_CASE("a huge payload is bounded before it is decoded", "[net][remote]") {
     // Ten megabytes of prompt should cost a truncation, not ten megabytes of
     // QString on the way to being shortened.
-    const std::string huge(10 * 1024 * 1024, 'z');
+    // std::size_t on the FIRST operand: 10 * 1024 * 1024 computed in int and
+    // then widened is a habit that overflows silently the day someone raises
+    // the number.
+    const std::string huge(std::size_t{10} * 1024 * 1024, 'z');
     const QString out = sanitizeRemoteText(huge, 64, 12);
     CHECK(out.size() == 65);
 }
@@ -53,9 +56,11 @@ TEST_CASE("a huge payload is bounded before it is decoded", "[net][remote]") {
 TEST_CASE("invalid UTF-8 becomes visible, not invisible", "[net][remote]") {
     // Dropping bad bytes silently would let a server show the user one thing
     // while knowing it sent another.
+    // 7, not 8: "ok" + two invalid bytes + "end" is seven characters, and the
+    // eighth was the literal's terminating NUL being fed in as data.
     const QString out = sanitizeRemoteText(std::string("ok\xff\xfe"
                                                        "end",
-                                                       8));
+                                                       7));
     CHECK(out.startsWith(QStringLiteral("ok")));
     CHECK(out.endsWith(QStringLiteral("end")));
     CHECK(out.contains(QChar(0xFFFD)));
