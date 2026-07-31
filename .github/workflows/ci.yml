@@ -174,6 +174,37 @@ jobs:
           clang-format --version
           clang-format --dry-run -Werror $files
 
+      - name: Translations cover every string
+        shell: pwsh
+        run: |
+          # The [i18n] unit tests compare krait_en.ts and krait_th.ts against
+          # EACH OTHER — unfinished markers, equal counts, surviving
+          # placeholders. They never look at the source, so a tr() string that
+          # is in neither file leaves both consistent and passes green. That is
+          # how T52's fifteen strings nearly shipped untranslated, and it is why
+          # this step exists rather than another Catch2 case: only lupdate
+          # actually knows what the sources contain.
+          #
+          # This is cheap because the catalogues are generated with
+          # `-locations none`, so a regeneration rewrites nothing unless the set
+          # of strings changed.
+          cmake --build --preset dev --target update_translations
+          if ($LASTEXITCODE -ne 0) { throw "lupdate failed" }
+          git diff --quiet -- src/app/i18n
+          if ($LASTEXITCODE -ne 0) {
+            git diff --stat -- src/app/i18n
+            git diff -- src/app/i18n
+            throw @"
+          lupdate changed the .ts files, so a user-facing string is missing a
+          translation (or an obsolete one was left behind). Run:
+              cmake --build --preset dev --target update_translations
+          then fill in every new <translation> in krait_th.ts AND krait_en.ts
+          and drop the type="unfinished"/"vanished" attributes. rules/ui.md:
+          English and Thai ship together; a string landing without both is
+          incomplete work.
+          "@
+          }
+
       - name: clang-tidy (changed files)
         shell: pwsh
         env:

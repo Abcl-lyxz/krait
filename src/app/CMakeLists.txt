@@ -93,6 +93,14 @@ qt_add_translations(krait-app
     # untranslated with nothing to show for it.
     SOURCES error_banner.h
     RESOURCE_PREFIX "/i18n"
+    # -locations none strips the <location filename= line=> attributes.
+    #
+    # They are the reason the catalogues could not be checked mechanically:
+    # every unrelated edit that shifts a line rewrites dozens of them, so
+    # "re-run lupdate and see if the .ts files changed" was pure noise and
+    # nobody could run it. Without locations the only thing a regeneration
+    # changes is the set of STRINGS, which is exactly the thing worth gating.
+    LUPDATE_OPTIONS -locations none
 )
 
 # ADR-0011: the bundled ConPTY rides next to the exe; the backend refuses
