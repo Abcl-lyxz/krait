@@ -34,6 +34,7 @@
 #include <QTranslator>
 
 #include <cstdio>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -58,7 +59,10 @@ const char* apiName(QSGRendererInterface::GraphicsApi api) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+// A function-try-block, because main() calls into toml++, the standard library
+// and Qt, none of which promise not to throw — and rules/cpp.md says exceptions
+// do not cross module boundaries, which makes this the boundary.
+int main(int argc, char* argv[]) try {
     // ADR-0001: D3D11 is the primary QRhi backend on Windows.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
 
@@ -230,4 +234,11 @@ int main(int argc, char* argv[]) {
         QTimer::singleShot(3000, &app, &QCoreApplication::quit);
     }
     return app.exec();
+} catch (const std::exception& error) {
+    // stderr, not a banner: by definition there is no window to put one in.
+    std::fprintf(stderr, "krait: fatal: %s\n", error.what());
+    return 4;
+} catch (...) {
+    std::fprintf(stderr, "krait: fatal: unknown error\n");
+    return 4;
 }
