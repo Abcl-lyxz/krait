@@ -66,6 +66,17 @@ const Def* find(std::string_view id);
 // of the choices when the def has any.
 bool validate(const Def& def, const Value& value);
 
+// Whether `def` matches a settings-search query.
+//
+// Matches the id, the doc text, and BOTH keyword lists — a Thai speaker has to
+// be able to find a setting by typing Thai, and a translated label with
+// English-only search is half a locale. Substring rather than fuzzy: a settings
+// search is a filter over a short list where a wrong-but-plausible match costs
+// more than a missed one, which is the opposite of the palette's problem.
+//
+// An empty query matches everything.
+bool matchesSearch(const Def& def, std::string_view query);
+
 // The current schema version, written into every file the app saves. Bumped
 // when a migration is added, and never otherwise.
 inline constexpr int kSchemaVersion = 1;

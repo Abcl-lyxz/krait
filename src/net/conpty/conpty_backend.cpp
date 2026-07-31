@@ -15,7 +15,7 @@ constexpr DWORD kReadChunk = 16 * 1024;
 constexpr DWORD kProcessWaitMs = 500;
 }  // namespace
 
-ConptyBackend::ConptyBackend(QObject* parent) : QObject(parent) {}
+ConptyBackend::ConptyBackend(QObject* parent) : IBackend(parent) {}
 
 ConptyBackend::~ConptyBackend() {
     stop();

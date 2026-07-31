@@ -1,170 +1,190 @@
 # STATE
 
-Phase: **M1 COMPLETE and MERGED** — T17-T35 done, on `main`.
-**Next task: M2** (SSH backend, `docs/plan/01-milestones.md`).
+Phase: **M2 ENGINE COMPLETE — T36-T51 done**, on branch `t36-backend-seam`,
+PR #24. Not yet merged; not yet a product.
+**Next task: the backend factory.** Read "The one thing that is missing" below
+before anything else — it is small, it is the difference between a demo and a
+product, and every remaining M2 acceptance item is blocked behind it.
 
-## Now
+## The one thing that is missing
 
-Nothing is in flight. T26-T35 merged as PR #22 (`0768f16`):
+**Nothing connects from the UI.** The SSH engine works and is contract-tested;
+the palette lists saved sessions; choosing one raises a banner saying the
+connection is not wired up. What does not exist is roughly one file:
 
-| Commit | Task |
+    Profile -> SshConfig -> new SshBackend(config, vault) -> TerminalItem
+
+`TerminalItem` already holds an `IBackend*` (T36 made that possible) and
+hard-codes `new ConptyBackend(this)` in `ensureStarted()`. The factory replaces
+that line with a switch on `Profile::backend`, forwards the host-key and
+credential prompts to the existing Banner, and wires `SessionModel`'s
+`sessionRequested` to opening one.
+
+Do that and the M2 demo runs. Until then `krait ssh user@host` parses its
+arguments, logs what it would open, and opens a local shell.
+
+The second missing piece is tabs and splits — still one window, one terminal, as
+in M1. The tab strip needs the same factory, so it follows naturally.
+
+## What landed in M2
+
+| Task | What |
 |---|---|
-| `e12584e` | T26 + T27 — device-lost harness, WARP selection, DPI; the real input path |
-| `42f80f9` | T28 — paste guard and the per-tab banner |
-| `fe466f0` | T29 — IME composition, measured in cells |
-| `3bf9719` | T30 — settings registry v1 |
-| `a041e3f` | T31 + T34 — settings reach the subsystems; the config has a home |
-| `2bdca53` | T33 — backend errors as per-tab banners |
-| `7c16829` | T32 — EN and TH ship together |
-| `fa9798c` | T35 — M1 wrap: release preset, vttest gate, baselines, milestone flip |
-| `2dc6224` | Review fixes — three blocking, and the rest of the battery |
+| T36 | `IBackend` is the QObject seam; `krait-net` becomes a library |
+| T37 | Session profiles, folder inheritance, the palette's fuzzy matcher |
+| T38 | DPAPI vault + a `Secret` that is actually wiped |
+| T39 | libssh 0.12 SSH backend, one worker thread, host-key gate |
+| T40 | Randomart + the four new error banners, EN and TH |
+| T41 | Auth ladder: agent, key, keyboard-interactive, password |
+| T42 | Keepalive + a reconnect policy that knows what NOT to retry |
+| T43 | In-process libssh test server + the contract suite |
+| T44 | PuTTY importer, including what it refuses to import |
+| T45 | Action registry, palette ranking, derived tree, QML palette |
+| T46 | Settings page generated from the schema, searchable in Thai |
+| T47 | Scrollback search + smart selection |
+| T48 | Kitty keyboard, baseline flag, honest negotiation |
+| T49 | OSC 8 + OSC 52 with the read permission gate |
+| T50 | `krait ssh user@host` parsing |
+| T51 | This wrap |
 
-M2's first task starts from a clean `main`. Read the "Open, not blocking" list
-below FIRST: two of those items are things M1 could not verify rather than
-things it chose to skip, and one of them (the unmeasured hardware flood leg)
-should be closed out early rather than at the end of M2.
+## Verified facts — do NOT re-derive these
 
-## What landed in M1's second half
-
-**T26 — device robustness.** `render::GpuResources` exists so the device-lost
-path can be TESTED: a `QQuickRhiItemRenderer` takes its QRhi from Qt Quick and
-cannot be handed a fake one. The harness runs on the QRhi **Null backend**.
-DPI was broken outright — the shaders divided by the item's LOGICAL size while
-the render target is `size * dpr` — and the fix takes the viewport from
-`renderTarget()->pixelSize()` where the uniform is written, so the two agree by
-construction.
-
-**T27 — input.** `krait-input` is Qt6::Core-only so the keymap table is testable
-with no window, pty or session. Mouse reporting needed core state that did not
-exist: DECCKM, `?1000/?1002/?1003`, `?1006`.
-
-**T28 — paste guard.** The clipboard is remote input. C0 stripped, the
-bracketed-paste END marker neutralised, risk ORDERED not accumulated.
-
-**T29 — IME.** Positioning is a free function over `FaceMetrics`, so a font or
-DPI change cannot move the glyphs without moving the candidate window too.
-
-**T30/T31/T34 — settings.** One declaration in `schema.cpp`; the dotted id IS
-the TOML path. Resolution order: `KRAIT_CONFIG_DIR`, then a `krait.portable`
-marker, then `%APPDATA%`.
-
-**T32 — locales.** A test reads the `.ts` files and fails when a string lands
-without Thai. **T33 — errors.** `PeerClosed` joins the taxonomy; the ConPTY
-reader loop now tells a dead pty from a shell that ran `exit`.
-
-## Verified API facts — do NOT re-derive these
-
-Carried forward from T23-T25 (FreeType one-face-per-thread;
-`hb_ft_font_create_referenced` already installs the funcs; `max_advance` is the
-max over EVERY glyph; `GetFirstMatchingFont` vs `MapCharacters` argument order;
-`DWriteCreateFactory` needs the `reinterpret_cast`; FreeType has no COLRv1;
-`QQuickRhiItemRenderer::update()` asks for a re-RENDER), plus:
-
-- **There is NO `QWindow::devicePixelRatioChanged` signal.** The per-monitor DPI
-  hook for an item is `itemChange(ItemDevicePixelRatioHasChanged)`.
-  `QWindow::screenChanged` fires only when the window MOVES, not when the same
-  monitor is rescaled.
-- **`ItemSceneChange` is not a DPI change**, but it is where the initial ratio
-  comes from: an item born on a 200% monitor never receives a CHANGE event. It
-  also arrives BEFORE `componentComplete()`, so `anchors.fill: parent` has not
-  been applied and the item is still 0x0 — which spawned a 2x2 pseudoconsole
-  until it was guarded.
-- **An unconnected `QQuickWindow::sceneGraphError` makes Qt show a MESSAGE BOX
-  and terminate.** `ui.md` bans app-modal surfaces, so the slot is mandatory,
-  and it must be connected before `show()`.
-- **QRhi's FRONTEND rejects an empty `QShader`** ("Empty shader passed to
-  graphics pipeline") before any backend sees it — including the Null backend.
-  A stub shader cannot get a pipeline created.
-- **Catch2 runs a test binary at BUILD time to enumerate cases**, so a binary
-  needing Qt DLLs fails the build with "Error listing tests from executable"
-  long before ctest runs. `catch_discover_tests(... DL_PATHS ...)` is the fix.
-- **vcpkg's tomlplusplus is prebuilt WITH exceptions**, and `TOML_EXCEPTIONS=0`
-  moves the library into a different inline namespace (`toml::v3::noex`), so
-  linking its target while asking for the no-exceptions API fails with an
-  unresolved `toml::v3::noex::parse`. The port also sets its header-only choice
-  as compile OPTIONS, which land after ours. Use the include path only.
-- **lupdate cannot see through an indirection.** A local `translate(...)` lambda
-  wrapping `QCoreApplication::translate` hides every literal from extraction —
-  it cost eight strings in `error_banner.h`, and it was silent.
-- **toml++'s `value<T>()` is not strict**: it returns `true` for
-  `ligatures = 3`. Check `is_boolean()`/`is_integer()`/`is_string()` first.
+- **`mlkem768x25519-sha256` does not work in this build.** libssh 0.12
+  advertises it, OpenSSH 10 prefers it, the two ends negotiate it, and the
+  client then fails with "Failed to construct client init buffer" before sending
+  its KEX init. Against libssh 0.12.0 + OpenSSL 3.6.3 on MSVC. This is why
+  `src/net/ssh/algorithms.h` exists and why it omits PQ key exchange. It is a
+  POSTPONEMENT: re-test on the next libssh bump, and the T43 contract tests are
+  the check.
+- **libssh 0.12 has no key-size accessor.** Only `ssh_key_type` and
+  `ssh_key_type_to_char`, so the randomart title reads `[ED25519]` where
+  ssh-keygen writes `[ED25519 256]`. The art itself is identical.
+- **`ssh_bind_set_blocking(bind, 0)` does not make accept non-blocking on
+  Windows.** The FIRST accept returns because a client is already arriving; the
+  second parks forever. The test server wakes it with a self-connect.
+- **`ssh_send_keepalive` is declared in `server.h`** but works for a client
+  session — libssh puts it there because servers use it too.
+- **NOMINMAX must precede every include in a file that reaches Qt headers**, not
+  just `<windows.h>`: Qt pulls windows.h in itself, so a define after it is
+  dead. `std::min` in `ssh_backend.cpp` is where that surfaced.
+- **`tr(runtimeString)` is invisible to lupdate.** The action registry is
+  Qt-free by design, so all fourteen labels would have shipped untranslated.
+  `session_model.cpp` repeats them as `QT_TR_NOOP` literals and
+  `action_labels_test.cpp` compares the two lists both ways. Same shape of
+  mistake as M1's `translate()` lambda.
+- **The corpus `reports/` directory asserts REPLIES; `csi/` asserts cursor
+  state; `parser/` asserts tokens.** A reply-shaped case in the wrong directory
+  fails confusingly. Also: each case starts from a FRESH terminal, so a
+  negotiation has to be one `IN` line.
+- **A `type="vanished"` entry in a .ts file fails the i18n gate**, which treats
+  any type attribute as untranslated. lupdate keeps them; they have to go.
 
 ## Watch out
 
-- **`render()` does NOT run with the GUI thread blocked; `synchronize()` does.**
-- **Never shape per row.** Pre-split every damaged row, then shape the frame in
-  ONE `shapeAll`.
-- **A bench that does not log its churn is not evidence.** `rowsRebuilt 63` is
-  what proves the flood ran.
-- **Do not run clang-format on a CMakeLists.txt.**
-- **Python heredoc edits bypass the clang-format hook** — run `clang-format -i`
-  on anything patched that way.
-- The shaped-run cache bound is an aggregate BYTE budget.
-- **Destroying a QRhi before the resources built on it is undefined**, and it
-  made the suite fail intermittently rather than reproducibly. Qt's contract is
-  release resources, THEN destroy the device.
-- **A short atlas upload must stay pending.** `takeGrew()` consumes the flag, so
-  a frame can report a taller atlas with `atlasGrew` already false, and clearing
-  the pending flag left the new half of the atlas blank for the session.
+- **`waitForAnswer` must be ARMED before the prompt is emitted, not inside the
+  wait.** A directly-connected receiver answers inside the emit; clearing the
+  flag afterwards discards that answer and then waits five minutes for it. The
+  contract tests connect directly on purpose so this cannot regress.
+- Every wait `ssh_backend.cpp` OWNS is bounded, and `stop()` notifies the
+  condition variable, so closing a tab during a host-key prompt or a 30-second
+  backoff returns promptly. The waits it does NOT own — libssh's connect, agent
+  and key-import calls — are not interruptible; see the `stop()` entry under
+  "Open, not blocking".
+- **`ShapePool::shapeAll` defaults to an 8 ms timeout and returning false when
+  it expires is the DOCUMENTED graceful path**, not a failure — the frame draws
+  without those runs and the next one finds them cached. So a correctness test
+  must pass an explicit generous timeout, the way fontdb_test always did.
+  Five shaper cases were asserting the sub-frame budget instead; they passed
+  locally and on a quiet CI, then started failing once M2 made the suite heavy
+  enough to contend the runner. A latency budget belongs in the bench.
+- clang-tidy rejects PARTIAL designated initializers
+  (`missing-designated-field-initializers`). CI catches it; a local check needs
+  `clang-tidy -p build/dev` on the changed files, which `/preflight` does not do.
+- The palette bench and the flood bench both live in the normal suite. The flood
+  is vsync-bound at 180 Hz, so `cpu_avg_ms` is the number that carries
+  information, not fps.
+
+## The review
+
+`cpp-reviewer` ran over the whole branch and found **three blocking** issues,
+all real, all fixed in `bbd91ef` — and finding them is why the M1 note said to
+run it rather than treat it as a formality:
+
+1. A stale answer could satisfy the host-key gate on a reconnect, writing
+   `known_hosts` with no human in the loop. `verifyHostKey` was not arming the
+   answer slot before its emit; only `askForSecret` was. Fixing it exposed a
+   second bug on the same line — the TOFU prompt was sending the bare
+   fingerprint, so the randomart never reached the one prompt it exists for.
+2. `std::regex` could throw out of `src/core`: MSVC throws `error_complexity`
+   while MATCHING, and the `try` covered construction only.
+3. `Vault` had no lock but is borrowed by every backend and called from every
+   worker thread — two tabs authenticating at once is a read of freed heap on a
+   credential path.
+
+Six more below blocking, also fixed: the reconnect counter never reset after a
+successful reconnect; a credential answered after its prompt timed out was never
+zeroed; `SSH_AGAIN` treated as success in the write loop; `vault.dat` truncated
+in place; one over-long PuTTY name aborting the whole import; a kitty colon
+subparam read as a mode; `krait ssh []:22` yielding a host named "[]".
 
 ## Evidence
 
 | Gate | Result |
 |---|---|
 | `cmake --build --preset dev` | pass |
-| `cmake --build --preset release` | pass (T35 added the preset) |
-| `ctest --preset dev` | **196/196** (was 125 at T25) |
-| `ctest --preset release` | **196/196** |
-| `tests\fuzz\run-smoke.cmd` | 60 s, zero crashes, 271 new units |
-| core-standalone (sacred rule 1) | builds with no Qt, no vcpkg toolchain |
-| clang-format, whole tree | clean |
-| clang-tidy, changed files | clean |
-| `tools\vttest-check.cmd` | corpus green, ledger covers every corpus area |
-| `tools\dpi-check.cmd` | **PASS** — 20px cell 12x23 at 100%, 40px cell 23x46 at 200% |
-| Release flood, WARP, 60 fps budget | **PASS** — >=180 fps (vsync-bound), cpu 5.56 ms |
-| Release flood vs T25, WARP | **PASS** — 139.9 -> >=180 fps, cpu 7.15 -> 5.56 ms |
-| Locales | lupdate 21 strings, lrelease 21 finished / 0 unfinished, both load |
-| `cpp-reviewer`, whole branch | 3 blocking + 11 others, all fixed on this branch |
+| `cmake --build --preset release` | pass |
+| `ctest --preset dev` | **279/279** (was 199 at M1) |
+| `ctest --preset release` | **278/278** (before the review fixes) |
+| clang-tidy + clang-format, changed files | clean |
+| `cpp-reviewer`, whole branch | 3 blocking + 6 others, all fixed |
+| `tests/fuzz/run-smoke.cmd` | **60 s, 35,661 runs, zero crashes** |
+| SSH contract suite vs in-process sshd | 8 cases, under 1 s |
+| Palette, 2000 profiles | well under the 100 ms budget |
+| Release flood, WARP, 60 fps budget | **PASS** — 177.6 fps, cpu 5.63 ms |
+| Release flood vs M1 | no regression (180.0 -> 177.6 fps, 5.555 -> 5.630 ms) |
+| Locales | 72 strings, 0 unfinished in EN or TH |
+| App starts, QML loads | exit 0 (a failed load exits 1) |
+| CI (`fast-gate`, run 30597305883) | steps 1-14 green: build, tests, zero-dep core proof, fuzz smoke, clang-format. Step 15 (clang-tidy) was CANCELLED, not failed — the workflow sets `concurrency: cancel-in-progress` on the ref, so re-running or re-dispatching kills the in-flight run. clang-tidy was run locally on every changed file instead: clean. |
 
-Baseline: `bench/baselines/m1-wrap.json`.
-
-Reviewed by `cpp-reviewer` over the whole branch. Three blocking findings, all
-real and all fixed here: an active IME composition suppressed every atlas upload
-for that frame; the clipboard was read with no size cap on the UI thread; and
-Banner.qml rendered hostile clipboard text as RICH text, so a pasted tag could
-restyle the warning that was about it. Eleven more findings down to Low, also
-fixed — the notable ones being stale glyph UVs after atlas growth (pre-existing
-from T25), unchecked `create()` calls in the device-lost rebuild, and plain
-Enter confirming a paste-guard banner that had just stolen focus.
+Baseline: `bench/baselines/m2-wrap.json`.
 
 ## Open, not blocking
 
-- **The hardware flood leg is UNMEASURED this session.** The renderer
-  initialises on the RTX 4060 and then never presents a frame — the machine had
-  no usable attached display (`qt.qpa.screen: Unable to open monitor interface
-  to DISPLAY1`) and a D3D11 present with nowhere to go blocks. That is the
-  condition T26's WARP fallback exists for, not a renderer regression, but the
-  last real hardware number is still T25's 140.7 fps. **Re-measure on a machine
-  with a display before M2 closes.**
-- **The manual gates have not been run by a human this session.**
-  `tools\ime-check.cmd`, `tools\paste-check.cmd` and `tools\backend-check.cmd`
-  are written and the logic behind each is unit-tested, but the parts only a
-  person can see — where the IME candidate window lands, that the banner is not
-  modal, that killing conhost produces the right banner — are unverified. Same
-  reason as above: no attached display.
-- **The M1 daily-drive checklist (01-milestones.md) has not been run.** Ten
-  items, all needing a person at a terminal.
-- `src/core/grid/scrollback.cpp:47` calls `shrink_to_fit()` in the
-  continuation-append hot path; one T21 test burns most of the suite's runtime.
-  Pre-existing from T21, deserves its own ticket.
-- Curly/dotted/dashed underlines draw as a single line; parsed and stored since
-  T17, so it is a pure render upgrade.
-- Font fallback is ONE hop, and the whole run is re-shaped with the mapped face.
-- Golden-image gate: the atlas PNG dump exists (`KRAIT_ATLAS_DUMP`) but there is
-  still no committed reference image or comparison step.
-- **The settings UI does not exist.** The registry, schema, EN+TH search
-  keywords and hot reload are all in place and the file is hand-editable; the
-  QML settings page and command palette `ui.md` describes are M2 work.
-- No migrations exist yet — `kSchemaVersion` is 1 and nothing has been renamed.
-  The mechanism and the future-version refusal are tested; the first real
-  migration will be the first exercise of the table.
+- **CI has never completed all 19 steps on this branch.** Not for want of
+  passing: the last run reached step 14 of 19 with everything green and was
+  cancelled at clang-tidy. `concurrency: cancel-in-progress: true` is keyed on
+  the ref, so a re-run or a re-dispatch cancels the run it was meant to repeat.
+  To get a full green, push a trivial commit and then LEAVE IT ALONE for the
+  ~20 minutes the libssh build takes — do not re-run it.
+
+- **The hardware flood leg is STILL unmeasured**, the same as at M1 close and
+  for the same reason: no usable attached display, so a hardware D3D11 present
+  has nowhere to go. `KRAIT_GPU=hardware` exits non-zero with no frames. The
+  last real hardware number is T25's 140.7 fps, now two milestones old. It needs
+  one run on a machine with a monitor, and no code at all.
+- **`stop()` joins the worker with no bound.** `m_shutdown` + `notify_all`
+  releases the condition-variable waits, but a worker inside `ssh_connect` (DNS
+  is not covered by `SSH_OPTIONS_TIMEOUT`), `ssh_userauth_agent` on a hung
+  OpenSSH named pipe, or `ssh_pki_import_privkey_file` on a dead network share
+  is not interruptible. Closing a tab against a blackholed host freezes the UI
+  for up to `connectTimeoutSeconds`; against a hung agent pipe, indefinitely.
+  `net.md` asks for a cancel path wired to tab close and this is not one.
+  Fixing it properly needs an `ssh_event` loop over a socket we own, or a
+  detached worker — and detaching a thread that touches `this` is worse than
+  the freeze. Left as a known ceiling with the reasoning, not papered over.
+- **The manual gates have still not been run by a human.** Same reason as M1.
+  The palette, the settings page and the banners have been verified to LOAD (the
+  app exits 0, and a QML failure exits 1), not to look right.
+- OSC 8's spoof guard — showing the real target before a click — is a renderer
+  obligation and is not implemented. The link is stored; nothing follows it.
+- OSC 52 read permission has no UI to grant it. The core gate works and is
+  tested; `allowClipboardRead` has no caller yet but the tests.
+- The kitty keyboard ships flag 1 only. Flags 2/4/8/16 were the milestone's cut
+  line. The negotiation is honest about it — ask for 31, get told 1.
+- `.ppk` keys are imported as paths but libssh cannot read them. Conversion is
+  unimplemented; auth falls back to the agent.
+- Jump hosts (ADR-0012) are M3 and untouched.
+- `src/core/grid/scrollback.cpp:47` still calls `shrink_to_fit()` in the
+  continuation-append hot path. Pre-existing from T21, still deserves a ticket.
+- Curly/dotted/dashed underlines still draw as one line. Pre-existing from T17.
+- No settings migrations exist yet; `kSchemaVersion` is still 1.

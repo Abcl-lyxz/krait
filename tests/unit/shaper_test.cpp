@@ -180,7 +180,13 @@ TEST_CASE("Thai shapes to positioned marks over four clusters", "[shaper]") {
     REQUIRE(runs.size() == 1);
 
     std::vector<ShapedRun> shaped;
-    REQUIRE(pool.shapeAll(runs, *faceId, false, shaped));
+    // Explicit timeout, matching fontdb_test and the run below: shapeAll's
+    // 8 ms default is a sub-frame RENDER budget, and returning false when it
+    // expires is the documented graceful path, not a failure. Asserting that
+    // budget inside a correctness test makes the test flaky on a loaded CI
+    // runner — which is exactly how it started failing once M2 made the suite
+    // heavier. What this case is about is Thai mark positioning.
+    REQUIRE(pool.shapeAll(runs, *faceId, false, shaped, std::chrono::seconds{10}));
     REQUIRE(shaped.size() == 1);
 
     const ShapedRun& out = shaped[0];
@@ -216,7 +222,7 @@ TEST_CASE("a face without coverage reports missing glyphs", "[shaper]") {
     const std::vector<Run> runs = rowRuns(grid);
 
     std::vector<ShapedRun> shaped;
-    REQUIRE(pool.shapeAll(runs, *faceId, false, shaped));
+    REQUIRE(pool.shapeAll(runs, *faceId, false, shaped, std::chrono::seconds{10}));
     // Consolas has no Thai. This flag is what T24's fallback chain triggers on.
     CHECK(shaped[0].missingGlyphs);
 }
@@ -235,11 +241,11 @@ TEST_CASE("shaped runs are cached, and the cache is bounded", "[shaper]") {
     std::vector<ShapedRun> first;
     std::vector<ShapedRun> second;
 
-    REQUIRE(pool.shapeAll(runs, *faceId, false, first));
+    REQUIRE(pool.shapeAll(runs, *faceId, false, first, std::chrono::seconds{10}));
     CHECK(pool.cacheMisses() == 1);
     CHECK(pool.cacheHits() == 0);
 
-    REQUIRE(pool.shapeAll(runs, *faceId, false, second));
+    REQUIRE(pool.shapeAll(runs, *faceId, false, second, std::chrono::seconds{10}));
     CHECK(pool.cacheMisses() == 1);  // unchanged: served from the cache
     CHECK(pool.cacheHits() == 1);
     REQUIRE(first[0].glyphs.size() == second[0].glyphs.size());
@@ -247,7 +253,7 @@ TEST_CASE("shaped runs are cached, and the cache is bounded", "[shaper]") {
 
     SECTION("the ligature flag is part of the key") {
         std::vector<ShapedRun> third;
-        REQUIRE(pool.shapeAll(runs, *faceId, true, third));
+        REQUIRE(pool.shapeAll(runs, *faceId, true, third, std::chrono::seconds{10}));
         CHECK(pool.cacheMisses() == 2);  // same text, different key
         CHECK(pool.cacheSize() == 2);
     }

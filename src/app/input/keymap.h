@@ -11,6 +11,10 @@ namespace krait::app::input {
 // and it must not need a Session, a backend or a window.
 struct KeyModes {
     bool appCursorKeys = false;  // DECCKM (mode 1)
+    // Kitty keyboard flags, as negotiated in the core (T48). Only bit 0
+    // (disambiguate) is acted on; the core masks everything else off before it
+    // can be stored, so a bit arriving here is a bit we implement.
+    int kittyFlags = 0;
 };
 
 // Translates one key press into the bytes a terminal sends.

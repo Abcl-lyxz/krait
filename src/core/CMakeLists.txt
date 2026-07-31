@@ -12,10 +12,16 @@ add_library(krait-core STATIC
     grid/cluster_pool.cpp
     grid/grid.cpp
     grid/reflow.cpp
+    grid/search.cpp
+    grid/search.h
     grid/scrollback.cpp
     parser/csi_cursor.cpp
     parser/csi_mode.cpp
     parser/csi_scroll.cpp
+    parser/kitty_keys.cpp
+    parser/kitty_keys.h
+    parser/osc.cpp
+    parser/osc.h
     parser/machine.cpp
     parser/sgr.cpp
     terminal/session.cpp

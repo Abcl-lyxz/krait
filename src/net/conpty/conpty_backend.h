@@ -20,7 +20,7 @@ namespace krait::net {
 // inbox one — startup fails loudly if the bundle is missing).
 // Reader/writer run on their own threads; output reaches the GUI thread
 // via the queued outputReceived signal.
-class ConptyBackend : public QObject, public IBackend {
+class ConptyBackend : public IBackend {
     Q_OBJECT
 
   public:
@@ -31,11 +31,6 @@ class ConptyBackend : public QObject, public IBackend {
     void writeInput(const QByteArray& bytes) override;
     void resize(int cols, int rows) override;
     void stop() override;
-
-  signals:
-    void outputReceived(const QByteArray& bytes);
-    void errorOccurred(const QString& code, const QString& message);
-    void exited(int exitCode);
 
   private:
     bool loadBundledConpty(QString* whyNot);

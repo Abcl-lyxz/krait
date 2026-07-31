@@ -4,6 +4,7 @@
 #include "core/grid/grid.h"
 #include "core/parser/events.h"
 #include "core/parser/machine.h"
+#include "core/parser/osc.h"
 
 #include <cstdint>
 #include <functional>
@@ -30,6 +31,23 @@ class Session final : public ParserEvents {
     // Terminal -> application replies (DA1/DSR). Called during feed().
     std::function<void(const std::string&)> onReply;
 
+    // An OSC string asked for something only the app layer can do: touch the
+    // clipboard, open a link, retitle a window. The core decides WHAT was
+    // asked and never does any of it — a VT core that reached a clipboard
+    // would not be a VT core with zero platform deps (CLAUDE.md).
+    std::function<void(const OscAction&)> onOsc;
+
+    // OSC 52 READ permission, per session, off by default (rules/net.md).
+    //
+    // This is the sharpest thing in the whole protocol surface: with it on, any
+    // program on the remote host can read the local clipboard — which may hold
+    // a password just copied for a DIFFERENT machine. Write needs no permission
+    // because it only ever costs the user a paste they did not expect; read
+    // costs them a secret they never sent.
+    void allowClipboardRead(bool allow) noexcept { m_clipboardReadAllowed = allow; }
+
+    bool clipboardReadAllowed() const noexcept { return m_clipboardReadAllowed; }
+
     // ParserEvents
     void print(char32_t cp) override;
     void execute(std::uint8_t control) override;
@@ -49,6 +67,8 @@ class Session final : public ParserEvents {
     Parser m_parser;
     Capabilities m_caps;
     ReplyLimiter m_limiter;
+    OscHandler m_osc;
+    bool m_clipboardReadAllowed = false;
 };
 
 }  // namespace krait::core::vt

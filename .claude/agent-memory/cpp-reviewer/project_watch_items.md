@@ -193,3 +193,39 @@ Watch items from past reviews (verify still true before flagging):
 - Working-tree drift at review: paste.cpp + registry.cpp + paste_test.cpp had
   UNCOMMITTED fixes (U+2028/2029/NEL normalisation, C1 strip, m_debounce
   delete) not in HEAD. Re-check `git status` before trusting a branch diff.
+
+## T36-T49 M2 backend seam (t36-backend-seam, reviewed 2026-07-31 — 3 BLOCKING)
+- Blocked on: (1) ssh_backend.cpp verifyHostKey emits hostKeyPrompt WITHOUT
+  armAnswer() (only askForSecret calls it) -> m_answered/m_hostKeyTrusted
+  survive a connect cycle, so on reconnect the TOFU gate resolves from the
+  previous cycle's answer; (2) search.cpp builds std::regex inside try/catch but
+  runs sregex_iterator OUTSIDE it — MSVC throws regex_error(error_complexity)
+  during MATCHING, so a backtracking pattern escapes src/core; (3) Vault has no
+  mutex yet ssh_backend calls retrieve/store/save from the WORKER thread with
+  `Vault*` borrowed from main() — two SSH tabs = m_entries reallocation under a
+  live `it->blob.data()`.
+- Accepted latent / re-check later:
+  - SshBackend::stop() joins the worker with no bound; m_shutdown does not
+    interrupt ssh_connect / ssh_userauth_agent / ssh_pki_import_privkey_file.
+    net.md's "every network wait has a timeout" is only met for the CV waits.
+  - run()'s `attempt` counter never resets after a SUCCESSFUL reconnect, so a
+    long-lived flaky session gives up after N lifetime drops, not N consecutive.
+  - m_credential is never cleared by armAnswer()/stop(); an answer arriving
+    after the 5-min prompt timeout parks plaintext for the object's lifetime.
+  - pump()'s write loop tests `n == SSH_ERROR` not `n < 0`; SSH_AGAIN (-2) would
+    drive `written` negative into OOB pointer arithmetic (unreachable while the
+    session stays blocking, one-char fix).
+  - Vault::save() is truncate-in-place, not write-temp-then-rename.
+  - handleKittyKeys ignores Params::subparam (DECRQM precedent rejects colon
+    subparams); putty_import breaks the WHOLE RegEnumKeyExA loop on
+    ERROR_MORE_DATA, dropping every later session.
+  - cli.cpp parseTarget turns "[]:22" into host "[]" rather than rejecting.
+- Verified CORRECT, do not re-flag: OSC 8 KiB payload cap + 4 KiB decoded
+  clipboard cap with the pre-multiply bound check; OSC 52 read gate default-off
+  and SILENT; kitty kSupported masking on the way in so the query cannot lie;
+  vault.dat parser bounds keyLen/blobLen/entry-count before every allocate;
+  Secret move ctor/assign leave no plaintext behind; randomart appendBorder
+  truncation arithmetic; hostkey hash read before ssh_key_free; smartSelect
+  never splits a UTF-8 sequence; TOML_EXCEPTIONS=0 is set for krait-session.
+- SshBackend/Vault are NOT wired into the app yet (TerminalItem still news
+  ConptyBackend); the factory is T45. Thread/UI findings are latent until then.

@@ -6,6 +6,9 @@
 #include "core/grid/line.h"
 #include "core/grid/scrollback.h"
 #include "core/grid/sync_output.h"
+// State only, no handlers: kitty_keys.h forward-declares Grid rather than
+// including it, so this direction does not close a cycle.
+#include "core/parser/kitty_keys.h"
 #include "core/unicode/width.h"
 
 #include <array>
@@ -80,6 +83,10 @@ class Grid {
     // past 222, so on any wider window it silently reports the wrong cell —
     // which is why every modern application asks for 1006.
     bool sgrMouse = false;
+
+    // Kitty keyboard protocol (T48). Same shape as the three above: state the
+    // core owns and the INPUT path reads, which never changes what is drawn.
+    KittyKeyboard kittyKeys;
 
     // Mode 2026, synchronized output. See sync_output.h for why the guard's
     // clock is supplied by the caller rather than read here.

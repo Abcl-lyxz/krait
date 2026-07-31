@@ -1,0 +1,38 @@
+{
+  "recorded": "2026-07-31",
+  "task": "T51",
+  "machine": "HomeCenter",
+  "gpu_adapter": "NVIDIA GeForce RTX 4060",
+  "warp_adapter": "Microsoft Basic Render Driver",
+  "os": "Windows 11 Pro 10.0.26200",
+  "qt": "6.10.3",
+  "compiler": "MSVC 19.51",
+  "display_hz": 180,
+  "workload": "Identical to m1-wrap.json and t25-renderer.json: 4K fixed colour buffer (3840x2160), 240x63 grid, EVERY cell rewritten every frame through Session::putChar, then split, shaped, atlased and rebuilt. Unchanged on purpose so the milestones compare directly.",
+  "how_to_run": "cmake --preset release && cmake --build --preset release, then KRAIT_TERM_BENCH=<frames> KRAIT_BENCH_4K=1 KRAIT_BENCH_WARP=1 KRAIT_BENCH_OUT=<json> krait-app.exe",
+  "why": "M2 added no renderer code, so this run is a REGRESSION check rather than a new number: the question is whether a milestone of backend, session and parser work slowed the hot path, and the answer is no.",
+  "release_warp": {
+    "target": "3840x2160",
+    "frames": 600,
+    "cpu_avg_ms": 5.63,
+    "cpu_p99_ms": 10.873,
+    "cpu_max_ms": 11.705,
+    "fps": 177.6,
+    "gpu_avg_ms": 4.124,
+    "gpu_samples": 659,
+    "solids": 1,
+    "glyphs": 15120
+  },
+  "comparison_to_m1": {
+    "m1_fps": 180.0,
+    "m2_fps": 177.6,
+    "m1_cpu_avg_ms": 5.555,
+    "m2_cpu_avg_ms": 5.63,
+    "verdict": "Within noise of m1-wrap.json (180.0 -> 177.6 fps, 5.555 -> 5.630 ms). Both are vsync-bound at the panel's 180 Hz, so the fps figure is a CEILING and the cpu_avg_ms number is the one that carries information. rules/render.md's budget is 60 fps; this is 3x it."
+  },
+  "hardware_leg": {
+    "status": "STILL UNMEASURED",
+    "detail": "Same condition M1 recorded and for the same reason: this machine has no usable attached display, so a hardware D3D11 device initialises and then a present with nowhere to go fails. KRAIT_GPU=hardware exits non-zero with no frames. That is exactly the case T26's WARP fallback exists for, not a renderer regression \u2014 but it means the last real hardware number is still T25's 140.7 fps, now two milestones old.",
+    "what_would_close_it": "One run of the how_to_run line above with KRAIT_GPU=hardware on a machine with a monitor attached. It needs no code."
+  }
+}

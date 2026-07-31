@@ -87,13 +87,32 @@ portable mode → JP IME script (Thai stays).
 | UI | tabs + splits polish, command palette, searchable settings UI, scrollback regex search, smart selection |
 | VT | kitty keyboard protocol, OSC 8 (spoof-guarded), OSC 52 (write + gated read + caps) |
 
-**Acceptance:** contract tests vs dockerized sshd fixture (connect, each auth
-flow, host-key change, peer-vanish, reconnect); `krait ssh user@host` CLI
-works; PuTTY import round-trip test; palette fuzzy-finds a session in <100 ms
-(bench). Demo: import PuTTY sessions → connect prod profile → red accent +
-changed-key banner scenario → search scrollback.
+**STATUS: ENGINE COMPLETE, NOT YET A PRODUCT (2026-07-31).** T36-T51 landed.
+Automated gates green — 278/278 tests in Debug and RelWithDebInfo, clang-tidy
+clean, release flood 177.6 fps on WARP against a 60 fps budget with no
+regression from M1 (`bench/baselines/m2-wrap.json`).
+
+The SSH engine is real and contract-tested against an in-process libssh server
+(better than the dockerized fixture below for these tests: no Docker on a
+Windows runner, and a server that can be made to misbehave on cue). Connect,
+password auth, host-key change, peer-vanish and reconnect all pass.
+
+What is NOT done, and is the first task of M3's prologue: **nothing connects
+from the UI yet.** The palette lists saved sessions and raises a banner saying
+so. The missing piece is the backend factory — Profile -> SshBackend -> a tab —
+plus tabs and splits themselves, which are still one window with one terminal.
+Also not done: jump hosts (M3 by plan), OSC 8's spoof guard (a renderer
+obligation), and the manual/demo gates below, which need a person at a display.
+
+**Acceptance:** contract tests vs an sshd fixture (connect, each auth flow,
+host-key change, peer-vanish, reconnect) — DONE, in-process rather than
+dockerized; `krait ssh user@host` CLI — parses and reports, does not yet
+connect; PuTTY import round-trip test — DONE; palette fuzzy-finds a session in
+<100 ms (bench) — DONE, 2000 profiles. Demo (import PuTTY sessions → connect
+prod profile → red accent + changed-key banner → search scrollback): NOT RUN,
+and cannot be until the factory above exists.
 **Cut lines:** bulk edit → smart selection → kitty keyboard full-flags
-(baseline flags stay).
+(baseline flags stay). TAKEN: kitty full flags (baseline flag 1 ships).
 
 ## M3 — Protocol breadth
 

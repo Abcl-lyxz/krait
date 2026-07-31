@@ -1,0 +1,69 @@
+# Kitty keyboard protocol (T48). EXPECT = replies only.
+#
+# The point of these cases is the HONESTY of the query answer: an application
+# sets the flags it wants and then asks what it actually got, so the reply is a
+# promise about the bytes the keyboard will send.
+#
+# Each case starts from a fresh terminal, so every negotiation below is written
+# as one IN line rather than built up across lines.
+
+# Nothing negotiated yet
+IN \x1B[?u
+EXPECT reply:\x1B[?0u
+
+# Push the baseline flag, and the query agrees
+IN \x1B[>1u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# Push then pop returns to nothing
+IN \x1B[>1u\x1B[<1u\x1B[?u
+EXPECT reply:\x1B[?0u
+
+# An application asking for ALL five flags gets the one we implement, and is
+# told so. Reporting 31 here would promise key event types, alternate keys and
+# associated text that the encoder never sends.
+IN \x1B[>31u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# The same masking on the = form
+IN \x1B[=31;1u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# CSI = flags ; mode u — 1 replaces, 3 clears those bits, 2 sets them
+IN \x1B[=1;1u\x1B[?u
+EXPECT reply:\x1B[?1u
+IN \x1B[=1;1u\x1B[=1;3u\x1B[?u
+EXPECT reply:\x1B[?0u
+IN \x1B[=1;2u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# An unknown mode does nothing rather than guessing "probably replace"
+IN \x1B[=1;1u\x1B[=0;9u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# A bare CSI u belongs to no protocol we speak: honest silence
+IN \x1B[u
+EXPECT -
+IN \x1B[1;2u
+EXPECT -
+
+# ...and it does not disturb the negotiated state either
+IN \x1B[>1u\x1B[u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# Popping an empty stack lands on OFF, not on whatever was underneath
+IN \x1B[>1u\x1B[<9u\x1B[?u
+EXPECT reply:\x1B[?0u
+
+# Pushing past the stack depth discards the oldest rather than wedging: twenty
+# pushes still leave a terminal that answers.
+IN \x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[>1u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# A parameter beyond the DEC 14-bit clamp still lands on something honest
+IN \x1B[>999999u\x1B[?u
+EXPECT reply:\x1B[?1u
+
+# Interleaved with a DA1, so a broken 'u' branch cannot silently eat the rest
+IN \x1B[>1u\x1B[c
+EXPECT reply:\x1B[?1;2c

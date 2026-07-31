@@ -323,3 +323,29 @@ TEST_CASE("the config file sits inside the resolved directory", "[settings][path
     CHECK(path.startsWith("/somewhere"));
     CHECK(path.endsWith("krait.toml"));
 }
+
+TEST_CASE("settings search finds a setting in both locales", "[settings][search]") {
+    // rules/ui.md makes Thai a first-class locale, and the schema carries Thai
+    // keywords precisely so a Thai speaker can FIND a setting by typing Thai. A
+    // translated label with English-only search is half a locale, and it is the
+    // half nobody notices is missing until someone tries.
+    const krait::app::settings::Def* fontSize = krait::app::settings::find("font.size");
+    REQUIRE(fontSize != nullptr);
+
+    CHECK(krait::app::settings::matchesSearch(*fontSize, ""));      // empty matches all
+    CHECK(krait::app::settings::matchesSearch(*fontSize, "font"));  // by id
+    CHECK(krait::app::settings::matchesSearch(*fontSize, "FONT"));  // ASCII case-insensitive
+    CHECK_FALSE(krait::app::settings::matchesSearch(*fontSize, "zzzznotasetting"));
+
+    // Every setting must be findable by SOMETHING in each locale, or it is a
+    // setting only reachable by scrolling — which for a growing schema is the
+    // same as unreachable.
+    for (const krait::app::settings::Def& def : krait::app::settings::definitions()) {
+        CAPTURE(std::string(def.id));
+        CHECK_FALSE(def.searchEn.empty());
+        CHECK_FALSE(def.searchTh.empty());
+        // The first Thai keyword, whatever it is, has to actually match.
+        const std::string_view thai = def.searchTh.substr(0, def.searchTh.find(' '));
+        CHECK(krait::app::settings::matchesSearch(def, thai));
+    }
+}

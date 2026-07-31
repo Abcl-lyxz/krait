@@ -8,8 +8,10 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "gpu_policy.h"
+#include "session/cli.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
+#include "settings_model.h"
 #include "terminal_item.h"
 #include <windows.h>
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
@@ -30,6 +32,11 @@
 #include <QSGRendererInterface>
 #include <QTimer>
 #include <QTranslator>
+
+#include <cstdio>
+#include <exception>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -52,13 +59,46 @@ const char* apiName(QSGRendererInterface::GraphicsApi api) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+// A function-try-block, because main() calls into toml++, the standard library
+// and Qt, none of which promise not to throw — and rules/cpp.md says exceptions
+// do not cross module boundaries, which makes this the boundary.
+int main(int argc, char* argv[]) try {
     // ADR-0001: D3D11 is the primary QRhi backend on Windows.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
+
+    // The command line is parsed BEFORE the QGuiApplication, so --help and a
+    // bad argument cost no window and no GPU device — and, more to the point,
+    // exit with a status a script can read.
+    namespace kses = krait::app::session;
+    std::vector<std::string> rawArgs;
+    rawArgs.reserve(static_cast<std::size_t>(argc));
+    for (int i = 0; i < argc; ++i) {
+        rawArgs.emplace_back(argv[i]);
+    }
+    const kses::Launch launch = kses::parseCommandLine(rawArgs);
+    if (launch.kind == kses::Launch::Kind::Message) {
+        std::fputs(launch.message.c_str(), launch.error ? stderr : stdout);
+        return launch.error ? 2 : 0;
+    }
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("Krait");
     qInfo("krait starting");
+    // What was asked for, said out loud. A session manager that silently opens
+    // something other than what the command line named is one nobody trusts
+    // twice — and the connection itself is T45's wiring.
+    switch (launch.kind) {
+    case kses::Launch::Kind::Profile:
+        qInfo("launch: profile '%s'", launch.profileName.c_str());
+        break;
+    case kses::Launch::Kind::Adhoc:
+        qInfo("launch: ssh %s@%s:%lld", launch.profile.user.c_str(), launch.profile.host.c_str(),
+              static_cast<long long>(launch.profile.port));
+        break;
+    default:
+        qInfo("launch: default session");
+        break;
+    }
 
     // Settings before the window: the GPU adapter choice below reads one, and
     // QQuickGraphicsConfiguration has to be set before the scene graph starts.
@@ -120,6 +160,15 @@ int main(int argc, char* argv[]) {
     for (QObject* root : engine.rootObjects()) {
         for (krait::app::TerminalItem* item : root->findChildren<krait::app::TerminalItem*>()) {
             item->setSettings(&registry);
+        }
+    }
+
+    // The settings page reads the same one, for the same reason — and it is
+    // where a hot reload has to land visibly, since a page showing stale values
+    // is a page that will be edited on top of them.
+    for (QObject* root : engine.rootObjects()) {
+        for (krait::app::SettingsModel* model : root->findChildren<krait::app::SettingsModel*>()) {
+            model->setRegistry(&registry);
         }
     }
 
@@ -185,4 +234,12 @@ int main(int argc, char* argv[]) {
         QTimer::singleShot(3000, &app, &QCoreApplication::quit);
     }
     return app.exec();
+} catch (const std::exception& error) {
+
+    // stderr, not a banner: by definition there is no window to put one in.
+    std::fprintf(stderr, "krait: fatal: %s\n", error.what());
+    return 4;
+} catch (...) {
+    std::fprintf(stderr, "krait: fatal: unknown error\n");
+    return 4;
 }

@@ -7,6 +7,12 @@
     "fmt",
     "freetype",
     {
+      "name": "libssh",
+      "features": [
+        "server"
+      ]
+    },
+    {
       "name": "harfbuzz",
       "default-features": false,
       "features": [
