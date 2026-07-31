@@ -33,4 +33,24 @@ T39-T43 SshBackend added three more (2026-07-31), all generalisable:
 10. Shared secret stores (Vault) are touched from worker threads: check for a
     mutex before the first backend calls retrieve/store/save off the GUI thread.
 
-**How to apply:** checklist for any src/net diff with std::thread + Win32 handles. See [[project-watch-items]].
+T52 backend swap added one more (2026-07-31), and it is the sharpest:
+
+11. **Know WHERE a backend's queued emission is posted before trusting a
+    swap/teardown.** ConptyBackend does `QMetaObject::invokeMethod(this, ...,
+    QueuedConnection)` — the event goes to the BACKEND, so a later
+    `backend->disconnect(receiver)` really does drop it. SshBackend does a plain
+    `emit outputReceived(...)` on the worker — AutoConnection posts the
+    QMetaCallEvent to the RECEIVER, and disconnect() cancels nothing already in
+    the queue. Any "stop(); disconnect(); deleteLater()" swap therefore needs an
+    identity guard in the slot (`if (sender() != m_backend) return;` or capture
+    the backend pointer in the lambda), not just a disconnect. Cross-session
+    consequences: old host's bytes parsed into the new grid, DA/DSR answerbacks
+    written to the NEW connection, host A's credential prompt answered with a
+    password that is then sent to host B.
+12. **Two signals emitted back-to-back from a worker = the second banner wins.**
+    verifyHostKey emits hostKeyPrompt(Changed) then fail(); both queue to the
+    GUI in order, so the generic error banner overwrites the danger banner in
+    the same turn. Check every prompt-then-fail pair against what the user
+    actually ends up looking at.
+
+**How to apply:** checklist for any src/net diff with std::thread + Win32 handles, and for any src/app code that tears down or replaces a backend. See [[project-watch-items]].

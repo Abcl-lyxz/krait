@@ -115,6 +115,28 @@ void SessionModel::activate(int index) {
     }
 }
 
+std::optional<session::Profile> SessionModel::profileById(const QString& id) const {
+    const session::Profile* raw = m_store.find(id.toStdString());
+    if (raw == nullptr) {
+        return std::nullopt;
+    }
+    // resolve(), not the stored profile: the store holds only the keys each
+    // profile owns, so a session that inherits its user from [folders."prod"]
+    // would otherwise reach the backend with an empty user and fail with a
+    // message about a value the user never wrote.
+    return m_store.resolve(*raw);
+}
+
+std::optional<session::Profile> SessionModel::profileByName(const QString& name) const {
+    const std::string wanted = name.toStdString();
+    for (const session::Profile& profile : m_store.profiles()) {
+        if (profile.name == wanted) {
+            return m_store.resolve(profile);
+        }
+    }
+    return std::nullopt;
+}
+
 QString SessionModel::importFromPutty() {
     const session::PuttyImport imported = session::importFromPuttyRegistry();
     if (!imported.error.empty()) {

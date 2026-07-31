@@ -229,3 +229,41 @@ Watch items from past reviews (verify still true before flagging):
   never splits a UTF-8 sequence; TOML_EXCEPTIONS=0 is set for krait-session.
 - SshBackend/Vault are NOT wired into the app yet (TerminalItem still news
   ConptyBackend); the factory is T45. Thread/UI findings are latent until then.
+
+## T52 backend factory + UI wiring (t52-backend-factory, uncommitted, reviewed 2026-07-31 — 3 BLOCKING)
+- Blocked on: (1) terminal_item.cpp resetSession() assumes `disconnect(this)`
+  cancels in-flight queued emissions — true for ConPTY (posts invokeMethod to
+  ITSELF) but FALSE for SshBackend (emits from the worker, so the QMetaCallEvent
+  is posted to the TerminalItem) → old host's bytes/prompts land in the NEXT
+  session; (2) verifyHostKey emits hostKeyPrompt then fail() back-to-back, so
+  Main.qml onErrorRaised overwrites the Changed-key "danger" banner (fingerprint
+  + randomart lost) in the same event-loop turn; (3) m_started is true with
+  m_backend null in the KRAIT_TERM_BENCH path → any keystroke null-derefs at
+  terminal_item.cpp:821 (also 683/907/992/303).
+- Accepted latent / re-check later:
+  - QML banner is a mode machine; only dismiss() calls endInput(). onErrorRaised
+    / onConnectionNotice / onPasteConfirmRequested leave a typed password in the
+    TextInput and leave mode=="credential".
+  - banner.message takes server text raw: empty kbdint prompt → `visible:
+    message.length > 0` false → invisible banner + 5-min silent auth hang; 36
+    sanitised lines → TerminalView height goes negative.
+  - SshBackend::stop() (unbounded join) now runs on the GUI thread on every
+    palette session switch, not just at exit. ConPTY adds a 500 ms
+    WaitForSingleObject.
+  - Every `krait <profile>` launch spawns a default PowerShell during
+    engine.loadFromModule and main() immediately tears it down.
+  - splitCommand/expandEnv (quote parsing, two-shot buffer growth) are in an
+    anonymous namespace with zero tests; backend_factory_test covers only the
+    enum/port mapping.
+  - The five new SSH connect() calls are AutoConnection, not the explicit
+    Qt::QueuedConnection cpp.md demands.
+- Verified CORRECT, do not re-flag: main.cpp declaration order (app → registry →
+  vault → engine) genuinely outlives the backends, ~QQmlApplicationEngine
+  deletes root objects first; describeHostKey askable=false for Changed/
+  OtherType/Error and Main.qml hides the accept button (showAccept gates both
+  the button and handleConfirmKey); Vault now HAS its mutex; armAnswer()/stop()
+  now clear m_credential; ExpandEnvironmentStringsW `written <= buffer.size()`
+  and SearchPathW `length >= MAX_PATH` comparisons match the documented
+  count-includes-null semantics; function-local `static const bool safeSearch`
+  init is thread-safe (magic statics); deleteLater on a parented child is fine;
+  respondCredential wipes its QByteArray with SecureZeroMemory.

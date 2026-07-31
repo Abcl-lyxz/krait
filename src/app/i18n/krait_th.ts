@@ -13,6 +13,14 @@
         <source>Cancel</source>
         <translation>ยกเลิก</translation>
     </message>
+    <message>
+        <source>Will be saved to the Windows vault — Ctrl+R to stop</source>
+        <translation>จะถูกบันทึกไว้ในวอลต์ของ Windows — Ctrl+R เพื่อหยุด</translation>
+    </message>
+    <message>
+        <source>Not saved — Ctrl+R to remember it</source>
+        <translation>ไม่บันทึก — Ctrl+R เพื่อจำไว้</translation>
+    </message>
 </context>
 <context>
     <name>ErrorBanner</name>
@@ -96,6 +104,22 @@
         <source>The session failed.</source>
         <translation>เซสชันล้มเหลว</translation>
     </message>
+    <message>
+        <source>Krait has not seen this server before. Check the fingerprint below against one you got from somewhere other than this connection, then decide.</source>
+        <translation>Krait ยังไม่เคยเห็นเซิร์ฟเวอร์นี้มาก่อน ตรวจสอบลายนิ้วมือด้านล่างกับค่าที่คุณได้มาจากช่องทางอื่นที่ไม่ใช่การเชื่อมต่อนี้ แล้วจึงตัดสินใจ</translation>
+    </message>
+    <message>
+        <source>This server is presenting a different identity than the one Krait remembers, so the connection was stopped before anything was sent.</source>
+        <translation>เซิร์ฟเวอร์นี้แสดงตัวตนต่างจากที่ Krait จำไว้ การเชื่อมต่อจึงถูกหยุดก่อนที่จะมีการส่งข้อมูลใด ๆ</translation>
+    </message>
+    <message>
+        <source>This server offered a key of a different type than the one Krait has on record for it, so the connection was stopped.</source>
+        <translation>เซิร์ฟเวอร์นี้เสนอกุญแจคนละชนิดกับที่ Krait บันทึกไว้ การเชื่อมต่อจึงถูกหยุด</translation>
+    </message>
+    <message>
+        <source>Krait could not check this server's identity, so it did not connect.</source>
+        <translation>Krait ตรวจสอบตัวตนของเซิร์ฟเวอร์นี้ไม่ได้ จึงไม่ได้เชื่อมต่อ</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -122,14 +146,25 @@
         <translation>ยกเลิก</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="97"/>
-        <source>Opening saved sessions is not wired up yet: %1</source>
-        <translation>ยังไม่ได้เชื่อมการเปิดเซสชันที่บันทึกไว้: %1</translation>
-    </message>
-    <message>
         <location filename="../qml/Main.qml" line="110"/>
         <source>Not wired up yet: %1</source>
         <translation>ยังไม่ได้เชื่อมต่อคำสั่งนี้: %1</translation>
+    </message>
+    <message>
+        <source>Trust this server</source>
+        <translation>เชื่อถือเซิร์ฟเวอร์นี้</translation>
+    </message>
+    <message>
+        <source>Do not connect</source>
+        <translation>ไม่ต้องเชื่อมต่อ</translation>
+    </message>
+    <message>
+        <source>Connect</source>
+        <translation>เชื่อมต่อ</translation>
+    </message>
+    <message>
+        <source>The server is asking for a password.</source>
+        <translation>เซิร์ฟเวอร์กำลังขอรหัสผ่าน</translation>
     </message>
 </context>
 <context>
@@ -309,6 +344,10 @@
         <source>The shell exited with code %1.</source>
         <translation>เชลล์จบการทำงานด้วยรหัส %1</translation>
     </message>
+    <message>
+        <source>Connection lost. Reconnecting in %1 s (%2 of %3)…</source>
+        <translation>การเชื่อมต่อหลุด กำลังเชื่อมต่อใหม่ใน %1 วินาที (%2 จาก %3)…</translation>
+    </message>
 </context>
 <context>
     <name>krait::net::ConptyBackend</name>
@@ -316,6 +355,18 @@
         <location filename="../../net/conpty/conpty_backend.cpp" line="197"/>
         <source>The console host closed unexpectedly. The session is over; the shell may still be running.</source>
         <translation>โฮสต์คอนโซลปิดตัวลงโดยไม่คาดคิด เซสชันสิ้นสุดแล้ว แต่เชลล์อาจยังทำงานอยู่</translation>
+    </message>
+    <message>
+        <source>Could not expand %SystemRoot% to find PowerShell.</source>
+        <translation>ขยายค่า %SystemRoot% เพื่อหา PowerShell ไม่ได้</translation>
+    </message>
+    <message>
+        <source>Could not expand the configured shell command.</source>
+        <translation>ขยายค่าคำสั่งเชลล์ที่ตั้งไว้ไม่ได้</translation>
+    </message>
+    <message>
+        <source>Could not find %1.</source>
+        <translation>ไม่พบ %1</translation>
     </message>
 </context>
 <context>
@@ -394,6 +445,17 @@
         <location filename="../../net/ssh/ssh_backend.cpp" line="655"/>
         <source>%1 stopped responding.</source>
         <translation>%1 หยุดตอบสนอง</translation>
+    </message>
+</context>
+<context>
+    <name>main</name>
+    <message>
+        <source>That session is no longer saved.</source>
+        <translation>เซสชันนั้นไม่ได้ถูกบันทึกไว้แล้ว</translation>
+    </message>
+    <message>
+        <source>No saved session is called that.</source>
+        <translation>ไม่มีเซสชันที่บันทึกไว้ชื่อนั้น</translation>
     </message>
 </context>
 </TS>

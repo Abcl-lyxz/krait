@@ -8,6 +8,7 @@
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
+#include <optional>
 #include <span>
 
 namespace krait::app {
@@ -66,6 +67,18 @@ class SessionModel : public QObject {
     // human-readable summary for the banner — including how many sessions were
     // left behind and why.
     Q_INVOKABLE QString importFromPutty();
+
+    // The RESOLVED profile behind an id (T52) — [defaults] and the folder chain
+    // already applied, which is what a backend needs and what the store does
+    // not hold. Empty when there is no such profile.
+    //
+    // Deliberately not Q_INVOKABLE: QML has no use for a Profile, and the one
+    // caller is main()'s wiring, which is C++.
+    std::optional<session::Profile> profileById(const QString& id) const;
+
+    // Same, by profile NAME rather than id — what `krait <name>` on the command
+    // line has to work from, since a name is what a person types.
+    std::optional<session::Profile> profileByName(const QString& name) const;
 
   signals:
     void queryChanged();

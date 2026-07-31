@@ -26,6 +26,8 @@ qt_add_qml_module(krait-app
         qml/Palette.qml
         qml/Settings.qml
     SOURCES
+        backend_factory.cpp
+        backend_factory.h
         session_model.cpp
         settings_model.cpp
         settings_model.h

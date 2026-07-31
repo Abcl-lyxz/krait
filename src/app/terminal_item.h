@@ -2,6 +2,7 @@
 
 #include "../net/conpty/conpty_backend.h"
 #include "../net/ibackend.h"
+#include "../net/vault/vault.h"
 #include "core/terminal/session.h"
 #include "input/ime.h"
 #include "input/mouse.h"
@@ -12,6 +13,7 @@
 #include "render/ime_metrics.h"
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
+#include "session/profile.h"
 #include "settings/registry.h"
 #include <rhi/qrhi.h>
 
@@ -85,6 +87,41 @@ class TerminalItem : public QQuickRhiItem {
     // Answers a pending confirmation. `allow` false discards the paste.
     Q_INVOKABLE void resolvePaste(bool allow);
 
+    // The secret store every SSH backend borrows (T52). Borrowed; main() owns
+    // it so all tabs share one file rather than each holding its own copy of a
+    // vault that the others' writes would then overwrite.
+    void setVault(net::Vault* vault);
+
+    // Opens `profile` here (T52), replacing whatever this terminal was running.
+    // Safe before the first frame — the backend is built when the grid size is
+    // known — and safe afterwards, which is what the palette needs.
+    //
+    // T53 gives the palette a new TAB instead; this stays the way one terminal
+    // is pointed at one profile, so only the caller changes.
+    void openProfile(const session::Profile& profile);
+
+    // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
+    // has moved on, so a banner answered late cannot reach a different backend.
+    Q_INVOKABLE void respondHostKey(bool trust);
+
+    // Answers credentialPromptRequested. `remember` stores it in the vault.
+    Q_INVOKABLE void respondCredential(const QString& text, bool remember);
+
+    // Raises a banner from outside the backend path — the command line naming a
+    // session that does not exist, and nothing else so far. Exists because
+    // rules/ui.md makes the per-tab banner the ONLY error surface, so a caller
+    // with no backend still needs a way in.
+    Q_INVOKABLE void raiseError(const QString& message, const QString& hint);
+
+    // What the command line asked for, consumed by the FIRST item constructed.
+    //
+    // Static because there is no hook between "QML constructed the item" and
+    // "the item has geometry", and geometry is what triggers the first start.
+    // Without this, `krait prod` spawns the default PowerShell during
+    // loadFromModule() and main() then kills it a few lines later — paying a
+    // process create and a wait on the UI thread to show nothing.
+    static void setLaunchProfile(const session::Profile& profile);
+
   signals:
     // rules/ui.md: a per-tab banner, never an app-modal dialog. `detail` is the
     // first line of what would be sent, so the user can see what they are
@@ -94,6 +131,21 @@ class TerminalItem : public QQuickRhiItem {
     // A backend failure, already mapped to what the user reads (T33). Per-tab
     // and never modal: rules/ui.md bans app-modal surfaces in session flows.
     void errorRaised(const QString& message, const QString& hint);
+
+    // The SSH host key needs a human (T52). `askable` false means there is
+    // nothing to accept — a changed key is refused whatever the answer is
+    // (rules/net.md), and the banner shows no Trust button at all rather than
+    // one that does nothing.
+    void hostKeyPromptRequested(const QString& message, const QString& detail, bool askable);
+
+    // A password, passphrase or keyboard-interactive answer is needed. `prompt`
+    // is SERVER-CONTROLLED for keyboard-interactive, so the banner renders it
+    // as plain text. `echo` false means a password field.
+    void credentialPromptRequested(const QString& prompt, bool echo);
+
+    // Connection progress worth putting on screen: connected, or reconnecting
+    // with the attempt count. Empty message clears it.
+    void connectionNotice(const QString& message);
 
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
@@ -115,6 +167,18 @@ class TerminalItem : public QQuickRhiItem {
   private:
     void handleOutput(const QByteArray& bytes);
     void ensureStarted();
+    // Takes ownership of `backend` and wires the IBackend contract plus, when
+    // it is an SSH one, the prompts. One place, so a fifth backend cannot
+    // arrive with four of the five connections made.
+    void adoptBackend(net::IBackend* backend);
+    // Drops the current backend and the parsed session, leaving the item ready
+    // for ensureStarted() to build the next one.
+    void resetSession();
+    // Every path that sends bytes to the far end goes through here. One guard
+    // instead of five: the item is fully usable with no backend (a bench run,
+    // and the window between resetSession() and the next start), and a keypress
+    // arriving then must be dropped rather than dereferenced.
+    void sendInput(const QByteArray& bytes);
     bool ensureFont();
     void rebuildFrame();
     // Re-rasterises the font stack at `dpr` and reflows the grid. A DPI change
@@ -155,6 +219,10 @@ class TerminalItem : public QQuickRhiItem {
     // The seam, not a concrete backend: M2 swaps a session profile's SSH
     // backend in here without this class knowing which protocol it drives.
     net::IBackend* m_backend = nullptr;  // owned by this (QObject parent)
+    net::Vault* m_vault = nullptr;       // borrowed; owned by main()
+    // What this terminal is pointed at. Default-constructed = a local shell,
+    // which is what a window opened with no arguments should be.
+    session::Profile m_profile;
 
     render::RasterFn m_raster;
     std::string m_family;            // what ensureFont() actually resolved

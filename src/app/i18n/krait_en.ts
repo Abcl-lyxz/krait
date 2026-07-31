@@ -13,6 +13,14 @@
         <source>Cancel</source>
         <translation>Cancel</translation>
     </message>
+    <message>
+        <source>Will be saved to the Windows vault — Ctrl+R to stop</source>
+        <translation>Will be saved to the Windows vault — Ctrl+R to stop</translation>
+    </message>
+    <message>
+        <source>Not saved — Ctrl+R to remember it</source>
+        <translation>Not saved — Ctrl+R to remember it</translation>
+    </message>
 </context>
 <context>
     <name>ErrorBanner</name>
@@ -96,6 +104,22 @@
         <source>The session failed.</source>
         <translation>The session failed.</translation>
     </message>
+    <message>
+        <source>Krait has not seen this server before. Check the fingerprint below against one you got from somewhere other than this connection, then decide.</source>
+        <translation>Krait has not seen this server before. Check the fingerprint below against one you got from somewhere other than this connection, then decide.</translation>
+    </message>
+    <message>
+        <source>This server is presenting a different identity than the one Krait remembers, so the connection was stopped before anything was sent.</source>
+        <translation>This server is presenting a different identity than the one Krait remembers, so the connection was stopped before anything was sent.</translation>
+    </message>
+    <message>
+        <source>This server offered a key of a different type than the one Krait has on record for it, so the connection was stopped.</source>
+        <translation>This server offered a key of a different type than the one Krait has on record for it, so the connection was stopped.</translation>
+    </message>
+    <message>
+        <source>Krait could not check this server's identity, so it did not connect.</source>
+        <translation>Krait could not check this server's identity, so it did not connect.</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -122,14 +146,25 @@
         <translation>Cancel</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="97"/>
-        <source>Opening saved sessions is not wired up yet: %1</source>
-        <translation>Opening saved sessions is not wired up yet: %1</translation>
-    </message>
-    <message>
         <location filename="../qml/Main.qml" line="110"/>
         <source>Not wired up yet: %1</source>
         <translation>Not wired up yet: %1</translation>
+    </message>
+    <message>
+        <source>Trust this server</source>
+        <translation>Trust this server</translation>
+    </message>
+    <message>
+        <source>Do not connect</source>
+        <translation>Do not connect</translation>
+    </message>
+    <message>
+        <source>Connect</source>
+        <translation>Connect</translation>
+    </message>
+    <message>
+        <source>The server is asking for a password.</source>
+        <translation>The server is asking for a password.</translation>
     </message>
 </context>
 <context>
@@ -309,6 +344,10 @@
         <source>The shell exited with code %1.</source>
         <translation>The shell exited with code %1.</translation>
     </message>
+    <message>
+        <source>Connection lost. Reconnecting in %1 s (%2 of %3)…</source>
+        <translation>Connection lost. Reconnecting in %1 s (%2 of %3)…</translation>
+    </message>
 </context>
 <context>
     <name>krait::net::ConptyBackend</name>
@@ -316,6 +355,18 @@
         <location filename="../../net/conpty/conpty_backend.cpp" line="197"/>
         <source>The console host closed unexpectedly. The session is over; the shell may still be running.</source>
         <translation>The console host closed unexpectedly. The session is over; the shell may still be running.</translation>
+    </message>
+    <message>
+        <source>Could not expand %SystemRoot% to find PowerShell.</source>
+        <translation>Could not expand %SystemRoot% to find PowerShell.</translation>
+    </message>
+    <message>
+        <source>Could not expand the configured shell command.</source>
+        <translation>Could not expand the configured shell command.</translation>
+    </message>
+    <message>
+        <source>Could not find %1.</source>
+        <translation>Could not find %1.</translation>
     </message>
 </context>
 <context>
@@ -394,6 +445,17 @@
         <location filename="../../net/ssh/ssh_backend.cpp" line="655"/>
         <source>%1 stopped responding.</source>
         <translation>%1 stopped responding.</translation>
+    </message>
+</context>
+<context>
+    <name>main</name>
+    <message>
+        <source>That session is no longer saved.</source>
+        <translation>That session is no longer saved.</translation>
+    </message>
+    <message>
+        <source>No saved session is called that.</source>
+        <translation>No saved session is called that.</translation>
     </message>
 </context>
 </TS>

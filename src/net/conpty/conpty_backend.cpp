@@ -80,6 +80,131 @@ void ConptyBackend::abortStart() {
     }
 }
 
+void ConptyBackend::setCommand(const QString& command) {
+    m_command = command;
+}
+
+namespace {
+
+// %VAR% expansion. Returns false on failure rather than silently handing the
+// unexpanded string on, which would try to launch a file literally named
+// "%LOCALAPPDATA%\...".
+bool expandEnv(const std::wstring& text, std::wstring* out) {
+    // Heap, not the stack: the documented ceiling on an expansion is 32K chars,
+    // and a 64 KB local in a function called on the GUI thread is not a trade
+    // worth making for one string built once per session.
+    std::vector<wchar_t> buffer(MAX_PATH);
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        // The count INCLUDES the terminating null on success AND when the
+        // buffer was too small (learn.microsoft.com), so comparing it with the
+        // buffer size is the only way to tell those apart — the return value
+        // alone cannot.
+        const DWORD written = ExpandEnvironmentStringsW(text.c_str(), buffer.data(),
+                                                        static_cast<DWORD>(buffer.size()));
+        if (written == 0) {
+            return false;
+        }
+        if (written <= buffer.size()) {
+            *out = buffer.data();
+            return true;
+        }
+        buffer.resize(written);
+    }
+    return false;
+}
+
+// Splits "C:\path with space\sh.exe -l" or "\"C:\p\sh.exe\" -l" into the
+// executable and the rest. A leading quote wins, which is the only way to name
+// a path containing a space.
+void splitCommand(const std::wstring& raw, std::wstring* exe, std::wstring* args) {
+    if (!raw.empty() && raw.front() == L'"') {
+        const std::size_t close = raw.find(L'"', 1);
+        if (close != std::wstring::npos) {
+            *exe = raw.substr(1, close - 1);
+            *args = raw.substr(close + 1);
+            return;
+        }
+        // Unterminated quote: treat the whole thing as the path. Guessing where
+        // the argument list starts would be worse than failing to find it.
+        *exe = raw.substr(1);
+        args->clear();
+        return;
+    }
+    const std::size_t space = raw.find(L' ');
+    *exe = raw.substr(0, space);
+    *args = space == std::wstring::npos ? std::wstring() : raw.substr(space);
+}
+
+}  // namespace
+
+bool resolveShellCommand(const QString& command, std::wstring* exePath, std::wstring* commandLine,
+                         QString* whyNot) {
+    // QCoreApplication::translate at each site, with the class's context because
+    // this is a free function and tr() is not available. NOT wrapped in a local
+    // helper: lupdate only extracts literals passed straight to the call, and a
+    // one-line `text(...)` lambda would hide every one of these from it —
+    // the same mistake error_banner.h documents costing M1 eight strings.
+    const QString wanted = command.trimmed();
+    if (wanted.isEmpty()) {
+        if (!expandEnv(L"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                       exePath)) {
+            *whyNot = QCoreApplication::translate(
+                "krait::net::ConptyBackend", "Could not expand %SystemRoot% to find PowerShell.");
+            return false;
+        }
+        *commandLine = L"\"" + *exePath + L"\" -NoLogo";
+        return true;
+    }
+
+    std::wstring exe;
+    std::wstring args;
+    splitCommand(wanted.toStdWString(), &exe, &args);
+    std::wstring expanded;
+    if (exe.empty() || !expandEnv(exe, &expanded)) {
+        *whyNot = QCoreApplication::translate("krait::net::ConptyBackend",
+                                              "Could not expand the configured shell command.");
+        return false;
+    }
+
+    // net.md's hostile-input posture, applied to LOCAL config because the hole
+    // is the same shape: CreateProcessW's own search (the one it uses when
+    // lpApplicationName is null) looks in the calling process's directory and
+    // then the CURRENT directory before System32, so a planted powershell.exe
+    // beside a downloaded file wins. Microsoft's documented mitigation is to
+    // resolve the path ourselves and pass it as lpApplicationName, quoted in
+    // the command line — which is what the rest of this function does.
+    //
+    // SearchPathW has the SAME default weakness (current directory first,
+    // governed by the SafeProcessSearchMode registry value, which defaults to
+    // 0), and SetSearchPathMode is what turns it off per process. PERMANENT
+    // because nothing in this process ever wants it back on; it is idempotent
+    // per process, hence the function-local static.
+    static const bool safeSearch = SetSearchPathMode(BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE |
+                                                     BASE_SEARCH_PATH_PERMANENT) != FALSE;
+    if (!safeSearch) {
+        // Not fatal — an absolute path does not need the search at all — but it
+        // is exactly the kind of thing that must never be silent.
+        qWarning("conpty: safe search mode unavailable (%lu); relative shell commands will "
+                 "search the current directory first",
+                 GetLastError());
+    }
+
+    wchar_t resolved[MAX_PATH] = {};
+    // On success this returns the length WITHOUT the null; when the buffer is
+    // too small it returns the size WITH it. Either way >= the buffer means we
+    // did not get a usable path.
+    const DWORD length =
+        SearchPathW(nullptr, expanded.c_str(), L".exe", MAX_PATH, resolved, nullptr);
+    if (length == 0 || length >= MAX_PATH) {
+        *whyNot = QCoreApplication::translate("krait::net::ConptyBackend", "Could not find %1.")
+                      .arg(QString::fromStdWString(expanded));
+        return false;
+    }
+    *exePath = resolved;
+    *commandLine = L"\"" + *exePath + L"\"" + args;
+    return true;
+}
+
 bool ConptyBackend::start(int cols, int rows) {
     if (m_started) {
         return true;
@@ -139,14 +264,20 @@ bool ConptyBackend::start(int cols, int rows) {
     si.StartupInfo.hStdOutput = nullptr;
     si.StartupInfo.hStdError = nullptr;
 
-    // Absolute path: a bare "powershell.exe" would search the app/current
-    // directory first (binary planting, net.md hostile-input posture).
-    wchar_t psPath[MAX_PATH];
-    ExpandEnvironmentStringsW(L"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-                              psPath, MAX_PATH);
-    wchar_t cmdline[] = L"powershell.exe -NoLogo";
-    if (!CreateProcessW(psPath, cmdline, nullptr, nullptr, FALSE, EXTENDED_STARTUPINFO_PRESENT,
-                        nullptr, nullptr, &si.StartupInfo, &m_process)) {
+    std::wstring exePath;
+    std::wstring commandLine;
+    QString whyNoCommand;
+    if (!resolveShellCommand(m_command, &exePath, &commandLine, &whyNoCommand)) {
+        abortStart();
+        fail(ErrorCode::SpawnFailed, whyNoCommand);
+        return false;
+    }
+    // commandLine.data() and not a literal: CreateProcessW is documented to
+    // MODIFY the buffer it is given, so a string literal there is an access
+    // violation waiting for the right Windows build.
+    if (!CreateProcessW(exePath.c_str(), commandLine.data(), nullptr, nullptr, FALSE,
+                        EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo,
+                        &m_process)) {
         abortStart();
         fail(ErrorCode::SpawnFailed,
              QString::asprintf("CreateProcess failed (%lu)", GetLastError()));

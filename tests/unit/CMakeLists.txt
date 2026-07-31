@@ -39,7 +39,9 @@ catch_discover_tests(krait-core-tests)
 add_executable(krait-qt-tests
     action_labels_test.cpp
     ../../src/app/session_model.cpp
+    ../../src/app/backend_factory.cpp
     backend_contract_test.cpp
+    backend_factory_test.cpp
     error_banner_test.cpp
     gpu_resources_test.cpp
     hostkey_art_test.cpp

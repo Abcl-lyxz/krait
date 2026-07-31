@@ -16,6 +16,13 @@ evidence and a ticket rather than re-running until green.
 | T16 (`t16-ci`, 2026-07-29) | 22 | 0.48 s |
 | pre-T23 baseline | 89 | — |
 | T23 (`t23-shaper`, 2026-07-30) | 100 | 44.01 s |
+| T36 (`t36-backend-seam`) | 278 | — |
+| T52 (`t52-backend-factory`, 2026-07-31) | 284 | 38.00 s |
+
+T52 added exactly 5 `[factory]` tests; the 6th of the 278→284 delta came from
+commits landed between t36 and HEAD, not from T52 — don't attribute the whole
+delta to the branch under test. `grep -c TEST_CASE tests/**.cpp` reads 285 vs
+ctest's 284 because of the `[.]`-hidden bench case below.
 
 T23 added exactly 11 registered tests from `tests/unit/shaper_test.cpp`. A 12th
 `TEST_CASE("shaping throughput", "[.][bench]")` is **hidden** by the `[.]` tag,
@@ -24,7 +31,7 @@ coverage for the shaper**. Its numbers live in `bench/baselines/t23-shaper.json`
 and only a manual run or `perf-auditor` touches them. Do not report 100 vs 12
 TEST_CASEs as a missing test.
 
-## The 41-second test (not a failure, not T23)
+## The 41-second test (not a failure, not T23) — now ~29 s
 
 `scrollback: a window read does not rewrap an endless line`
 (`tests/unit/scrollback_test.cpp:103`) takes **41.4 s of the 44 s total — 94% of
@@ -38,7 +45,12 @@ reallocating and copying the whole ~4 MB vector (20 B/Cell). The test pushes
 ~10,000 pushes memcpy roughly 40 GB. Introduced with T21 (733b4c3); confirmed
 pre-existing, not a T23 regression, via an empty `git diff HEAD -- src/core/`.
 
-**How to apply:** expect ~44 s for a green run and do not treat it as a hang.
+Re-measured 2026-07-31 (T52): **29.36 s of a 38.00 s total — 77%**. Still the
+single dominant test by a wide margin (next slowest is 0.77 s). The absolute
+drop from 41 s is unexplained by any `src/core/` change; treat 29-42 s for this
+one test as the normal band rather than evidence of a fix or a regression.
+
+**How to apply:** expect ~38-44 s for a green run and do not treat it as a hang.
 If total time jumps well past that, check this test first. The `shrink_to_fit`
 call is deliberate (it bounds memory, not just the accounting) so any fix must
 keep the memory bound — amortize it, don't delete it.

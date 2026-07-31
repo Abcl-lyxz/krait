@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/error.h"
+#include "net/ssh/ssh_backend.h"  // HostKeyState
 
 #include <QCoreApplication>
 #include <QString>
@@ -125,6 +126,63 @@ inline ErrorBanner describeError(net::ErrorCode code) {
         .message = QCoreApplication::translate("ErrorBanner", "The session failed."),
         .hint = {},
         .sessionEnded = true,
+    };
+}
+
+// A host key that needs a human (plan T52). Separate from ErrorBanner because
+// the question is different in kind: an error reports something that already
+// happened, and this asks for a decision that has not been made yet.
+struct HostKeyPrompt {
+    QString severity;
+    QString message;
+    // rules/net.md: a CHANGED key is never a yes/no question, and there is no
+    // setting anywhere that turns it back into one. False here means the banner
+    // shows no Trust button at all — not a Trust button that quietly refuses,
+    // which teaches people the warning is theatre.
+    bool askable = false;
+};
+
+inline HostKeyPrompt describeHostKey(net::HostKeyState state) {
+    switch (state) {
+    case net::HostKeyState::Unknown:
+    case net::HostKeyState::NoFile:
+        return {
+            .severity = QStringLiteral("warning"),
+            .message = QCoreApplication::translate(
+                "ErrorBanner", "Krait has not seen this server before. Check the fingerprint "
+                               "below against one you got from somewhere other than this "
+                               "connection, then decide."),
+            .askable = true,
+        };
+    case net::HostKeyState::Changed:
+        return {
+            .severity = QStringLiteral("danger"),
+            .message = QCoreApplication::translate(
+                "ErrorBanner",
+                "This server is presenting a different identity than the one Krait remembers, "
+                "so the connection was stopped before anything was sent."),
+            .askable = false,
+        };
+    case net::HostKeyState::OtherType:
+        return {
+            .severity = QStringLiteral("danger"),
+            .message = QCoreApplication::translate(
+                "ErrorBanner", "This server offered a key of a different type than the one "
+                               "Krait has on record for it, so the connection was stopped."),
+            .askable = false,
+        };
+    case net::HostKeyState::Ok:
+    case net::HostKeyState::Error:
+        break;
+    }
+    // Ok never prompts, and Error means we could not tell — which is refused
+    // rather than asked about, because "we do not know who this is" is not a
+    // question a user can answer.
+    return {
+        .severity = QStringLiteral("error"),
+        .message = QCoreApplication::translate(
+            "ErrorBanner", "Krait could not check this server's identity, so it did not connect."),
+        .askable = false,
     };
 }
 
