@@ -406,7 +406,7 @@
     </message>
 </context>
 <context>
-    <name>krait::net::TelnetBackend</name>
+    <name>krait::net::TcpBackend</name>
     <message>
         <source>No answer from %1 after %2 seconds.</source>
         <translation>No answer from %1 after %2 seconds.</translation>

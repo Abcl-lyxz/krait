@@ -2,6 +2,7 @@
 
 #include "net/conpty/conpty_backend.h"
 #include "net/ibackend.h"
+#include "net/raw/raw_backend.h"
 #include "net/telnet/telnet_backend.h"
 
 #include <QString>
@@ -33,6 +34,22 @@ net::SshAuthPreference authFor(session::SshAuth auth) {
 
 }  // namespace
 
+net::TcpConfig tcpConfigFor(const session::Profile& profile, int defaultPort) {
+    net::TcpConfig config;
+    config.host = profile.host;
+    // The same out-of-range guard as SSH: sessions.toml is hand-editable, and
+    // 65536 truncated to uint16 is 0, which fails with a message about nothing
+    // the user wrote.
+    config.port =
+        profile.port > 0 && profile.port <= 65535 ? static_cast<int>(profile.port) : defaultPort;
+    // Matching SshConfig's default rather than leaving the machinery
+    // unreachable. It only ever retries CONNECT failures for these backends —
+    // a close after a successful connect is reported as a clean end, because
+    // nothing at the TCP layer distinguishes a logout from a drop.
+    config.maxReconnectAttempts = 5;
+    return config;
+}
+
 net::SshConfig sshConfigFor(const session::Profile& profile) {
     net::SshConfig config;
     config.host = profile.host;
@@ -57,14 +74,15 @@ net::IBackend* makeBackend(const session::Profile& profile, net::Vault* vault, Q
         return new net::SshBackend(sshConfigFor(profile), vault, parent);  // owned by parent
     case session::BackendKind::Telnet: {
         net::TelnetConfig config;
-        config.host = profile.host;
-        // 23, not 22: the same out-of-range guard as SSH, with telnet's default.
-        config.port =
-            profile.port > 0 && profile.port <= 65535 ? static_cast<int>(profile.port) : 23;
         // Telnet has no credentials of its own — whatever the far end asks for
         // goes through the terminal like any other output — so no vault key.
+        config.tcp = tcpConfigFor(profile, 23);
         return new net::TelnetBackend(std::move(config), parent);  // owned by parent
     }
+    case session::BackendKind::Raw:
+        // No default port: a raw socket is always aimed somewhere specific, and
+        // inventing one would connect to a service the user never named.
+        return new net::RawBackend(tcpConfigFor(profile, 0), parent);  // owned by parent
     case session::BackendKind::Conpty: {
         auto* backend = new net::ConptyBackend(parent);  // owned by parent
         backend->setCommand(QString::fromStdString(profile.command));

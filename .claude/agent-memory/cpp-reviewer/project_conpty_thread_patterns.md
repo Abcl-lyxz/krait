@@ -54,3 +54,19 @@ T52 backend swap added one more (2026-07-31), and it is the sharpest:
     actually ends up looking at.
 
 **How to apply:** checklist for any src/net diff with std::thread + Win32 handles, and for any src/app code that tears down or replaces a backend. See [[project-watch-items]].
+
+T54 telnet added the inverse of 11/12 (2026-07-31):
+
+13. **`TerminalItem::resetSession()` calls `old->stop()` on a QThreadPool
+    thread — unconditionally, for every backend.** That was designed for
+    SshBackend (blocking libssh join) and ConptyBackend (Win32 handles), both
+    of which are thread-agnostic. Any NEW backend built on Qt objects
+    (QTcpSocket, QTimer, QSerialPort, QLocalSocket) has a `stop()` that is
+    illegal off the owning thread: `QTimer::stop()` → killTimer prints
+    "Timers cannot be stopped from another thread" and does NOTHING (the
+    pending reconnect survives), and `QAbstractSocket::abort()` races the GUI
+    thread's read notifier. Check this on T55 (raw) and T56 (serial) too.
+    Fix shape: guard at the top of stop() —
+    `if (thread() != QThread::currentThread()) { QMetaObject::invokeMethod(this, &X::stop, Qt::QueuedConnection); return; }`
+    Do NOT use BlockingQueuedConnection: ~QThreadPool waits on the GUI thread
+    at shutdown, so a blocking hop deadlocks.

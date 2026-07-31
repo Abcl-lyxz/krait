@@ -267,3 +267,49 @@ Watch items from past reviews (verify still true before flagging):
   count-includes-null semantics; function-local `static const bool safeSearch`
   init is thread-safe (magic statics); deleteLater on a parented child is fine;
   respondCredential wipes its QByteArray with SecureZeroMemory.
+
+## T54 telnet backend (reviewed 2026-07-31, branch t54-backend-factory)
+
+- BLOCKING: `TelnetBackend::stop()` runs on a QThreadPool thread via
+  `TerminalItem::resetSession()` — see thread pattern 13.
+- BLOCKING: no write backpressure. `flushReply()`/`writeInput()` call
+  `QTcpSocket::write` unconditionally; Qt's write buffer has no cap
+  (`setReadBufferSize` caps reads only, there is no write equivalent). A server
+  that agrees TERMINAL-TYPE then streams `IAC SB 24 01 IAC SE` and stops
+  reading gets a 3.3x amplifier (6 bytes in, 20 out) into an unbounded buffer.
+  net.md wants both a cap and answerback rate-limiting.
+- HIGH: initial NAWS reports 80x24, always. `openSocket()` copies
+  `m_config.settings` into the Negotiator BEFORE `handleConnected()` writes
+  m_cols/m_rows into it. Only a later window resize corrects it. Contract test
+  uses 80x24 so it cannot see this.
+- MED: the connect timer only calls `fail()`; it never aborts the socket. With
+  the production default maxReconnectAttempts=0 the stale connect survives and
+  can emit `connected()` after the connect-failed banner, or error again for a
+  second banner (m_sawError is not set on the timer path).
+- MED: `TelnetConfig::maxReconnectAttempts` defaults to 0 and
+  `backend_factory.cpp` never sets it (SshConfig defaults to 5) — retry timer,
+  m_attempt, scheduleReconnect and the `reconnecting` signal are unreachable
+  outside the contract test.
+- Fuzz honesty: `telnet_fuzz.cpp` never asserts anything about `data` (its own
+  header comment names that as THE invariant), and it feeds at chunk 1/3/whole
+  but discards all three results instead of comparing them. It also never calls
+  `start()`, so the WANTYES rows of RFC 1143 are unfuzzed. The reply walker is
+  not IAC-doubling-aware (latent false alarm if resize's range widens past
+  cols=0xFF00).
+- `run-smoke.cmd` passes `tests\fuzz\seeds-telnet` as libFuzzer's writable
+  corpus dir, so the committed seed dir grows every run (~200 SHA-named files
+  already sitting there next to the 14 hand-written seeds). parser-fuzz avoids
+  this by using `build\%PRESET%\corpus`.
+- Verified CORRECT, do not re-flag: the RFC 1143 tables in
+  receiveWill/Wont/Do/Dont match docs/research/t54-telnet-findings.md row for
+  row, INCLUDING the merged WantNoOpposite+WantYesEmpty case in receiveWill
+  (both are him=YES per the published table); `m_subData` is bounded on every
+  push and the overflow flag is reset on all three exits from SubIac; no
+  subnegotiation parameter byte can reach `data`; `encodeInput` doubles 0xFF in
+  both NVT and BINARY and there is no path that writes a lone 0xFF;
+  `m_negotiator` cannot be null in handleReadyRead/writeInput/handleConnected
+  (it is built in openSocket before the socket); openSocket's
+  disconnect+abort+deleteLater ordering is safe; the fuzz presets override
+  CMAKE_CXX_FLAGS_RELWITHDEBINFO to "/O2 /Zi" with no /DNDEBUG, so the asserts
+  really do fire; MSVC C4062 + /WX does make the defaultless switches in
+  profile.cpp/backend_factory.cpp break at compile time as their comments claim.

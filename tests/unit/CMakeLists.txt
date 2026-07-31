@@ -53,6 +53,7 @@ add_executable(krait-qt-tests
     reconnect_test.cpp
     remote_text_test.cpp
     settings_test.cpp
+    raw_contract_test.cpp
     ssh_contract_test.cpp
     telnet_contract_test.cpp
     telnet_test.cpp

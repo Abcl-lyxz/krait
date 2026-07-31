@@ -177,6 +177,8 @@ std::string backendName(BackendKind kind) {
         return "ssh";
     case BackendKind::Telnet:
         return "telnet";
+    case BackendKind::Raw:
+        return "raw";
     case BackendKind::Conpty:
         return "conpty";
     }
@@ -203,13 +205,16 @@ std::string authName(SshAuth auth) {
 
 BackendKind parseBackend(std::string_view text, bool* parseOk) {
     if (parseOk != nullptr) {
-        *parseOk = text == "ssh" || text == "conpty" || text == "telnet";
+        *parseOk = text == "ssh" || text == "conpty" || text == "telnet" || text == "raw";
     }
     if (text == "ssh") {
         return BackendKind::Ssh;
     }
     if (text == "telnet") {
         return BackendKind::Telnet;
+    }
+    if (text == "raw") {
+        return BackendKind::Raw;
     }
     // Unknown text falls back to the local shell, which connects to nothing.
     // `parseOk` is how load() knows to warn rather than silently rewrite.

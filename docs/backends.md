@@ -111,6 +111,47 @@ ignore banners. `src/net/telnet/telnet_backend.cpp` records the measurement.
 
 Specs, quoted and checked: `docs/research/t54-telnet-findings.md`.
 
+## raw — a TCP socket and nothing else
+
+What PuTTY calls "raw", and it earns its place: half of network debugging is
+wanting to see exactly what a port says, with nothing helpfully rewriting it.
+
+| Key | Meaning |
+|---|---|
+| `host`, `port` | No default port. A raw socket is always aimed somewhere specific, and inventing one would connect to a service nobody named. |
+
+Nothing is sent on connect and nothing is ever answered — a backend that spoke
+unprompted would be writing bytes the user never typed into a session they are
+using to find out what the other end does. In particular 0xFF is **not**
+doubled and CR is **not** given a companion NUL: those are telnet's rules, and
+applying them here would corrupt the one protocol whose contract is that
+nothing is applied.
+
+## telnet and raw share their socket
+
+Both are `TcpBackend` (`src/net/tcp_backend.h`) with a codec on top: telnet's
+is the negotiator, raw's is a copy. The split happened when the second one
+arrived and not before — an abstraction with a single implementation is
+something `.claude/rules/cpp.md` bans — and it matters because the socket half
+is where the lifetime bugs live. Written twice, every fix has to be made twice
+on the code path that handles remote input.
+
+Three properties belong to that shared half:
+
+- **`stop()` hops to the object's own thread if called from another.** The app
+  tears backends down on a thread pool, because `SshBackend::stop()` can block
+  inside libssh. Everything in `TcpBackend` is a GUI-thread QObject, and
+  `QTimer::stop()` from another thread is refused silently — so without the hop
+  a pending reconnect survives the tab closing.
+- **The write queue is capped.** Qt caps reads but has no write-buffer limit at
+  all, and telnet's answers amplify: six bytes of subnegotiation in, twenty
+  out. A server that floods and stops reading would otherwise grow the queue
+  until allocation failed.
+- **The connect timeout aborts the socket**, rather than only reporting. Left
+  running, the OS gives up twenty seconds later and raises a second banner for
+  the same failure — or connects, and the tab comes alive under a banner saying
+  nothing answered.
+
 ## What every backend owes
 
 From `.claude/rules/net.md`, and enforced by the contract tests:

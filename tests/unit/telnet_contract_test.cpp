@@ -71,8 +71,8 @@ TEST_CASE("connect, negotiate, and carry data", "[net][contract][telnet]") {
         bytes({tn::kIac, tn::kDo, tn::kTerminalType, tn::kIac, tn::kWill, tn::kSuppressGoAhead}));
 
     krait::net::TelnetConfig config;
-    config.host = "127.0.0.1";
-    config.port = port;
+    config.tcp.host = "127.0.0.1";
+    config.tcp.port = port;
     krait::net::TelnetBackend backend(config);
 
     QSignalSpy output(&backend, &krait::net::IBackend::outputReceived);
@@ -117,8 +117,8 @@ TEST_CASE("a resize sends NAWS once the option is agreed", "[net][contract][teln
     server.setGreeting(bytes({tn::kIac, tn::kDo, tn::kNaws}));
 
     krait::net::TelnetConfig config;
-    config.host = "127.0.0.1";
-    config.port = port;
+    config.tcp.host = "127.0.0.1";
+    config.tcp.port = port;
     krait::net::TelnetBackend backend(config);
     QSignalSpy connected(&backend, &krait::net::TelnetBackend::connected);
     REQUIRE(backend.start(80, 24));
@@ -140,8 +140,8 @@ TEST_CASE("input is escaped on the way out", "[net][contract][telnet]") {
     REQUIRE(port != 0);
 
     krait::net::TelnetConfig config;
-    config.host = "127.0.0.1";
-    config.port = port;
+    config.tcp.host = "127.0.0.1";
+    config.tcp.port = port;
     krait::net::TelnetBackend backend(config);
     QSignalSpy connected(&backend, &krait::net::TelnetBackend::connected);
     REQUIRE(backend.start(80, 24));
@@ -179,8 +179,8 @@ TEST_CASE("a close after connect is a clean exit, however it happened", "[net][c
     REQUIRE(port != 0);
 
     krait::net::TelnetConfig config;
-    config.host = "127.0.0.1";
-    config.port = port;
+    config.tcp.host = "127.0.0.1";
+    config.tcp.port = port;
     krait::net::TelnetBackend backend(config);
     QSignalSpy errors(&backend, &krait::net::IBackend::errorOccurred);
     QSignalSpy exits(&backend, &krait::net::IBackend::exited);
@@ -212,10 +212,10 @@ TEST_CASE("a refused connection reports connect-failed and retries by policy",
     }
 
     krait::net::TelnetConfig config;
-    config.host = "127.0.0.1";
-    config.port = port;
-    config.connectTimeoutSeconds = 2;
-    config.maxReconnectAttempts = 2;
+    config.tcp.host = "127.0.0.1";
+    config.tcp.port = port;
+    config.tcp.connectTimeoutSeconds = 2;
+    config.tcp.maxReconnectAttempts = 2;
     krait::net::TelnetBackend backend(config);
     QSignalSpy errors(&backend, &krait::net::IBackend::errorOccurred);
     QSignalSpy retries(&backend, &krait::net::TelnetBackend::reconnecting);
@@ -238,8 +238,8 @@ TEST_CASE("a refused connection reports connect-failed and retries by policy",
 TEST_CASE("stop is idempotent and safe before start", "[net][contract][telnet]") {
     ensureApp();
     krait::net::TelnetConfig config;
-    config.host = "127.0.0.1";
-    config.port = 1;
+    config.tcp.host = "127.0.0.1";
+    config.tcp.port = 1;
     krait::net::TelnetBackend backend(config);
     // Cancel at every lifecycle stage (rules/net.md), including the one before
     // there is anything to cancel.

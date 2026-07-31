@@ -82,6 +82,16 @@ rem
 rem 30 seconds rather than 60: the negotiator is a fraction of the parser's
 rem state space and saturates quickly. Raise it if a run is ever still finding
 rem new coverage at the cut-off.
-build\%PRESET%\tests\fuzz\telnet-fuzz.exe -max_total_time=30 -print_final_stats=1 tests\fuzz\seeds-telnet
+rem COPIED into the build tree first, and run against the copy. libFuzzer
+rem APPENDS every coverage-increasing unit to the first corpus directory it is
+rem given, so pointing it at the committed seeds turns them into a corpus that
+rem grows by a couple of hundred files on every run — which is exactly what
+rem happened before this line existed. parser-fuzz avoids it the same way, by
+rem running against build\%PRESET%\corpus.
+if not exist build\%PRESET%\corpus-telnet mkdir build\%PRESET%\corpus-telnet
+copy /y tests\fuzz\seeds-telnet\* build\%PRESET%\corpus-telnet\ >nul
+if %ERRORLEVEL% neq 0 exit /b 1
+
+build\%PRESET%\tests\fuzz\telnet-fuzz.exe -max_total_time=30 -print_final_stats=1 build\%PRESET%\corpus-telnet
 if %ERRORLEVEL% neq 0 exit /b 1
 exit /b 0

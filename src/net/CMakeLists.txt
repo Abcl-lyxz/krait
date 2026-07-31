@@ -21,10 +21,14 @@ add_library(krait-net STATIC
     error.h
     ibackend.h
     reconnect.h
+    tcp_backend.cpp
+    tcp_backend.h
     remote_text.cpp
     remote_text.h
     conpty/conpty_backend.cpp
     conpty/conpty_backend.h
+    raw/raw_backend.cpp
+    raw/raw_backend.h
     ssh/hostkey_art.cpp
     ssh/hostkey_art.h
     telnet/telnet_backend.cpp
