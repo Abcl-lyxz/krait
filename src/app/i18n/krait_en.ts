@@ -343,6 +343,37 @@
     </message>
 </context>
 <context>
+    <name>krait::net::SerialBackend</name>
+    <message>
+        <source>There is no %1 on this machine.</source>
+        <translation>There is no %1 on this machine.</translation>
+    </message>
+    <message>
+        <source>Could not open %1 (%2). Another program may have it.</source>
+        <translation>Could not open %1 (%2). Another program may have it.</translation>
+    </message>
+    <message>
+        <source>%1 did not answer as a serial port.</source>
+        <translation>%1 did not answer as a serial port.</translation>
+    </message>
+    <message>
+        <source>%1 rejected %2 baud %3%4%5.</source>
+        <translation>%1 rejected %2 baud %3%4%5.</translation>
+    </message>
+    <message>
+        <source>Could not set timeouts on %1.</source>
+        <translation>Could not set timeouts on %1.</translation>
+    </message>
+    <message>
+        <source>%1 is no longer connected.</source>
+        <translation>%1 is no longer connected.</translation>
+    </message>
+    <message>
+        <source>%1 did not come back.</source>
+        <translation>%1 did not come back.</translation>
+    </message>
+</context>
+<context>
     <name>krait::net::SshBackend</name>
     <message>
         <source>This session has no host to connect to.</source>

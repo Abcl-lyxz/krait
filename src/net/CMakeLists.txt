@@ -27,6 +27,10 @@ add_library(krait-net STATIC
     remote_text.h
     conpty/conpty_backend.cpp
     conpty/conpty_backend.h
+    serial/serial_backend.cpp
+    serial/serial_backend.h
+    serial/serial_ports.cpp
+    serial/serial_ports.h
     raw/raw_backend.cpp
     raw/raw_backend.h
     ssh/hostkey_art.cpp
@@ -43,4 +47,4 @@ add_library(krait-net STATIC
 
 target_include_directories(krait-net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Crypt32 for the DPAPI vault (CryptProtectData lives in Crypt32.dll).
-target_link_libraries(krait-net PUBLIC Qt6::Core Qt6::Network PRIVATE Crypt32 ssh)
+target_link_libraries(krait-net PUBLIC Qt6::Core Qt6::Network PRIVATE Crypt32 ssh setupapi)

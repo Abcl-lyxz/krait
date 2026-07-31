@@ -3,6 +3,7 @@
 #include "net/conpty/conpty_backend.h"
 #include "net/ibackend.h"
 #include "net/raw/raw_backend.h"
+#include "net/serial/serial_backend.h"
 #include "net/telnet/telnet_backend.h"
 
 #include <QString>
@@ -83,6 +84,14 @@ net::IBackend* makeBackend(const session::Profile& profile, net::Vault* vault, Q
         // No default port: a raw socket is always aimed somewhere specific, and
         // inventing one would connect to a service the user never named.
         return new net::RawBackend(tcpConfigFor(profile, 0), parent);  // owned by parent
+    case session::BackendKind::Serial: {
+        net::SerialConfig config;
+        // `host` IS the port name for a serial profile — PuTTY's convention,
+        // and the reason no second field exists for it.
+        config.port = profile.host;
+        config.baud = profile.baud > 0 ? static_cast<int>(profile.baud) : 115200;
+        return new net::SerialBackend(std::move(config), parent);  // owned by parent
+    }
     case session::BackendKind::Conpty: {
         auto* backend = new net::ConptyBackend(parent);  // owned by parent
         backend->setCommand(QString::fromStdString(profile.command));

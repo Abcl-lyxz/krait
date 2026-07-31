@@ -8,10 +8,10 @@
 
 namespace krait::app::session {
 
-// Which backend a profile drives. Serial joins later in M3; the enum is
+// Which backend a profile drives. The enum is
 // closed on purpose so a TOML file naming a backend we do not have fails
 // loudly at load rather than opening a shell instead of a connection.
-enum class BackendKind { Conpty, Ssh, Telnet, Raw };
+enum class BackendKind { Conpty, Ssh, Telnet, Raw, Serial };
 
 // Auth METHOD, not credentials — nothing here is ever a secret. Passwords and
 // passphrases live in the DPAPI vault keyed by the profile id (rules/net.md).
@@ -51,6 +51,11 @@ struct Profile {
 
     // ConPTY only: the shell to spawn. Empty means the configured default.
     std::string command;
+
+    // Serial only. The PORT is `host`, the way PuTTY stores a serial line in
+    // its host field — a profile has one "where", and a second field for it
+    // would mean every importer and every editor learning about both.
+    std::int64_t baud = 115200;
 
     // Which keys this profile set ITSELF, as opposed to inheriting from
     // [defaults] or a [folders."..."] table. Save writes only these, so the

@@ -26,6 +26,7 @@ constexpr const char* kAuth = "auth";
 constexpr const char* kKeyPath = "key_path";
 constexpr const char* kAccent = "accent";
 constexpr const char* kCommand = "command";
+constexpr const char* kBaud = "baud";
 
 std::string readText(const std::string& path, bool* exists) {
     std::ifstream file(path, std::ios::binary);
@@ -107,6 +108,14 @@ bool applyField(Profile& profile, std::string_view key, std::string_view value) 
         profile.accent = value;
     } else if (key == kCommand) {
         profile.command = value;
+    } else if (key == kBaud) {
+        std::int64_t baud = 0;
+        std::from_chars(value.data(), value.data() + value.size(), baud);
+        // A nonsense baud rate is a typo, not a configuration: keep the
+        // previous value rather than asking the driver for 0 bits a second.
+        if (baud > 0) {
+            profile.baud = baud;
+        }
     } else {
         return false;
     }
@@ -147,6 +156,9 @@ std::string fieldText(const Profile& profile, std::string_view key) {
     if (key == kCommand) {
         return profile.command;
     }
+    if (key == kBaud) {
+        return std::to_string(profile.baud);
+    }
     return {};
 }
 
@@ -179,6 +191,8 @@ std::string backendName(BackendKind kind) {
         return "telnet";
     case BackendKind::Raw:
         return "raw";
+    case BackendKind::Serial:
+        return "serial";
     case BackendKind::Conpty:
         return "conpty";
     }
@@ -205,7 +219,8 @@ std::string authName(SshAuth auth) {
 
 BackendKind parseBackend(std::string_view text, bool* parseOk) {
     if (parseOk != nullptr) {
-        *parseOk = text == "ssh" || text == "conpty" || text == "telnet" || text == "raw";
+        *parseOk = text == "ssh" || text == "conpty" || text == "telnet" || text == "raw" ||
+                   text == "serial";
     }
     if (text == "ssh") {
         return BackendKind::Ssh;
@@ -215,6 +230,9 @@ BackendKind parseBackend(std::string_view text, bool* parseOk) {
     }
     if (text == "raw") {
         return BackendKind::Raw;
+    }
+    if (text == "serial") {
+        return BackendKind::Serial;
     }
     // Unknown text falls back to the local shell, which connects to nothing.
     // `parseOk` is how load() knows to warn rather than silently rewrite.

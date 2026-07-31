@@ -64,8 +64,24 @@ TEST_CASE("a telnet session imports as telnet", "[session][putty]") {
     CHECK(profile->isExplicit("backend"));
 }
 
+TEST_CASE("a serial session keeps its line and speed", "[session][putty]") {
+    // T56. PuTTY stores the line in SerialLine and the speed in SerialSpeed,
+    // and puts nothing useful in HostName for these — so a serial session
+    // imported through the host field would come out pointing at nothing.
+    PuttyValues values = sshSession();
+    values.front().second = "serial";
+    values.emplace_back("SerialLine", "COM7");
+    values.emplace_back("SerialSpeed", "9600");
+    const std::optional<Profile> profile = profileFromPutty("console", values);
+    REQUIRE(profile.has_value());
+    CHECK(profile->backend == BackendKind::Serial);
+    CHECK(profile->host == "COM7");
+    CHECK(profile->baud == 9600);
+    CHECK(profile->isExplicit("baud"));
+}
+
 TEST_CASE("protocols we do not have yet are reported, not mangled", "[session][putty]") {
-    for (const char* protocol : {"raw", "serial"}) {
+    for (const char* protocol : {"raw"}) {
         PuttyValues values = sshSession();
         values.front().second = protocol;
         // Importing these AS ssh would produce a profile that fails at connect

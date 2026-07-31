@@ -127,6 +127,39 @@ doubled and CR is **not** given a companion NUL: those are telnet's rules, and
 applying them here would corrupt the one protocol whose contract is that
 nothing is applied.
 
+## serial — a COM port
+
+| Key | Meaning |
+|---|---|
+| `host` | The port name, "COM7". PuTTY keeps the serial line in its host field and so do we: a profile has one "where", and a second field for it would mean every importer and every editor learning both. |
+| `baud` | Default 115200. 8-N-1 with no flow control unless changed. |
+
+Ports are enumerated through the COM port **device interface** class, which is
+what gives the picker a friendly name — "COM7" tells nobody which of the three
+adapters on the desk it is. The USB vendor and product ids come from the same
+place, and they are what makes replug work.
+
+**Auto-reconnect on replug** is the point of all that. When the adapter
+disappears, the read fails and the session waits for a device with the SAME
+VID/PID to come back — possibly on a different COM number, because Windows
+hands out whatever is free. Matching on the port name instead would be worse
+than useless: unplug a console cable, plug in a different adapter, Windows
+gives it COM7, and the session silently reattaches to hardware nobody chose.
+
+Two adapters of the same model are indistinguishable this way. That is the
+honest limit of what Windows exposes without opening each device, and it is
+recorded rather than papered over.
+
+A device going away is reported as `deviceRemoved`, not as an error: on a USB
+adapter it is a normal Tuesday, and a banner for something the next second
+fixes is a banner people learn to dismiss without reading.
+
+**DTR, RTS and break** are actions rather than settings, because each is a
+momentary or level change on a wire: toggling DTR is how you reset an Arduino,
+and a break is how you get a Cisco console's attention. RTS is refused while
+hardware flow control owns the line — Windows documents `EscapeCommFunction` as
+an error in that state, so issuing it anyway would look like it worked.
+
 ## telnet and raw share their socket
 
 Both are `TcpBackend` (`src/net/tcp_backend.h`) with a codec on top: telnet's

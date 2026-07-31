@@ -343,6 +343,37 @@
     </message>
 </context>
 <context>
+    <name>krait::net::SerialBackend</name>
+    <message>
+        <source>There is no %1 on this machine.</source>
+        <translation>ไม่มี %1 บนเครื่องนี้</translation>
+    </message>
+    <message>
+        <source>Could not open %1 (%2). Another program may have it.</source>
+        <translation>เปิด %1 ไม่ได้ (%2) อาจมีโปรแกรมอื่นใช้อยู่</translation>
+    </message>
+    <message>
+        <source>%1 did not answer as a serial port.</source>
+        <translation>%1 ไม่ตอบสนองในฐานะพอร์ตอนุกรม</translation>
+    </message>
+    <message>
+        <source>%1 rejected %2 baud %3%4%5.</source>
+        <translation>%1 ปฏิเสธค่า %2 บอด %3%4%5</translation>
+    </message>
+    <message>
+        <source>Could not set timeouts on %1.</source>
+        <translation>ตั้งค่าการหมดเวลาบน %1 ไม่ได้</translation>
+    </message>
+    <message>
+        <source>%1 is no longer connected.</source>
+        <translation>%1 ไม่ได้เชื่อมต่ออยู่แล้ว</translation>
+    </message>
+    <message>
+        <source>%1 did not come back.</source>
+        <translation>%1 ไม่กลับมา</translation>
+    </message>
+</context>
+<context>
     <name>krait::net::SshBackend</name>
     <message>
         <source>This session has no host to connect to.</source>
