@@ -4,11 +4,7 @@ Phase: **M3 in progress — T52-T58 done**, on branch `t52-backend-factory`.
 **M2 IS MERGED** (PR #24, commit 2794cc4 on main) — the first time that gate
 has ever gone green. Branch is pushed; no PR opened for M3 yet.
 
-**Next task: finish T59.** Its spec PARSER is done and tested
-(`src/net/ssh/forwards.h`); the engine and the live pane are not written at
-all. That means `ssh_channel_open_forward` for L, listen/accept_forward for R,
-and a SOCKS5 listener for D — all on the SSH worker thread, because a libssh
-session is not thread-safe. Then T60 (agent named-pipe bridge), T61 (FIDO2 +
+**Next task: T60, the OpenSSH agent named-pipe bridge.** Then T61 (FIDO2 +
 certs), T62 (ssh_config/mRemoteNG importers), T63 (milestone wrap). Read "What
 is NOT done" before claiming M3 is finished.
 
@@ -24,9 +20,9 @@ is NOT done" before claiming M3 is finished.
 | T56 | Serial: VID/PID identity, replug reconnect, DTR/RTS/break |
 | T57 | Hexdump view and timestamped session logging |
 | T58 | Jump hosts via native ProxyJump, our host-key UX on every hop |
-| T59 | PART ONLY: the forward-spec parser. No engine, no pane. |
+| T59 | Port forwarding L/R/D, SOCKS5, live tunnel pane |
 
-346 tests pass; clang-tidy clean on every file touched; fuzz smoke green on
+361 tests pass; clang-tidy clean on every file touched; fuzz smoke green on
 both targets (parser 23k runs, telnet 76k runs); the app self-test exercises
 tabs, splits, divider drag and close.
 
@@ -77,6 +73,13 @@ checking nothing. Do not re-introduce either shape.
   never composited.** The UI self-test is driven from `main()` by
   `QMetaObject::invokeMethod`, the same way the screenshot hook is.
 - **A `Repeater` delegate must be an Item**, so `Shortcut` cannot be one.
+- **RFC 1928 corrections, all measured against the RFC**: the MUST-close on
+  "no acceptable methods" is on the CLIENT; the reply's ATYP need NOT match the
+  request's; the all-zero BND.ADDR/BND.PORT everyone sends is convention with
+  no RFC blessing; offering only "no authentication" VIOLATES section 3's "MUST
+  support GSSAPI" and is a deliberate deviation. The RFC is silent on
+  truncation, zero-length names, buffer bounds and framing — those policies are
+  ours and are asserted in tests.
 - **`GUID_DEVINTERFACE_COMPORT` is in ntddser.h**, not setupapi.h, and needs
   `DIGCF_DEVICEINTERFACE` or the GUID is read as a setup class.
   `SetupDiOpenDevRegKey` fails with `INVALID_HANDLE_VALUE`, not null.
@@ -84,10 +87,14 @@ checking nothing. Do not re-introduce either shape.
 
 ## What is NOT done
 
-- **T59 is a third done.** The spec parser is complete and tested; nothing
-  opens a channel and there is no tunnel pane. T60-T62 (agent bridge,
-  FIDO2/certs, ssh_config and mRemoteNG importers) have not started. All of it
-  is M3 scope.
+- **T60-T62 have not started** — the agent named-pipe bridge, FIDO2/certs, and
+  the ssh_config/mRemoteNG importers. All M3 scope.
+- **No forwarding runs end to end in a test.** The SOCKS5 and spec parsers are
+  covered thoroughly; the socket-and-channel plumbing is not. That needs the
+  in-process libssh server to accept a forwarded channel, which it cannot yet
+  do. The tunnel latency is also bounded by the 20 ms shell poll, which is
+  marked in `forward_manager.h` with its upgrade path (libssh's ssh_event, not
+  a second thread — a second thread reintroduces the lock the design avoids).
 - **No multi-hop contract test.** ADR-0002 asks for a two-hop chain including
   failure mid-chain. The in-process libssh test server takes one connection, so
   a two-hop fixture needs it to listen twice. T58 shipped without it and said
