@@ -214,11 +214,39 @@ jobs:
           if (-not $tidy) { Write-Host 'no changed source has a compile command'; exit 0 }
           $changed = $tidy
           Write-Host "tidying: $($changed -join ', ')"
+          # PARALLEL, and that is not an optimisation — it is what makes this
+          # step finish at all. One clang-tidy process walking the list serially
+          # costs roughly a minute per TU once Qt's headers are in it, so a
+          # milestone-sized PR (M2 changed ~40 sources) ran past the job's
+          # 30-minute timeout and was killed every time. The gate had never
+          # completed on a large branch, and the cancellation was long
+          # misread as the `concurrency: cancel-in-progress` setting above.
+          #
           # /Zc:preprocessor and friends are cl-only spellings that clang-tidy's
           # driver reports as unused/unknown; they are not findings.
-          clang-tidy -p build/dev `
-            --extra-arg=-Wno-unknown-argument `
-            --extra-arg=-Wno-unused-command-line-argument `
-            $changed
+          $db = (Resolve-Path build/dev).Path
+          $results = $changed | ForEach-Object -ThrottleLimit 4 -Parallel {
+            # 2>&1 so a diagnostic printed to stderr is captured with the rest
+            # rather than interleaving into the log out of order.
+            $output = & clang-tidy -p $using:db `
+              --extra-arg=-Wno-unknown-argument `
+              --extra-arg=-Wno-unused-command-line-argument `
+              $_ 2>&1
+            [pscustomobject]@{ File = $_; Code = $LASTEXITCODE; Output = ($output -join "`n") }
+          }
+          # Every file's output is printed, passing or not: a parallel run that
+          # only showed failures would hide the "0 warnings generated" lines
+          # that prove a TU was actually looked at.
+          foreach ($r in $results) {
+            Write-Host "--- clang-tidy $($r.File) (exit $($r.Code)) ---"
+            if ($r.Output) { Write-Host $r.Output }
+          }
+          # Same posture as the steps above: a step that cannot account for
+          # every file it was given fails rather than passing quietly.
+          if (@($results).Count -ne @($changed).Count) {
+            throw "clang-tidy produced $(@($results).Count) results for $(@($changed).Count) files"
+          }
+          $bad = @($results | Where-Object { $_.Code -ne 0 })
+          if ($bad) { throw "clang-tidy failed on: $($bad.File -join ', ')" }
           # Gating is .clang-tidy's WarningsAsErrors ('bugprone-*,concurrency-*');
           # the rest are advisory here and gate in the nightly full run.
