@@ -219,6 +219,25 @@ Window {
             case "session.previous": root.stepTab(-1); return
             case "view.splitRight": root.splitCurrent(false); return
             case "view.splitDown": root.splitCurrent(true); return
+            case "view.hexdump": {
+                const pane = root.currentPane()
+                if (pane && pane.terminal) {
+                    pane.terminal.setHexdump(!pane.terminal.hexdumpEnabled())
+                }
+                return
+            }
+            case "session.log": {
+                const pane = root.currentPane()
+                if (!pane || !pane.terminal) return
+                const path = pane.terminal.toggleLogging()
+                // Where the file went, said out loud. A log nobody can find is
+                // a log nobody trusts — and one running unnoticed is how a
+                // password ends up on disk.
+                pane.raiseSessionError(
+                    path.length > 0 ? qsTr("Logging this session to %1").arg(path)
+                                    : qsTr("Stopped logging this session."), "")
+                return
+            }
             case "view.closePane": {
                 const pane = root.currentPane()
                 if (pane) pane.closePane()

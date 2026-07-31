@@ -40,6 +40,8 @@ add_executable(krait-qt-tests
     action_labels_test.cpp
     ../../src/app/session_model.cpp
     ../../src/app/backend_factory.cpp
+    ../../src/app/capture.cpp
+    capture_test.cpp
     backend_contract_test.cpp
     backend_factory_test.cpp
     error_banner_test.cpp

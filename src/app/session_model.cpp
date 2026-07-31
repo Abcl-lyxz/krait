@@ -27,6 +27,8 @@ constexpr const char* const kActionLabels[] = {
     QT_TR_NOOP("Split right"),
     QT_TR_NOOP("Split down"),
     QT_TR_NOOP("Close pane"),
+    QT_TR_NOOP("Toggle hexdump"),
+    QT_TR_NOOP("Start or stop logging this session"),
     QT_TR_NOOP("Command palette"),
     QT_TR_NOOP("Open a saved session"),
     QT_TR_NOOP("Manage sessions"),

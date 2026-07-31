@@ -13,6 +13,7 @@
 #include "render/ime_metrics.h"
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
+#include "capture.h"
 #include "session/profile.h"
 #include "settings/registry.h"
 #include <rhi/qrhi.h>
@@ -140,6 +141,20 @@ class TerminalItem : public QQuickRhiItem {
     // Answers credentialPromptRequested. `remember` stores it in the vault.
     Q_INVOKABLE void respondCredential(const QString& text, bool remember);
 
+    // T57. Shows the bytes arriving rather than what they mean — the question
+    // "what did the device ACTUALLY send" is one a terminal cannot otherwise
+    // answer. Input still goes out unchanged: this is a view, not a mode.
+    Q_INVOKABLE void setHexdump(bool on);
+
+    Q_INVOKABLE bool hexdumpEnabled() const { return m_hexdump; }
+
+    // Starts or stops capturing the session to a timestamped file. Returns the
+    // path, or empty when stopping or on failure — the caller puts it in a
+    // banner, because a log nobody can find is a log nobody trusts.
+    Q_INVOKABLE QString toggleLogging();
+
+    Q_INVOKABLE bool loggingEnabled() const { return m_log.isOpen(); }
+
     // Raises a banner from outside the backend path — the command line naming a
     // session that does not exist, and nothing else so far. Exists because
     // rules/ui.md makes the per-tab banner the ONLY error surface, so a caller
@@ -262,6 +277,13 @@ class TerminalItem : public QQuickRhiItem {
     // What this terminal is pointed at. Default-constructed = a local shell,
     // which is what a window opened with no arguments should be.
     session::Profile m_profile;
+
+    // T57. The offset is the position in the STREAM, so a hexdump line can be
+    // matched against a packet capture; restarting it per read would make the
+    // column decorative.
+    bool m_hexdump = false;
+    std::uint64_t m_hexdumpOffset = 0;
+    SessionLog m_log;
 
     render::RasterFn m_raster;
     std::string m_family;            // what ensureFont() actually resolved

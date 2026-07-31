@@ -114,6 +114,14 @@
         <translation>That session is no longer saved.</translation>
     </message>
     <message>
+        <source>Logging this session to %1</source>
+        <translation>Logging this session to %1</translation>
+    </message>
+    <message>
+        <source>Stopped logging this session.</source>
+        <translation>Stopped logging this session.</translation>
+    </message>
+    <message>
         <source>Not wired up yet: %1</source>
         <translation>Not wired up yet: %1</translation>
     </message>
@@ -245,6 +253,14 @@
         <translation>Close pane</translation>
     </message>
     <message>
+        <source>Toggle hexdump</source>
+        <translation>Toggle hexdump</translation>
+    </message>
+    <message>
+        <source>Start or stop logging this session</source>
+        <translation>Start or stop logging this session</translation>
+    </message>
+    <message>
         <source>Command palette</source>
         <translation>Command palette</translation>
     </message>
@@ -321,6 +337,10 @@
     <message>
         <source>Shell</source>
         <translation>Shell</translation>
+    </message>
+    <message>
+        <source>Could not start logging.</source>
+        <translation>Could not start logging.</translation>
     </message>
 </context>
 <context>

@@ -185,6 +185,32 @@ Three properties belong to that shared half:
   the same failure — or connects, and the tab comes alive under a banner saying
   nothing answered.
 
+## Seeing and keeping what crossed the wire
+
+Two per-session toggles, both in the command palette. They are actions rather
+than settings on purpose: a hexdump is something you turn on for the device
+that is misbehaving, not a preference.
+
+**Toggle hexdump** (Ctrl+Shift+H) replaces the interpreted output with a
+canonical dump — offset, sixteen bytes, printable column. The offset counts the
+STREAM, not each read, so a line can be matched against a packet capture; reads
+arrive at the mercy of TCP and an offset that restarted every read would be
+decorative. The text column decodes nothing, not even valid UTF-8, because a
+hexdump that renders text hides the byte being looked for. Input still goes out
+unchanged: this is a view, not a mode.
+
+**Start or stop logging this session** writes a timestamped capture to
+`<config>/logs/<session>-<when>.log`, with `>` for what was typed and `<` for
+what arrived — a log that cannot tell those apart cannot settle the argument it
+was started to settle. Control bytes are escaped, so the file does not reformat
+itself when it is opened, and each chunk is flushed, because the tail is
+precisely the part worth having when a session ends badly.
+
+It captures the session byte for byte and does not try to filter. If a password
+is typed while it is running, the password is in the file. That is why it is off
+until someone turns it on, per session, and why the banner names the path — an
+invisible log is how a secret ends up somewhere nobody remembers.
+
 ## What every backend owes
 
 From `.claude/rules/net.md`, and enforced by the contract tests:

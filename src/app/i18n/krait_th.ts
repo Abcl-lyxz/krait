@@ -114,6 +114,14 @@
         <translation>เซสชันนั้นไม่ได้ถูกบันทึกไว้แล้ว</translation>
     </message>
     <message>
+        <source>Logging this session to %1</source>
+        <translation>กำลังบันทึกเซสชันนี้ไปที่ %1</translation>
+    </message>
+    <message>
+        <source>Stopped logging this session.</source>
+        <translation>หยุดบันทึกเซสชันนี้แล้ว</translation>
+    </message>
+    <message>
         <source>Not wired up yet: %1</source>
         <translation>ยังไม่ได้เชื่อมต่อคำสั่งนี้: %1</translation>
     </message>
@@ -245,6 +253,14 @@
         <translation>ปิดบานหน้าต่าง</translation>
     </message>
     <message>
+        <source>Toggle hexdump</source>
+        <translation>สลับโหมดเลขฐานสิบหก</translation>
+    </message>
+    <message>
+        <source>Start or stop logging this session</source>
+        <translation>เริ่มหรือหยุดบันทึกเซสชันนี้</translation>
+    </message>
+    <message>
         <source>Command palette</source>
         <translation>แผงคำสั่ง</translation>
     </message>
@@ -321,6 +337,10 @@
     <message>
         <source>Shell</source>
         <translation>เชลล์</translation>
+    </message>
+    <message>
+        <source>Could not start logging.</source>
+        <translation>เริ่มบันทึกไม่ได้</translation>
     </message>
 </context>
 <context>

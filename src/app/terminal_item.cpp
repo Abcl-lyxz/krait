@@ -1,6 +1,8 @@
 #include "terminal_item.h"
 
 #include "backend_factory.h"
+#include "capture.h"
+#include "settings/paths.h"
 #include "core/unicode/width.h"
 #include "error_banner.h"
 #include "input/ime.h"
@@ -241,6 +243,7 @@ void TerminalItem::sendInput(const QByteArray& bytes) {
     if (m_backend == nullptr || bytes.isEmpty()) {
         return;
     }
+    m_log.writeInput(bytes);
     m_backend->writeInput(bytes);
 }
 
@@ -320,6 +323,44 @@ void TerminalItem::respondHostKey(bool trust) {
     if (auto* ssh = qobject_cast<net::SshBackend*>(m_backend); ssh != nullptr) {
         ssh->respondHostKey(trust);
     }
+}
+
+void TerminalItem::setHexdump(bool on) {
+    if (m_hexdump == on) {
+        return;
+    }
+    m_hexdump = on;
+    // The offset restarts with the view. It counts bytes SEEN in this dump,
+    // and carrying a count across a period when nothing was being counted
+    // would make it a number that means nothing.
+    m_hexdumpOffset = 0;
+    if (m_session) {
+        // A banner line so the transition is legible in the scrollback rather
+        // than the output silently changing shape mid-screen.
+        const QByteArray note =
+            on ? QByteArrayLiteral("\r\n--- hexdump on ---\r\n")
+               : QByteArrayLiteral("\r\n--- hexdump off ---\r\n");
+        m_session->feed({reinterpret_cast<const std::uint8_t*>(note.constData()),
+                         static_cast<std::size_t>(note.size())});
+        rebuildFrame();
+        update();
+    }
+}
+
+QString TerminalItem::toggleLogging() {
+    if (m_log.isOpen()) {
+        m_log.close();
+        return {};
+    }
+    namespace ks = settings;
+    const ks::Resolution dir = ks::resolveConfigDir(
+        ks::systemPathInputs(), [](const QString& path) { return QFile::exists(path); });
+    const QString path = sessionLogPath(dir.dir, sessionTitle());
+    if (!m_log.open(path)) {
+        emit errorRaised(tr("Could not start logging."), m_log.error());
+        return {};
+    }
+    return path;
 }
 
 void TerminalItem::raiseError(const QString& message, const QString& hint) {
@@ -633,6 +674,18 @@ void TerminalItem::updateGrid() {
 
 void TerminalItem::handleOutput(const QByteArray& bytes) {
     if (!m_session) {
+        return;
+    }
+    m_log.writeOutput(bytes);
+    if (m_hexdump) {
+        // The DUMP is fed to the parser, not the bytes. Feeding both would put
+        // the escape sequences on screen twice — once as hex and once as their
+        // effect — and the effect is exactly what a hexdump is for avoiding.
+        const std::string dump = formatHexdump(bytes, m_hexdumpOffset);
+        m_hexdumpOffset += static_cast<std::uint64_t>(bytes.size());
+        m_session->feed({reinterpret_cast<const std::uint8_t*>(dump.data()), dump.size()});
+        rebuildFrame();
+        update();
         return;
     }
     m_session->feed({reinterpret_cast<const std::uint8_t*>(bytes.constData()),

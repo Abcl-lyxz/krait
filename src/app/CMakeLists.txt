@@ -29,6 +29,8 @@ qt_add_qml_module(krait-app
         qml/TabStrip.qml
     SOURCES
         backend_factory.cpp
+        capture.cpp
+        capture.h
         backend_factory.h
         session_model.cpp
         settings_model.cpp

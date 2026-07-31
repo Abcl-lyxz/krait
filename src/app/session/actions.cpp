@@ -22,6 +22,11 @@ constexpr std::array kActions = {
     Action{"view.splitRight", "Split right", "Ctrl+Shift+D", "pane divide side vertical"},
     Action{"view.splitDown", "Split down", "Ctrl+Shift+E", "pane divide below horizontal"},
     Action{"view.closePane", "Close pane", "", "split remove"},
+    // T57. Both are per-SESSION state rather than settings — a hexdump is
+    // something you turn on for the device that is misbehaving, not a
+    // preference — which is why they live here and not in the registry.
+    Action{"view.hexdump", "Toggle hexdump", "Ctrl+Shift+H", "hex bytes raw debug dump"},
+    Action{"session.log", "Start or stop logging this session", "", "record capture file"},
     Action{"palette.open", "Command palette", "Ctrl+Shift+P", "commands run action"},
     Action{"sessions.open", "Open a saved session", "Ctrl+Shift+O", "connect profile ssh host"},
     Action{"sessions.manage", "Manage sessions", "", "profiles edit folders tree"},
