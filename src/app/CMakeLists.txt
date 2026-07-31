@@ -32,6 +32,8 @@ qt_add_qml_module(krait-app
         capture.cpp
         capture.h
         backend_factory.h
+        mremoteng_import.cpp
+        mremoteng_import.h
         session_model.cpp
         settings_model.cpp
         settings_model.h

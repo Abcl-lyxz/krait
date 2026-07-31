@@ -285,6 +285,14 @@
         <translation>Import sessions from PuTTY</translation>
     </message>
     <message>
+        <source>Import hosts from OpenSSH config</source>
+        <translation>Import hosts from OpenSSH config</translation>
+    </message>
+    <message>
+        <source>Import connections from mRemoteNG</source>
+        <translation>Import connections from mRemoteNG</translation>
+    </message>
+    <message>
         <source>Settings</source>
         <translation>Settings</translation>
     </message>
@@ -330,6 +338,42 @@
     <message>
         <source>Imported %1 session(s). Left behind, because Krait does not speak their protocol yet: %2.</source>
         <translation>Imported %1 session(s). Left behind, because Krait does not speak their protocol yet: %2.</translation>
+    </message>
+    <message>
+        <source>No OpenSSH config found at %1.</source>
+        <translation>No OpenSSH config found at %1.</translation>
+    </message>
+    <message>
+        <source>Not imported: %1.</source>
+        <translation>Not imported: %1.</translation>
+    </message>
+    <message>
+        <source>Included files were NOT followed, so anything they define is missing: %1.</source>
+        <translation>Included files were NOT followed, so anything they define is missing: %1.</translation>
+    </message>
+    <message>
+        <source>Imported %1 host(s) from %2.</source>
+        <translation>Imported %1 host(s) from %2.</translation>
+    </message>
+    <message>
+        <source>Imported %1 host(s) from %2. %3</source>
+        <translation>Imported %1 host(s) from %2. %3</translation>
+    </message>
+    <message>
+        <source>No mRemoteNG connection file found at %1.</source>
+        <translation>No mRemoteNG connection file found at %1.</translation>
+    </message>
+    <message>
+        <source>Passwords were not imported — Krait asks for them once and keeps them in the Windows vault.</source>
+        <translation>Passwords were not imported — Krait asks for them once and keeps them in the Windows vault.</translation>
+    </message>
+    <message>
+        <source>Imported %1 connection(s) from mRemoteNG. %2</source>
+        <translation>Imported %1 connection(s) from mRemoteNG. %2</translation>
+    </message>
+    <message>
+        <source>Imported %1 connection(s) from mRemoteNG. Left behind: %2. %3</source>
+        <translation>Imported %1 connection(s) from mRemoteNG. Left behind: %2. %3</translation>
     </message>
 </context>
 <context>
@@ -452,6 +496,14 @@
         <translation>Passphrase for %1</translation>
     </message>
     <message>
+        <source>The key file %1 could not be read.</source>
+        <translation>The key file %1 could not be read.</translation>
+    </message>
+    <message>
+        <source>%1 is a FIDO2 security key. This build cannot use one from a file, but it can use one held by the OpenSSH agent — run `ssh-add %1` and try again.</source>
+        <translation>%1 is a FIDO2 security key. This build cannot use one from a file, but it can use one held by the OpenSSH agent — run `ssh-add %1` and try again.</translation>
+    </message>
+    <message>
         <source>Password for %1@%2</source>
         <translation>Password for %1@%2</translation>
     </message>
@@ -484,6 +536,41 @@
     <message>
         <source>No saved session is called that.</source>
         <translation>No saved session is called that.</translation>
+    </message>
+</context>
+<context>
+    <name>mremoteng</name>
+    <message>
+        <source>This connection file is fully encrypted, so Krait cannot read it. Saved passwords are never imported in any case.</source>
+        <translation>This connection file is fully encrypted, so Krait cannot read it. Saved passwords are never imported in any case.</translation>
+    </message>
+    <message>
+        <source>This connection file is version %1, which is newer than Krait knows how to read.</source>
+        <translation>This connection file is version %1, which is newer than Krait knows how to read.</translation>
+    </message>
+    <message>
+        <source>%1 (nested too deeply)</source>
+        <translation>%1 (nested too deeply)</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation>%1 (%2)</translation>
+    </message>
+    <message>
+        <source>no protocol</source>
+        <translation>no protocol</translation>
+    </message>
+    <message>
+        <source>%1 (no hostname)</source>
+        <translation>%1 (no hostname)</translation>
+    </message>
+    <message>
+        <source>Could not read the connection file: %1</source>
+        <translation>Could not read the connection file: %1</translation>
+    </message>
+    <message>
+        <source>That file is not a mRemoteNG connection file.</source>
+        <translation>That file is not a mRemoteNG connection file.</translation>
     </message>
 </context>
 </TS>

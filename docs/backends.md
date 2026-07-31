@@ -86,6 +86,71 @@ OpenSSH 10 prefers it, but the two ends negotiate it and the client then fails
 before sending its KEX init. `src/net/ssh/algorithms.h` records the evidence.
 This is a postponement, re-tested on the next libssh bump.
 
+### The agent, and why it needed a bridge (T60)
+
+libssh cannot reach the agent that ships with Windows, and the way it failed is
+the interesting part.
+
+libssh's agent client has exactly one transport: read `SSH_AUTH_SOCK` (or
+`SSH_OPTIONS_IDENTITY_AGENT`), then `socket(AF_UNIX)` + `connect`. There is no
+named-pipe path in its `src/agent.c` on any platform. The OpenSSH agent on
+Windows listens on `\\.\pipe\openssh-ssh-agent` and nothing else. So on a stock
+Windows box `ssh_userauth_agent()` reached nothing — and reported that as
+`SSH_AUTH_DENIED`, which is also what libssh returns when the server refused
+every key. The ladder fell through to a password prompt and nothing looked
+broken. That is why the code carried a comment claiming this already worked.
+
+`src/net/ssh/agent_bridge.cpp` supplies the missing transport. libssh exposes
+one seam, `ssh_set_agent_socket(session, fd)`, which drops an fd into the
+session's agent socket; `ssh_agent_is_running()` is then satisfied by that
+socket merely HAVING an fd. So the bridge hands libssh one end of a verified
+loopback socket pair and relays the agent protocol between the other end and the
+pipe. libssh owns that fd from then on and closes it in `ssh_free`.
+
+Three things about it are load-bearing:
+
+- **The relay follows the framing** (uint32 big-endian length, then that many
+  bytes) rather than copying bytes blindly. That costs one thread where a blind
+  copy needs two, and it puts the 256 KiB cap somewhere.
+- **The socket pair is checked.** A loopback listener is briefly connectable by
+  any process on the machine, and what sits behind it is the user's ssh-agent.
+  The accepted connection is verified to be the one we dialled before either end
+  is used.
+- **Pipe I/O is overlapped, and cancellable.** `CancelIoEx` marks only the I/O
+  already outstanding, so a relay caught between "wrote the request" and "about
+  to read the reply" would issue an uncancellable read a moment later. Closing a
+  tab joins the SSH worker from the GUI thread, and that worker can be blocked
+  in libssh's `recv()` waiting on an agent — for a security key, "until somebody
+  touches it". `AgentBridge::cancel()` is what reaches it.
+
+`SSH_AUTH_SOCK` still wins when it is set: setting it is a deliberate act, and
+the pipe is simply there on every Windows machine.
+
+### Certificates and security keys (T61, ADR-0014)
+
+**User certificates work.** `ssh_userauth_publickey_auto` finds a
+`<key>-cert.pub` sibling by itself, and this backend does the same for a key
+named by `key_path`. A certificate kept somewhere else goes in `cert_path`,
+which becomes `SSH_OPTIONS_CERTIFICATE`. That option MUST be set before
+`ssh_connect` — it only appends to libssh's unexpanded list, and `ssh_connect`
+is what calls the internal `ssh_options_apply` that moves it to the list the
+auth code reads. Set afterwards it is accepted, returns `SSH_OK`, and is never
+used. The certificate is tried only after the plain key is refused, which is
+libssh's own order and means a stale certificate costs nothing.
+
+**Host certificates are NOT verified.** libssh's `knownhosts.c` skips
+`@cert-authority` and `@revoked` lines at parse time, and
+`ssh_session_is_known_server` is not CA-aware. A host presenting a CA-signed key
+is treated as an unknown host and goes through the normal TOFU flow.
+
+**FIDO2 security keys work through the agent, and only through the agent.** The
+libssh this build links is compiled `WITH_FIDO2=OFF` — the API is declared in
+the header either way, which is what makes this an expensive thing to get wrong
+— so an `sk-*` key named directly by a profile is refused, by name, with a
+message pointing at `ssh-add`. The agent does the FIDO2 work itself, so the
+bridge above carries a security key's signature like any other. ADR-0014 has the
+evidence and the conditions for revisiting. **Untested against real hardware.**
+
 ## telnet — RFC 854 and friends
 
 Plaintext, and there is no version of this protocol that is not. Krait speaks

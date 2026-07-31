@@ -7,8 +7,8 @@
 #include "forwards.h"
 
 #include <QByteArray>
-#include <QVariantList>
 #include <QString>
+#include <QVariantList>
 
 #include <atomic>
 #include <condition_variable>
@@ -43,6 +43,11 @@ struct SshConfig {
     std::string knownHostsPath;
     SshAuthPreference auth = SshAuthPreference::Auto;
     std::string keyPath;
+    // T61. An OpenSSH user certificate for `keyPath`. Empty does NOT mean "no
+    // certificate": libssh finds a `<key>-cert.pub` sibling by itself, and so
+    // does this backend for a named key. This is for the case where the CA
+    // handed the certificate out somewhere else.
+    std::string certPath;
     // Comma-separated hops, OpenSSH's ProxyJump spelling:
     // "bastion", "user@bastion:2222,inner". Empty means a direct connection.
     //
@@ -222,6 +227,10 @@ class SshBackend : public IBackend {
     ForwardManager m_forwards;
 
     std::thread m_worker;
+    // Why a rung of the auth ladder could not work, when it knows something the
+    // generic "refused every method" line does not. Worker thread only, cleared
+    // at the start of every authenticate().
+    QString m_authHint;
     // What fail() last reported. Written and read on the worker thread only —
     // it exists so run() can ask isRetryable() about the actual failure rather
     // than guessing from a bool.

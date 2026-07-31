@@ -78,6 +78,14 @@ class SessionModel : public QObject {
     // left behind and why.
     Q_INVOKABLE QString importFromPutty();
 
+    // T62. The same shape, from the two other places people keep sessions.
+    // Both read a FIXED location — ~/.ssh/config, and mRemoteNG's confCons.xml
+    // under %APPDATA% — the way the PuTTY importer reads a fixed registry key.
+    // A file picker is the better answer for someone who keeps theirs
+    // elsewhere, and it is not what the common case needs.
+    Q_INVOKABLE QString importFromSshConfig();
+    Q_INVOKABLE QString importFromMremoteng();
+
     // T52 had profileById()/profileByName() here for main()'s wiring. T53
     // deleted both callers: a session now opens in a NEW TAB, which QML
     // decides, so the lookup moved to TerminalItem::openProfileById; and the

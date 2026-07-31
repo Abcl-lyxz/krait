@@ -70,3 +70,33 @@ T54 telnet added the inverse of 11/12 (2026-07-31):
     `if (thread() != QThread::currentThread()) { QMetaObject::invokeMethod(this, &X::stop, Qt::QueuedConnection); return; }`
     Do NOT use BlockingQueuedConnection: ~QThreadPool waits on the GUI thread
     at shutdown, so a blocking hop deadlocks.
+
+T60 agent bridge added the Win32 half of item 7 (2026-07-31):
+
+14. **`CancelIoEx` is not a cancel *token*, it is a one-shot sweep.** It only
+    marks I/O that is outstanding at the instant it is called. Any thread that
+    can still *issue* a fresh blocking `ReadFile`/`WriteFile` after the sweep is
+    uncancellable, so the following `join()` is unbounded no matter what the
+    comment above it claims. A correct Win32 cancel needs BOTH an atomic flag
+    the pumping thread checks before each I/O call AND either a re-issued cancel
+    on a bounded loop or `FILE_FLAG_OVERLAPPED` + `WaitForMultipleObjects` on
+    {io event, stop event}. Same trap as item 3's `CancelSynchronousIo`.
+15. **Every NEW blocking call added to the SSH auth ladder must have a cancel
+    path wired into `SshBackend::stop()`.** `m_shutdown` + `notify_all` only
+    releases OUR condition variables; the ladder is only checked BETWEEN rungs.
+    T60 put an agent round-trip (a FIDO/smartcard touch = human-scale latency)
+    inside a rung with nothing to cancel it. Check this on every new rung.
+
+T61/T62 additions (2026-07-31):
+
+16. **A start/cancel/stop trio is only correct if `start()` joins the mutex
+    too.** Reviewing cancel() and stop() in isolation misses the lost-cancel
+    window: if start() publishes handles unlocked, a cancel() that arrives
+    before the publish sees stale zeros and does nothing — and if start() also
+    clears the stop flag, the cancel is erased outright. Check start() first,
+    then the cancel path. (`AgentBridge::start`, T60.)
+17. **libssh path options vs. libssh pki file calls are NOT interchangeable.**
+    `ssh_options_set(SSH_OPTIONS_IDENTITY/CERTIFICATE)` gets `~`/`%d` expansion
+    via `ssh_options_apply`; `ssh_pki_import_privkey_file` /
+    `ssh_pki_import_cert_file` do not. Whenever a diff adds an importer that
+    writes config paths into `Profile`, check which of the two consumes them.

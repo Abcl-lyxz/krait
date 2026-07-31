@@ -33,6 +33,8 @@ add_library(krait-net STATIC
     serial/serial_ports.h
     raw/raw_backend.cpp
     raw/raw_backend.h
+    ssh/agent_bridge.cpp
+    ssh/agent_bridge.h
     ssh/forward_manager.cpp
     ssh/forward_manager.h
     ssh/forwards.cpp

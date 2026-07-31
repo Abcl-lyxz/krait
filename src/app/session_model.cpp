@@ -1,7 +1,9 @@
 #include "session_model.h"
 
+#include "mremoteng_import.h"
 #include "session/actions.h"
 #include "session/putty_import.h"
+#include "session/ssh_config_import.h"
 #include "settings/paths.h"
 
 #include <QDir>
@@ -34,6 +36,8 @@ constexpr const char* const kActionLabels[] = {
     QT_TR_NOOP("Open a saved session"),
     QT_TR_NOOP("Manage sessions"),
     QT_TR_NOOP("Import sessions from PuTTY"),
+    QT_TR_NOOP("Import hosts from OpenSSH config"),
+    QT_TR_NOOP("Import connections from mRemoteNG"),
     QT_TR_NOOP("Settings"),
     QT_TR_NOOP("Reload settings from disk"),
     QT_TR_NOOP("Copy"),
@@ -170,6 +174,119 @@ QString SessionModel::importFromPutty() {
               "yet: %2.")
         .arg(added)
         .arg(names.join(QStringLiteral(", ")));
+}
+
+namespace {
+
+// A config nobody would write by hand. Both of these files are the user's own,
+// but they are still a size this thread has to survive: the import runs on the
+// GUI thread, and readAll() on a file with no ceiling is how a mistyped path at
+// a multi-gigabyte file freezes the window instead of raising a banner.
+constexpr qint64 kMaxImportBytes = qint64{8} * 1024 * 1024;
+
+// Reads a whole file as UTF-8, or nothing. Both T62 importers parse TEXT and
+// touch no filesystem themselves — that split is what lets their mapping be
+// tested without anybody's real config.
+bool readTextFile(const QString& path, QString* text) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+    if (file.size() > kMaxImportBytes) {
+        return false;
+    }
+    *text = QString::fromUtf8(file.readAll());
+    return true;
+}
+
+}  // namespace
+
+QString SessionModel::importFromSshConfig() {
+    if (m_store == nullptr) {
+        return {};
+    }
+    const QString path = QString::fromStdString(session::defaultSshConfigPath());
+    QString text;
+    if (path.isEmpty() || !readTextFile(path, &text)) {
+        return tr("No OpenSSH config found at %1.").arg(path);
+    }
+
+    const session::SshConfigImport imported = session::importFromSshConfig(text.toStdString());
+    int added = 0;
+    for (const session::Profile& profile : imported.profiles) {
+        m_store->add(profile);
+        ++added;
+    }
+    m_store->save();
+    refresh();
+
+    QStringList notes;
+    if (!imported.skipped.empty()) {
+        QStringList names;
+        names.reserve(static_cast<qsizetype>(imported.skipped.size()));
+        for (const std::string& name : imported.skipped) {
+            names.append(QString::fromStdString(name));
+        }
+        notes.append(tr("Not imported: %1.").arg(names.join(QStringLiteral(", "))));
+    }
+    if (!imported.includes.empty()) {
+        // The case that would otherwise look like a successful import of an
+        // almost empty file: a config whose hosts all live in an included
+        // directory.
+        QStringList names;
+        names.reserve(static_cast<qsizetype>(imported.includes.size()));
+        for (const std::string& name : imported.includes) {
+            names.append(QString::fromStdString(name));
+        }
+        notes.append(tr("Included files were NOT followed, so anything they define is missing: %1.")
+                         .arg(names.join(QStringLiteral(", "))));
+    }
+    if (notes.isEmpty()) {
+        return tr("Imported %1 host(s) from %2.").arg(added).arg(path);
+    }
+    return tr("Imported %1 host(s) from %2. %3")
+        .arg(added)
+        .arg(path, notes.join(QStringLiteral(" ")));
+}
+
+QString SessionModel::importFromMremoteng() {
+    if (m_store == nullptr) {
+        return {};
+    }
+    const QString appData = qEnvironmentVariable("APPDATA");
+    const QString path =
+        appData.isEmpty() ? QString() : appData + QStringLiteral("/mRemoteNG/confCons.xml");
+    QString text;
+    if (path.isEmpty() || !readTextFile(path, &text)) {
+        return tr("No mRemoteNG connection file found at %1.").arg(path);
+    }
+
+    // Qualified, because unqualified lookup from inside this member finds the
+    // member itself and calls it with an argument it does not take.
+    const MremotengImport imported = krait::app::importFromMremoteng(text);
+    if (!imported.error.isEmpty()) {
+        return imported.error;
+    }
+
+    int added = 0;
+    for (const session::Profile& profile : imported.profiles) {
+        m_store->add(profile);
+        ++added;
+    }
+    m_store->save();
+    refresh();
+
+    // Said every time, not only when something was skipped: someone who just
+    // imported a connection manager's worth of hosts needs to know the
+    // passwords did not come with them BEFORE they try to connect to one.
+    const QString passwords = tr("Passwords were not imported — Krait asks for them once and "
+                                 "keeps them in the Windows vault.");
+    if (imported.skipped.isEmpty()) {
+        return tr("Imported %1 connection(s) from mRemoteNG. %2").arg(added).arg(passwords);
+    }
+    return tr("Imported %1 connection(s) from mRemoteNG. Left behind: %2. %3")
+        .arg(added)
+        .arg(imported.skipped.join(QStringLiteral(", ")), passwords);
 }
 
 }  // namespace krait::app

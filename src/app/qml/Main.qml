@@ -250,6 +250,19 @@ Window {
                 return
             }
             case "palette.open": palette.open(); return
+            // T62, and T44's PuTTY importer with them: all three were reaching
+            // the "not wired up yet" line below, so that one had never been
+            // runnable from the UI at all.
+            case "sessions.import.putty":
+            case "sessions.import.sshconfig":
+            case "sessions.import.mremoteng": {
+                const summary = palette.runImport(actionId)
+                const target = root.currentPane()
+                // A banner, never a dialog (rules/ui.md). The summary names
+                // what was skipped, which is the part worth reading.
+                if (target && summary.length > 0) target.raiseSessionError(summary, "")
+                return
+            }
             }
             const pane = root.currentPane()
             if (pane) {

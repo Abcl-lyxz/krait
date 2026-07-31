@@ -3,16 +3,44 @@
 #include "net/conpty/conpty_backend.h"
 #include "net/ibackend.h"
 #include "net/raw/raw_backend.h"
-#include "net/ssh/forwards.h"
 #include "net/serial/serial_backend.h"
+#include "net/ssh/forwards.h"
 #include "net/telnet/telnet_backend.h"
 
+#include <QDir>
 #include <QString>
 
 #include <utility>
 
 namespace krait::app {
 namespace {
+
+// Turns a leading `~/` into the user's home directory.
+//
+// libssh does NOT do this for a path handed to ssh_pki_import_privkey_file or
+// ssh_pki_import_cert_file. It expands `~` and `%d` only while applying its
+// OPTIONS — options.c runs ssh_path_expand_escape over the identity and
+// certificate lists inside ssh_options_apply — and a key this backend opens
+// itself never goes through there.
+//
+// That matters because `~/.ssh/id_ed25519` is the canonical spelling in an
+// ssh_config, so every key the T62 importer brings across arrives written that
+// way. Left alone the profile looks configured and the key never loads, and it
+// fails SILENTLY: the import returns SSH_EOF rather than SSH_ERROR, so the
+// passphrase path is skipped and Auto quietly degrades to a password prompt.
+//
+// Done here rather than in the importer so it also covers a profile somebody
+// typed the same way by hand, and so sessions.toml keeps the shorter spelling.
+std::string expandHome(const std::string& path) {
+    if (path.rfind("~/", 0) != 0 && path.rfind("~\\", 0) != 0) {
+        return path;
+    }
+    const QString home = QDir::homePath();
+    if (home.isEmpty()) {
+        return path;
+    }
+    return home.toStdString() + "/" + path.substr(2);
+}
 
 // The two enums are deliberately separate (ssh_backend.h says why: src/net must
 // not depend on the app layer), so this is the seam that keeps them honest. A
@@ -62,7 +90,8 @@ net::SshConfig sshConfigFor(const session::Profile& profile) {
     config.port = profile.port > 0 && profile.port <= 65535 ? static_cast<int>(profile.port) : 22;
     config.user = profile.user;
     config.auth = authFor(profile.auth);
-    config.keyPath = profile.keyPath;
+    config.keyPath = expandHome(profile.keyPath);
+    config.certPath = expandHome(profile.certPath);
     config.proxyJump = profile.proxyJump;
     // Rejected specs are dropped here rather than reported, because makeBackend
     // has no banner to reach. parseForwards names them for a caller that does;

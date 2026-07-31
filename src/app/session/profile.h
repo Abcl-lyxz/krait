@@ -44,6 +44,12 @@ struct Profile {
     std::string user;
     SshAuth auth = SshAuth::Auto;
     std::string keyPath;
+    // An OpenSSH user certificate (`*-cert.pub`) for `keyPath`. Empty is the
+    // normal case, and does NOT mean "no certificate": libssh looks for a
+    // `<key>-cert.pub` sibling on its own, the way ssh does. This field is for
+    // a certificate that does not sit beside its key — which is what a CA that
+    // hands them out separately produces.
+    std::string certPath;
     // OpenSSH's ProxyJump spelling: "bastion" or "me@bastion:2222,inner".
     // Empty means a direct connection.
     std::string proxyJump;

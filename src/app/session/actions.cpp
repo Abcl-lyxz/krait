@@ -32,6 +32,13 @@ constexpr std::array kActions = {
     Action{"sessions.open", "Open a saved session", "Ctrl+Shift+O", "connect profile ssh host"},
     Action{"sessions.manage", "Manage sessions", "", "profiles edit folders tree"},
     Action{"sessions.import.putty", "Import sessions from PuTTY", "", "migrate registry"},
+    // T62. Separate actions rather than one "Import…" that then asks which:
+    // the palette is the fastest path to any of them, and a menu behind a menu
+    // is the thing the palette exists to replace.
+    Action{"sessions.import.sshconfig", "Import hosts from OpenSSH config", "",
+           "migrate ssh_config openssh"},
+    Action{"sessions.import.mremoteng", "Import connections from mRemoteNG", "",
+           "migrate confcons xml"},
     Action{"settings.open", "Settings", "Ctrl+,", "preferences options config"},
     Action{"settings.reload", "Reload settings from disk", "", "refresh config"},
     Action{"edit.copy", "Copy", "Ctrl+Shift+C", "clipboard selection"},

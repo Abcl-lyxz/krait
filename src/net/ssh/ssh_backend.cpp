@@ -9,6 +9,7 @@
 
 #include "../reconnect.h"
 #include "../remote_text.h"
+#include "agent_bridge.h"
 #include "algorithms.h"
 #include "hostkey_art.h"
 #include <windows.h>
@@ -98,6 +99,10 @@ struct SshBackend::Impl {
     // libssh keeps the POINTER to each callbacks struct, so these must outlive
     // ssh_connect — a vector member rather than anything on a stack frame.
     std::vector<ssh_jump_callbacks_struct> jumpCallbacks;
+    // T60. Reaches the Windows agent, which libssh cannot. Lives for the whole
+    // backend rather than one cycle so a reconnect gets a fresh one through
+    // stop() in teardown, without the auth ladder having to own its lifetime.
+    AgentBridge agent;
 };
 
 SshBackend::SshBackend(SshConfig config, Vault* vault, QObject* parent)
@@ -188,6 +193,11 @@ SshBackend::Outcome SshBackend::runOnce(int cols, int rows) {
             ssh_free(m_impl->session);
             m_impl->session = nullptr;
         }
+        // After ssh_free, deliberately: freeing the session closes the socket
+        // the bridge handed it, which is what ends the relay by itself. This
+        // then only joins the thread and closes the pipe, and a reconnect opens
+        // a fresh one.
+        m_impl->agent.stop();
     };
 
     if (!connectSession() ||
@@ -264,6 +274,20 @@ bool SshBackend::connectSession() {
     if (!m_config.knownHostsPath.empty()) {
         ssh_options_set(session, SSH_OPTIONS_KNOWNHOSTS, m_config.knownHostsPath.c_str());
     }
+    // T61. A user certificate that does not sit beside its key.
+    //
+    // This MUST be set before ssh_connect, and not because of the network.
+    // SSH_OPTIONS_CERTIFICATE only appends to libssh's UNEXPANDED list
+    // (options.c: opts.certificate_non_exp), while every auth path reads
+    // opts.certificate; the only thing that moves one to the other is
+    // ssh_options_apply(), which is internal and which ssh_connect calls on its
+    // own (client.c). Set after ssh_connect this option is still accepted,
+    // still returns SSH_OK, and is never read — a silent no-op, which is the
+    // worst shape a security setting can have.
+    if (!m_config.certPath.empty()) {
+        ssh_options_set(session, SSH_OPTIONS_CERTIFICATE, m_config.certPath.c_str());
+    }
+
     // Without this a dead host holds the worker until the OS gives up, which on
     // Windows is long past the point where the user closed the tab.
     const long timeout = m_config.connectTimeoutSeconds;
@@ -454,8 +478,36 @@ Secret SshBackend::askForSecret(const QString& prompt, bool echo, bool* remember
 }
 
 int SshBackend::tryAgent() {
-    // On Windows this reaches the OpenSSH named-pipe agent through libssh's own
-    // transport. Nothing to configure and nothing to shell out to.
+    // T60. libssh's agent client only ever connects an AF_UNIX socket, and the
+    // agent that ships with Windows only ever listens on a named pipe, so on a
+    // stock Windows box this used to reach nothing at all — and said so as
+    // SSH_AUTH_DENIED, which is also what libssh returns when the server
+    // refused every key. That is the whole reason it looked like it worked.
+    //
+    // SSH_AUTH_SOCK wins when it is set. Setting it is a deliberate act — a
+    // developer pointing at a WSL or Git-Bash agent — while the named pipe is
+    // simply there on every Windows machine, so overriding an explicit choice
+    // with a default is the wrong way round.
+    //
+    // getenv_s and NOT GetEnvironmentVariableA, which reads a different table.
+    // libssh's agent_connect uses getenv, and on MSVC that is the CRT's copy of
+    // the environment; the Win32 call reads the live process block. Anything
+    // doing SetEnvironmentVariable at runtime would desynchronise the two, and
+    // the failure would be silent — we would skip the bridge because the
+    // variable looks set while libssh sees nothing and finds no agent at all.
+    // getenv_s answers with the size the value needs INCLUDING its terminator,
+    // so 0 is unset and 1 is set-but-empty, and both mean the same thing here.
+    std::size_t authSockLength = 0;
+    ::getenv_s(&authSockLength, nullptr, 0, "SSH_AUTH_SOCK");
+    const bool authSockSet = authSockLength > 1;
+    if (!authSockSet && m_impl->agent.start()) {
+        // ssh_set_agent_socket() only puts the fd in the session's agent
+        // socket; libssh then closes it in ssh_free(), which is what
+        // releaseSocket() is recording. Its one failure mode is a session with
+        // no agent struct, and ssh_new() allocates that unconditionally.
+        ssh_set_agent_socket(m_impl->session, static_cast<socket_t>(m_impl->agent.socket()));
+        m_impl->agent.releaseSocket();
+    }
     return ssh_userauth_agent(m_impl->session, nullptr);
 }
 
@@ -505,10 +557,65 @@ int SshBackend::tryPublicKey() {
         }
     }
     if (rc != SSH_OK || key == nullptr) {
+        // Say which file, because the alternative is silence. A path that
+        // cannot be opened at all returns SSH_EOF rather than SSH_ERROR, so it
+        // never reached the passphrase branch above — it simply falls out of
+        // the ladder, and the user watches a profile with a key configured ask
+        // for a password with no explanation.
+        m_authHint =
+            tr("The key file %1 could not be read.").arg(QString::fromStdString(m_config.keyPath));
         return SSH_AUTH_DENIED;
     }
 
-    const int auth = ssh_userauth_publickey(session, nullptr, key);
+    // T61. libssh 0.12 DECLARES the sk-* key types unconditionally but only
+    // implements them when it was built WITH_FIDO2, and vcpkg's port is not
+    // (verified in this tree: config.h leaves both WITH_FIDO2 and
+    // HAVE_LIBFIDO2 undefined, and the portfile passes no such flag). So a
+    // security key parses here and then fails to sign several layers down,
+    // with a message about nothing the user wrote. ADR-0014 has the spike and
+    // the way out; until then, say the true thing, which is that the agent
+    // route works — the agent does the signing, so libssh never needs libfido2
+    // for it.
+    switch (ssh_key_type(key)) {
+    case SSH_KEYTYPE_SK_ECDSA:
+    case SSH_KEYTYPE_SK_ECDSA_CERT01:
+    case SSH_KEYTYPE_SK_ED25519:
+    case SSH_KEYTYPE_SK_ED25519_CERT01:
+        m_authHint = tr("%1 is a FIDO2 security key. This build cannot use one from a file, but "
+                        "it can use one held by the OpenSSH agent — run `ssh-add %1` and try "
+                        "again.")
+                         .arg(QString::fromStdString(m_config.keyPath));
+        ssh_key_free(key);
+        return SSH_AUTH_DENIED;
+    default:
+        break;
+    }
+
+    int auth = ssh_userauth_publickey(session, nullptr, key);
+
+    // T61. A certificate, tried only after the plain key was refused. That is
+    // libssh's own order in ssh_userauth_publickey_auto — the branch above —
+    // and matching it keeps a named key behaving like a default one. It also
+    // means a stale certificate beside a key that still works plainly costs
+    // nothing, where offering the certificate first would have made it a
+    // lockout.
+    //
+    // The configured path first, then the `<key>-cert.pub` sibling, which is
+    // where ssh-keygen writes it and therefore where most people's is. An
+    // absent or unreadable certificate is not an error worth reporting: the
+    // key alone is still a credential.
+    if (auth == SSH_AUTH_DENIED) {
+        const std::string certPath =
+            m_config.certPath.empty() ? m_config.keyPath + "-cert.pub" : m_config.certPath;
+        ssh_key cert = nullptr;
+        if (ssh_pki_import_cert_file(certPath.c_str(), &cert) == SSH_OK) {
+            if (ssh_pki_copy_cert_to_privkey(cert, key) == SSH_OK) {
+                auth = ssh_userauth_publickey(session, nullptr, key);
+            }
+            ssh_key_free(cert);
+        }
+    }
+
     ssh_key_free(key);
     return auth;
 }
@@ -616,6 +723,9 @@ bool SshBackend::authenticate(void* sessionHandle) {
         return false;
     }
     const int offered = ssh_userauth_list(session, nullptr);
+    // Cleared per attempt: a reconnect after the user moved the key must not
+    // still be explaining the last cycle's problem.
+    m_authHint.clear();
 
     // The ladder. Auto is agent, then keys, then the two interactive methods —
     // cheapest and least annoying first, so the common case (an agent that
@@ -669,8 +779,15 @@ bool SshBackend::authenticate(void* sessionHandle) {
         // exactly what the next rung is for, so it falls through like a denial.
     }
 
-    fail(ErrorCode::AuthFailed, tr("%1 refused every authentication method we could offer.")
-                                    .arg(QString::fromStdString(m_config.host)));
+    // A rung that knows WHY it could not work says so here. Without the hint
+    // this line is true and useless: it names the host and tells the user
+    // nothing they can act on.
+    QString message = tr("%1 refused every authentication method we could offer.")
+                          .arg(QString::fromStdString(m_config.host));
+    if (!m_authHint.isEmpty()) {
+        message += QLatin1Char(' ') + m_authHint;
+    }
+    fail(ErrorCode::AuthFailed, message);
     return false;
 }
 
@@ -840,6 +957,17 @@ void SshBackend::stop() {
     // during a host-key prompt leaves that thread sitting there for five
     // minutes and the join below waits with it.
     m_cv.notify_all();
+    // T60, and the same shape one rung along. The worker can also be parked
+    // inside ssh_userauth_agent, which blocks in recv() on the socket the
+    // bridge handed libssh, for as long as the AGENT takes to answer — for a
+    // FIDO2 key that is "until somebody touches it", and for a wedged agent
+    // service it is forever. m_shutdown is only read between rungs of the auth
+    // ladder, so it does not reach that wait; ending the relay does, because
+    // the relay shutting its side of the pair makes libssh's recv() return 0.
+    //
+    // cancel() and not stop(): stop() would join the relay from here, and this
+    // is the GUI thread.
+    m_impl->agent.cancel();
     if (m_worker.joinable()) {
         m_worker.join();
     }

@@ -285,6 +285,14 @@
         <translation>นำเข้าเซสชันจาก PuTTY</translation>
     </message>
     <message>
+        <source>Import hosts from OpenSSH config</source>
+        <translation>นำเข้าโฮสต์จากไฟล์ตั้งค่า OpenSSH</translation>
+    </message>
+    <message>
+        <source>Import connections from mRemoteNG</source>
+        <translation>นำเข้าการเชื่อมต่อจาก mRemoteNG</translation>
+    </message>
+    <message>
         <source>Settings</source>
         <translation>การตั้งค่า</translation>
     </message>
@@ -330,6 +338,42 @@
     <message>
         <source>Imported %1 session(s). Left behind, because Krait does not speak their protocol yet: %2.</source>
         <translation>นำเข้า %1 เซสชันแล้ว รายการที่ยังไม่ได้นำเข้าเพราะ Krait ยังไม่รองรับโปรโตคอลของรายการเหล่านี้: %2</translation>
+    </message>
+    <message>
+        <source>No OpenSSH config found at %1.</source>
+        <translation>ไม่พบไฟล์ตั้งค่า OpenSSH ที่ %1</translation>
+    </message>
+    <message>
+        <source>Not imported: %1.</source>
+        <translation>ไม่ได้นำเข้า: %1</translation>
+    </message>
+    <message>
+        <source>Included files were NOT followed, so anything they define is missing: %1.</source>
+        <translation>ไม่ได้ตามไปอ่านไฟล์ที่ Include ไว้ สิ่งที่กำหนดในไฟล์เหล่านั้นจึงยังขาดไป: %1</translation>
+    </message>
+    <message>
+        <source>Imported %1 host(s) from %2.</source>
+        <translation>นำเข้า %1 โฮสต์จาก %2 แล้ว</translation>
+    </message>
+    <message>
+        <source>Imported %1 host(s) from %2. %3</source>
+        <translation>นำเข้า %1 โฮสต์จาก %2 แล้ว %3</translation>
+    </message>
+    <message>
+        <source>No mRemoteNG connection file found at %1.</source>
+        <translation>ไม่พบไฟล์การเชื่อมต่อของ mRemoteNG ที่ %1</translation>
+    </message>
+    <message>
+        <source>Passwords were not imported — Krait asks for them once and keeps them in the Windows vault.</source>
+        <translation>ไม่ได้นำเข้ารหัสผ่าน — Krait จะถามรหัสผ่านครั้งเดียว แล้วเก็บไว้ในวอลต์ของ Windows</translation>
+    </message>
+    <message>
+        <source>Imported %1 connection(s) from mRemoteNG. %2</source>
+        <translation>นำเข้า %1 การเชื่อมต่อจาก mRemoteNG แล้ว %2</translation>
+    </message>
+    <message>
+        <source>Imported %1 connection(s) from mRemoteNG. Left behind: %2. %3</source>
+        <translation>นำเข้า %1 การเชื่อมต่อจาก mRemoteNG แล้ว รายการที่ยังไม่ได้นำเข้า: %2 %3</translation>
     </message>
 </context>
 <context>
@@ -452,6 +496,14 @@
         <translation>รหัสผ่านกุญแจสำหรับ %1</translation>
     </message>
     <message>
+        <source>The key file %1 could not be read.</source>
+        <translation>อ่านไฟล์กุญแจ %1 ไม่ได้</translation>
+    </message>
+    <message>
+        <source>%1 is a FIDO2 security key. This build cannot use one from a file, but it can use one held by the OpenSSH agent — run `ssh-add %1` and try again.</source>
+        <translation>%1 เป็นกุญแจความปลอดภัย FIDO2 รุ่นนี้ใช้กุญแจจากไฟล์โดยตรงไม่ได้ แต่ใช้กุญแจที่อยู่ใน OpenSSH agent ได้ — ให้รัน `ssh-add %1` แล้วลองใหม่อีกครั้ง</translation>
+    </message>
+    <message>
         <source>Password for %1@%2</source>
         <translation>รหัสผ่านสำหรับ %1@%2</translation>
     </message>
@@ -484,6 +536,41 @@
     <message>
         <source>No saved session is called that.</source>
         <translation>ไม่มีเซสชันที่บันทึกไว้ชื่อนั้น</translation>
+    </message>
+</context>
+<context>
+    <name>mremoteng</name>
+    <message>
+        <source>This connection file is fully encrypted, so Krait cannot read it. Saved passwords are never imported in any case.</source>
+        <translation>ไฟล์การเชื่อมต่อนี้ถูกเข้ารหัสทั้งไฟล์ Krait จึงอ่านไม่ได้ และไม่ว่ากรณีใด Krait ก็ไม่นำเข้ารหัสผ่านที่บันทึกไว้อยู่แล้ว</translation>
+    </message>
+    <message>
+        <source>This connection file is version %1, which is newer than Krait knows how to read.</source>
+        <translation>ไฟล์การเชื่อมต่อนี้เป็นเวอร์ชัน %1 ซึ่งใหม่กว่าที่ Krait อ่านได้</translation>
+    </message>
+    <message>
+        <source>%1 (nested too deeply)</source>
+        <translation>%1 (ซ้อนกันลึกเกินไป)</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <translation>%1 (%2)</translation>
+    </message>
+    <message>
+        <source>no protocol</source>
+        <translation>ไม่ระบุโปรโตคอล</translation>
+    </message>
+    <message>
+        <source>%1 (no hostname)</source>
+        <translation>%1 (ไม่มีชื่อโฮสต์)</translation>
+    </message>
+    <message>
+        <source>Could not read the connection file: %1</source>
+        <translation>อ่านไฟล์การเชื่อมต่อไม่ได้: %1</translation>
+    </message>
+    <message>
+        <source>That file is not a mRemoteNG connection file.</source>
+        <translation>ไฟล์นั้นไม่ใช่ไฟล์การเชื่อมต่อของ mRemoteNG</translation>
     </message>
 </context>
 </TS>

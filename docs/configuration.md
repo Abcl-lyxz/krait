@@ -80,6 +80,46 @@ The `KRAIT_GPU` environment variable overrides this setting and takes the same
 three values. That is on purpose: it is the escape hatch for a machine where the
 app will not start, which is precisely when you cannot edit its config.
 
+## Importing sessions from somewhere else
+
+Saved connections live in `sessions.toml`, in the same directory the table above
+resolves to. Three importers merge into it, from the command palette:
+
+| Action | Reads |
+|---|---|
+| Import sessions from PuTTY | `HKCU\Software\SimonTatham\PuTTY\Sessions` |
+| Import hosts from OpenSSH config | `%USERPROFILE%\.ssh\config` |
+| Import connections from mRemoteNG | `%APPDATA%\mRemoteNG\confCons.xml` |
+
+Each reads a FIXED location, the way the PuTTY importer reads a fixed registry
+key. Each merges rather than replacing, and de-duplicates ids — so running one
+twice makes copies rather than silently overwriting a profile you have since
+edited.
+
+Every importer NAMES what it left behind rather than counting it: a session
+whose protocol Krait does not speak, an ssh_config `Host` line that is a pattern
+rather than a name, a `Match` block. "3 skipped" only sends you hunting through
+the other program to work out which three.
+
+Two things worth knowing before relying on one:
+
+- **`Include` in an ssh_config is reported, not followed.** Resolving one means
+  glob expansion against the filesystem, and a relative-path rule that differs
+  between a user config and the system one. A config that keeps its hosts in an
+  included directory would otherwise import as almost nothing and still look
+  like it had worked, so the summary says so instead.
+- **No importer brings passwords across.** mRemoteNG encrypts its with a key
+  derived from a password that defaults to a published constant; importing them
+  would mean decrypting a file of credentials with a key everybody has and
+  writing them into a second store. Krait asks once and keeps them in the
+  DPAPI-backed Windows vault.
+
+Importing an ssh_config is about VISIBILITY, not about making connections work:
+libssh already reads `~/.ssh/config` on every connect, so a Krait session
+pointed at a host inherits what that file says about it either way. What
+importing buys is the host appearing in the session tree and the palette, with a
+folder and a safety accent of its own.
+
 ## Hot reload
 
 Krait watches the file. Save it and the change applies — no restart. Taking a

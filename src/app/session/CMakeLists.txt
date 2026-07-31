@@ -20,6 +20,8 @@ add_library(krait-session STATIC
     profile.h
     putty_import.cpp
     putty_import.h
+    ssh_config_import.cpp
+    ssh_config_import.h
 )
 target_include_directories(krait-session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 

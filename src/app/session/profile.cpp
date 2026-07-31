@@ -24,6 +24,7 @@ constexpr const char* kPort = "port";
 constexpr const char* kUser = "user";
 constexpr const char* kAuth = "auth";
 constexpr const char* kKeyPath = "key_path";
+constexpr const char* kCertPath = "cert_path";
 constexpr const char* kAccent = "accent";
 constexpr const char* kCommand = "command";
 constexpr const char* kBaud = "baud";
@@ -106,6 +107,8 @@ bool applyField(Profile& profile, std::string_view key, std::string_view value) 
         profile.auth = parseAuth(value);
     } else if (key == kKeyPath) {
         profile.keyPath = value;
+    } else if (key == kCertPath) {
+        profile.certPath = value;
     } else if (key == kProxyJump) {
         profile.proxyJump = value;
     } else if (key == kForwards) {
@@ -155,6 +158,9 @@ std::string fieldText(const Profile& profile, std::string_view key) {
     }
     if (key == kKeyPath) {
         return profile.keyPath;
+    }
+    if (key == kCertPath) {
+        return profile.certPath;
     }
     if (key == kProxyJump) {
         return profile.proxyJump;

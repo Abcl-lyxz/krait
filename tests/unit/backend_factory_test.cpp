@@ -40,6 +40,40 @@ TEST_CASE("sshConfigFor carries the profile across", "[factory]") {
     CHECK(config.auth == knet::SshAuthPreference::PublicKey);
 }
 
+TEST_CASE("sshConfigFor carries a certificate path", "[factory]") {
+    // T61. The path is carried, not derived: a certificate that sits beside its
+    // key is found by the backend on its own, so a value here always means the
+    // CA put it somewhere else. Dropping it would leave the profile looking
+    // configured and the connection quietly using the bare key.
+    kses::Profile profile = sshProfile();
+    CHECK(kapp::sshConfigFor(profile).certPath.empty());
+    profile.certPath = "C:/keys/prod-ca-cert.pub";
+    CHECK(kapp::sshConfigFor(profile).certPath == "C:/keys/prod-ca-cert.pub");
+}
+
+TEST_CASE("a leading ~ in a key or certificate path is expanded", "[factory]") {
+    // libssh expands `~` only while applying its OPTIONS, and a key this
+    // backend opens itself never goes through there. `~/.ssh/id_ed25519` is the
+    // canonical spelling in an ssh_config, so every key T62 imports arrives
+    // written that way — and left alone the profile looks configured while the
+    // key silently never loads.
+    kses::Profile profile = sshProfile();
+    profile.keyPath = "~/.ssh/id_ed25519";
+    profile.certPath = "~/.ssh/id_ed25519-cert.pub";
+    const knet::SshConfig config = kapp::sshConfigFor(profile);
+    CHECK(config.keyPath.find('~') == std::string::npos);
+    CHECK(config.certPath.find('~') == std::string::npos);
+    CHECK(config.keyPath.find("/.ssh/id_ed25519") != std::string::npos);
+    CHECK(config.certPath.find("/.ssh/id_ed25519-cert.pub") != std::string::npos);
+
+    // Only a LEADING one, and only as a path segment. A file honestly named
+    // with a tilde is not a home directory reference.
+    profile.keyPath = "C:/keys/~backup/id_ed25519";
+    CHECK(kapp::sshConfigFor(profile).keyPath == "C:/keys/~backup/id_ed25519");
+    profile.keyPath = "~notahome/id_ed25519";
+    CHECK(kapp::sshConfigFor(profile).keyPath == "~notahome/id_ed25519");
+}
+
 TEST_CASE("sshConfigFor keys the vault by id, not name", "[factory]") {
     // profile.h pins the id precisely so a rename does not orphan the stored
     // passphrase. Keying off the name would silently undo that the first time
