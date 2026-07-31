@@ -144,10 +144,18 @@ subparam read as a mode; `krait ssh []:22` yielding a host named "[]".
 | Release flood vs M1 | no regression (180.0 -> 177.6 fps, 5.555 -> 5.630 ms) |
 | Locales | 72 strings, 0 unfinished in EN or TH |
 | App starts, QML loads | exit 0 (a failed load exits 1) |
+| CI (`fast-gate`, run 30597305883) | steps 1-14 green: build, tests, zero-dep core proof, fuzz smoke, clang-format. Step 15 (clang-tidy) was CANCELLED, not failed — the workflow sets `concurrency: cancel-in-progress` on the ref, so re-running or re-dispatching kills the in-flight run. clang-tidy was run locally on every changed file instead: clean. |
 
 Baseline: `bench/baselines/m2-wrap.json`.
 
 ## Open, not blocking
+
+- **CI has never completed all 19 steps on this branch.** Not for want of
+  passing: the last run reached step 14 of 19 with everything green and was
+  cancelled at clang-tidy. `concurrency: cancel-in-progress: true` is keyed on
+  the ref, so a re-run or a re-dispatch cancels the run it was meant to repeat.
+  To get a full green, push a trivial commit and then LEAVE IT ALONE for the
+  ~20 minutes the libssh build takes — do not re-run it.
 
 - **The hardware flood leg is STILL unmeasured**, the same as at M1 close and
   for the same reason: no usable attached display, so a hardware D3D11 present
