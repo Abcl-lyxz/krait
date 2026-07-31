@@ -42,6 +42,13 @@ class TerminalItem : public QQuickRhiItem {
     Q_OBJECT
     QML_NAMED_ELEMENT(TerminalView)
 
+    // The tab strip binds to these. Properties rather than plain getters
+    // because a tab opened as "Shell" and then pointed at a prod host through
+    // the palette has to relabel itself, and a binding is the only thing that
+    // does that without the strip polling.
+    Q_PROPERTY(QString sessionTitle READ sessionTitle NOTIFY sessionChanged)
+    Q_PROPERTY(QString sessionAccent READ sessionAccent NOTIFY sessionChanged)
+
   public:
     TerminalItem();
     ~TerminalItem() override;
@@ -75,9 +82,22 @@ class TerminalItem : public QQuickRhiItem {
     // Dumps the atlas to a PNG for the golden-image gate.
     Q_INVOKABLE void dumpAtlas(const QString& path) const;
 
-    // Hands over the settings registry (T31). Borrowed, and it outlives us:
-    // main() owns it so every tab reads the same live values rather than each
-    // caching its own copy and missing the next hot reload.
+    // The three things every terminal borrows, handed over once by main()
+    // BEFORE the QML engine builds anything (T53).
+    //
+    // Static because QML constructs terminals dynamically now — opening a tab
+    // creates one — and there is no hook that runs between "QML made an item"
+    // and "the item needs its dependencies". The findChildren() sweep this
+    // replaces could only ever reach the items that existed at startup.
+    //
+    // All three are borrowed and outlive every terminal: main() owns them, so
+    // each tab reads the same live settings (a hot reload reaches all of them),
+    // writes to the same vault, and sees the same session list.
+    static void setServices(settings::Registry* registry, net::Vault* vault,
+                            session::ProfileStore* store);
+
+    // Hands over the settings registry (T31) for a terminal built outside the
+    // normal path — the tests. setServices() covers the app.
     void setSettings(settings::Registry* registry);
 
     // Paste, guarded (T28). Reads the clipboard, sanitises it, and either sends
@@ -99,6 +119,19 @@ class TerminalItem : public QQuickRhiItem {
     // T53 gives the palette a new TAB instead; this stays the way one terminal
     // is pointed at one profile, so only the caller changes.
     void openProfile(const session::Profile& profile);
+
+    // The same by id, for QML — which is where a tab is opened from and which
+    // cannot carry a Profile. False when the store has no such session; the
+    // caller decides what to say about it.
+    Q_INVOKABLE bool openProfileById(const QString& profileId);
+
+    // What to put on this terminal's tab: the profile name, or a plain "Shell"
+    // for an unnamed local one.
+    QString sessionTitle() const;
+
+    // rules/ui.md: safety accents (prod = red) are a core UX invariant. Empty
+    // means the theme decides.
+    QString sessionAccent() const;
 
     // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
     // has moved on, so a banner answered late cannot reach a different backend.
@@ -123,6 +156,11 @@ class TerminalItem : public QQuickRhiItem {
     static void setLaunchProfile(const session::Profile& profile);
 
   signals:
+    // The tab strip's label needs to change when the terminal is pointed at a
+    // different session. Without it a tab opened as "Shell" keeps saying so
+    // after the palette turns it into a prod connection.
+    void sessionChanged();
+
     // rules/ui.md: a per-tab banner, never an app-modal dialog. `detail` is the
     // first line of what would be sent, so the user can see what they are
     // agreeing to without leaving the terminal.
@@ -218,8 +256,9 @@ class TerminalItem : public QQuickRhiItem {
     settings::Registry* m_settings = nullptr;  // borrowed; owned by main()
     // The seam, not a concrete backend: M2 swaps a session profile's SSH
     // backend in here without this class knowing which protocol it drives.
-    net::IBackend* m_backend = nullptr;  // owned by this (QObject parent)
-    net::Vault* m_vault = nullptr;       // borrowed; owned by main()
+    net::IBackend* m_backend = nullptr;        // owned by this (QObject parent)
+    net::Vault* m_vault = nullptr;             // borrowed; owned by main()
+    session::ProfileStore* m_store = nullptr;  // borrowed; owned by main()
     // What this terminal is pointed at. Default-constructed = a local shell,
     // which is what a window opened with no arguments should be.
     session::Profile m_profile;

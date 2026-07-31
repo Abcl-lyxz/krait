@@ -55,14 +55,33 @@ QShader loadShader(const QString& path) {
 // before geometry arrives and the first shell starts.
 std::optional<session::Profile> g_launchProfile;
 
+// What every terminal borrows. See TerminalItem::setServices for why these are
+// file-scope rather than passed in: QML builds terminals on demand now.
+settings::Registry* g_registry = nullptr;
+net::Vault* g_vault = nullptr;
+session::ProfileStore* g_store = nullptr;
+
 }  // namespace
 
 void TerminalItem::setLaunchProfile(const session::Profile& profile) {
     g_launchProfile = profile;
 }
 
+void TerminalItem::setServices(settings::Registry* registry, net::Vault* vault,
+                               session::ProfileStore* store) {
+    g_registry = registry;
+    g_vault = vault;
+    g_store = store;
+}
+
 TerminalItem::TerminalItem() {
-    // Claimed, not copied: the SECOND terminal (T53's tabs) must open a default
+    m_vault = g_vault;
+    m_store = g_store;
+    // Through setSettings(), not a bare assignment: it also subscribes to hot
+    // reloads and applies the current values, and a tab opened after startup
+    // needs both exactly as much as the first one did.
+    setSettings(g_registry);
+    // Claimed, not copied: the SECOND terminal (a new tab) must open a default
     // shell rather than a second copy of whatever was on the command line.
     if (g_launchProfile) {
         m_profile = *g_launchProfile;
@@ -266,6 +285,35 @@ void TerminalItem::openProfile(const session::Profile& profile) {
         rebuildFrame();
         update();
     }
+    emit sessionChanged();
+}
+
+bool TerminalItem::openProfileById(const QString& profileId) {
+    if (m_store == nullptr) {
+        return false;
+    }
+    const session::Profile* raw = m_store->find(profileId.toStdString());
+    if (raw == nullptr) {
+        return false;
+    }
+    // resolve(), not the stored profile: the store holds only the keys each
+    // profile owns, so one inheriting its user from [folders."prod"] would
+    // otherwise reach the backend with an empty user.
+    openProfile(m_store->resolve(*raw));
+    return true;
+}
+
+QString TerminalItem::sessionTitle() const {
+    if (!m_profile.name.empty()) {
+        return QString::fromStdString(m_profile.name);
+    }
+    // An unnamed profile is the default local shell. "Shell" rather than the
+    // executable name: the tab says what it is, not how it was spelled.
+    return tr("Shell");
+}
+
+QString TerminalItem::sessionAccent() const {
+    return QString::fromStdString(m_profile.accent);
 }
 
 void TerminalItem::respondHostKey(bool trust) {

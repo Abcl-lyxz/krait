@@ -8,7 +8,6 @@
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
-#include <optional>
 #include <span>
 
 namespace krait::app {
@@ -43,9 +42,20 @@ class SessionModel : public QObject {
   public:
     explicit SessionModel(QObject* parent = nullptr);  // owned by parent
 
-    // Loads sessions.toml from the resolved config directory. Reports failure
-    // through `loadError` rather than throwing: a hand-edited file is user
-    // input, and a broken one must not take the window with it.
+    // The session list, owned by main() and shared with every terminal (T53).
+    // Static for the same reason TerminalItem::setServices is: QML constructs
+    // this object, so there is no moment between construction and first use in
+    // which to hand it anything.
+    //
+    // One store, not one per view-model: a tab opened from the palette and the
+    // palette itself must agree about what is saved, and an importer writing
+    // through one copy while another holds stale rows is a bug that only shows
+    // up after a save.
+    static void setStore(session::ProfileStore* store);
+
+    // Re-reads the model from the store. The FILE is loaded by main(); this
+    // only rebuilds what the views show, and is what the importer calls after
+    // it has added rows.
     Q_INVOKABLE void load();
 
     const QString& query() const { return m_query; }
@@ -68,17 +78,12 @@ class SessionModel : public QObject {
     // left behind and why.
     Q_INVOKABLE QString importFromPutty();
 
-    // The RESOLVED profile behind an id (T52) — [defaults] and the folder chain
-    // already applied, which is what a backend needs and what the store does
-    // not hold. Empty when there is no such profile.
-    //
-    // Deliberately not Q_INVOKABLE: QML has no use for a Profile, and the one
-    // caller is main()'s wiring, which is C++.
-    std::optional<session::Profile> profileById(const QString& id) const;
-
-    // Same, by profile NAME rather than id — what `krait <name>` on the command
-    // line has to work from, since a name is what a person types.
-    std::optional<session::Profile> profileByName(const QString& name) const;
+    // T52 had profileById()/profileByName() here for main()'s wiring. T53
+    // deleted both callers: a session now opens in a NEW TAB, which QML
+    // decides, so the lookup moved to TerminalItem::openProfileById; and the
+    // command line is resolved against the store directly in main(), before any
+    // SessionModel exists. Keeping them would have left two unguarded
+    // dereferences behind a comment naming a caller that no longer existed.
 
   signals:
     void queryChanged();
@@ -92,7 +97,7 @@ class SessionModel : public QObject {
   private:
     void refresh();
 
-    session::ProfileStore m_store;
+    session::ProfileStore* m_store = nullptr;  // borrowed; owned by main()
     QString m_query;
     QVariantList m_entries;
     QVariantList m_tree;

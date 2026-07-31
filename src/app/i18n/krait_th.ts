@@ -110,36 +110,12 @@
         <translation>Krait</translation>
     </message>
     <message>
-        <source>Dismiss</source>
-        <translation>ปิด</translation>
-    </message>
-    <message>
-        <source>Paste anyway</source>
-        <translation>วางต่อไป</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>ยกเลิก</translation>
+        <source>That session is no longer saved.</source>
+        <translation>เซสชันนั้นไม่ได้ถูกบันทึกไว้แล้ว</translation>
     </message>
     <message>
         <source>Not wired up yet: %1</source>
         <translation>ยังไม่ได้เชื่อมต่อคำสั่งนี้: %1</translation>
-    </message>
-    <message>
-        <source>Trust this server</source>
-        <translation>เชื่อถือเซิร์ฟเวอร์นี้</translation>
-    </message>
-    <message>
-        <source>Do not connect</source>
-        <translation>ไม่ต้องเชื่อมต่อ</translation>
-    </message>
-    <message>
-        <source>Connect</source>
-        <translation>เชื่อมต่อ</translation>
-    </message>
-    <message>
-        <source>The server is asking for a password.</source>
-        <translation>เซิร์ฟเวอร์กำลังขอรหัสผ่าน</translation>
     </message>
 </context>
 <context>
@@ -166,6 +142,37 @@
     <message>
         <source>This paste has more than one line. Every line will run.</source>
         <translation>ข้อความที่วางมีมากกว่าหนึ่งบรรทัด ทุกบรรทัดจะถูกรัน</translation>
+    </message>
+</context>
+<context>
+    <name>SessionPane</name>
+    <message>
+        <source>Dismiss</source>
+        <translation>ปิด</translation>
+    </message>
+    <message>
+        <source>Paste anyway</source>
+        <translation>วางต่อไป</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>ยกเลิก</translation>
+    </message>
+    <message>
+        <source>Trust this server</source>
+        <translation>เชื่อถือเซิร์ฟเวอร์นี้</translation>
+    </message>
+    <message>
+        <source>Do not connect</source>
+        <translation>ไม่ต้องเชื่อมต่อ</translation>
+    </message>
+    <message>
+        <source>Connect</source>
+        <translation>เชื่อมต่อ</translation>
+    </message>
+    <message>
+        <source>The server is asking for a password.</source>
+        <translation>เซิร์ฟเวอร์กำลังขอรหัสผ่าน</translation>
     </message>
 </context>
 <context>
@@ -216,6 +223,26 @@
     <message>
         <source>Reconnect session</source>
         <translation>เชื่อมต่อเซสชันใหม่</translation>
+    </message>
+    <message>
+        <source>Next tab</source>
+        <translation>แท็บถัดไป</translation>
+    </message>
+    <message>
+        <source>Previous tab</source>
+        <translation>แท็บก่อนหน้า</translation>
+    </message>
+    <message>
+        <source>Split right</source>
+        <translation>แยกไปทางขวา</translation>
+    </message>
+    <message>
+        <source>Split down</source>
+        <translation>แยกลงด้านล่าง</translation>
+    </message>
+    <message>
+        <source>Close pane</source>
+        <translation>ปิดบานหน้าต่าง</translation>
     </message>
     <message>
         <source>Command palette</source>
@@ -290,6 +317,10 @@
     <message>
         <source>Connection lost. Reconnecting in %1 s (%2 of %3)…</source>
         <translation>การเชื่อมต่อหลุด กำลังเชื่อมต่อใหม่ใน %1 วินาที (%2 จาก %3)…</translation>
+    </message>
+    <message>
+        <source>Shell</source>
+        <translation>เชลล์</translation>
     </message>
 </context>
 <context>
@@ -376,10 +407,6 @@
 </context>
 <context>
     <name>main</name>
-    <message>
-        <source>That session is no longer saved.</source>
-        <translation>เซสชันนั้นไม่ได้ถูกบันทึกไว้แล้ว</translation>
-    </message>
     <message>
         <source>No saved session is called that.</source>
         <translation>ไม่มีเซสชันที่บันทึกไว้ชื่อนั้น</translation>

@@ -110,36 +110,12 @@
         <translation>Krait</translation>
     </message>
     <message>
-        <source>Dismiss</source>
-        <translation>Dismiss</translation>
-    </message>
-    <message>
-        <source>Paste anyway</source>
-        <translation>Paste anyway</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>Cancel</translation>
+        <source>That session is no longer saved.</source>
+        <translation>That session is no longer saved.</translation>
     </message>
     <message>
         <source>Not wired up yet: %1</source>
         <translation>Not wired up yet: %1</translation>
-    </message>
-    <message>
-        <source>Trust this server</source>
-        <translation>Trust this server</translation>
-    </message>
-    <message>
-        <source>Do not connect</source>
-        <translation>Do not connect</translation>
-    </message>
-    <message>
-        <source>Connect</source>
-        <translation>Connect</translation>
-    </message>
-    <message>
-        <source>The server is asking for a password.</source>
-        <translation>The server is asking for a password.</translation>
     </message>
 </context>
 <context>
@@ -166,6 +142,37 @@
     <message>
         <source>This paste has more than one line. Every line will run.</source>
         <translation>This paste has more than one line. Every line will run.</translation>
+    </message>
+</context>
+<context>
+    <name>SessionPane</name>
+    <message>
+        <source>Dismiss</source>
+        <translation>Dismiss</translation>
+    </message>
+    <message>
+        <source>Paste anyway</source>
+        <translation>Paste anyway</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>Trust this server</source>
+        <translation>Trust this server</translation>
+    </message>
+    <message>
+        <source>Do not connect</source>
+        <translation>Do not connect</translation>
+    </message>
+    <message>
+        <source>Connect</source>
+        <translation>Connect</translation>
+    </message>
+    <message>
+        <source>The server is asking for a password.</source>
+        <translation>The server is asking for a password.</translation>
     </message>
 </context>
 <context>
@@ -216,6 +223,26 @@
     <message>
         <source>Reconnect session</source>
         <translation>Reconnect session</translation>
+    </message>
+    <message>
+        <source>Next tab</source>
+        <translation>Next tab</translation>
+    </message>
+    <message>
+        <source>Previous tab</source>
+        <translation>Previous tab</translation>
+    </message>
+    <message>
+        <source>Split right</source>
+        <translation>Split right</translation>
+    </message>
+    <message>
+        <source>Split down</source>
+        <translation>Split down</translation>
+    </message>
+    <message>
+        <source>Close pane</source>
+        <translation>Close pane</translation>
     </message>
     <message>
         <source>Command palette</source>
@@ -290,6 +317,10 @@
     <message>
         <source>Connection lost. Reconnecting in %1 s (%2 of %3)…</source>
         <translation>Connection lost. Reconnecting in %1 s (%2 of %3)…</translation>
+    </message>
+    <message>
+        <source>Shell</source>
+        <translation>Shell</translation>
     </message>
 </context>
 <context>
@@ -376,10 +407,6 @@
 </context>
 <context>
     <name>main</name>
-    <message>
-        <source>That session is no longer saved.</source>
-        <translation>That session is no longer saved.</translation>
-    </message>
     <message>
         <source>No saved session is called that.</source>
         <translation>No saved session is called that.</translation>

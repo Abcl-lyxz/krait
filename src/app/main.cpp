@@ -36,7 +36,7 @@
 #include <QTranslator>
 
 #include <cstdio>
-#include <optional>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -61,7 +61,13 @@ const char* apiName(QSGRendererInterface::GraphicsApi api) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+// A function-try-block, because main() calls into toml++, the standard library
+// and Qt, none of which promise not to throw — and rules/cpp.md says exceptions
+// do not cross module boundaries, which makes this the boundary.
+//
+// The alternative is what was here before: an exception escaping main, which on
+// Windows is a silent abort with no message and an exit code nobody can read.
+int main(int argc, char* argv[]) try {
     // ADR-0001: D3D11 is the primary QRhi backend on Windows.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
 
@@ -160,22 +166,69 @@ int main(int argc, char* argv[]) {
     qInfo("locale: %s (setting '%s'), krait translations %s", qPrintable(locale.name()),
           language.c_str(), translationsLoaded ? "loaded" : "NOT FOUND");
 
+    // The saved sessions, loaded ONCE here (T53). Before tabs, each SessionModel
+    // opened its own copy of the file; with tabs there are several readers and
+    // an importer that writes, and two copies of a session list disagree the
+    // moment one of them saves.
+    kses::ProfileStore store;
+    const QString sessionsPath = ks::sessionsFilePath(configDir.dir);
+    if (!store.load(sessionsPath.toStdString())) {
+        // A hand-edited file is user input: a broken one degrades to "no
+        // sessions" and says why, rather than refusing to start. SessionModel
+        // turns store.error() into the banner.
+        qWarning("sessions: %s (%s)", store.error().c_str(), qPrintable(sessionsPath));
+    }
+    qInfo("sessions: %s (%zu profiles)", qPrintable(sessionsPath), store.profiles().size());
+
+    // Handed over BEFORE the engine builds anything, because QML constructs
+    // these objects — including every terminal a new tab creates, long after
+    // startup. The findChildren() sweep this replaces could only reach the ones
+    // that existed when main() ran.
+    krait::app::TerminalItem::setServices(&registry, &vault, &store);
+    krait::app::SessionModel::setStore(&store);
+
     // BEFORE the engine builds the tree. TerminalView gets its geometry during
     // loadFromModule(), and geometry is what starts the first shell — so a
     // launch profile handed over afterwards would mean spawning PowerShell and
     // killing it again a few lines later, paying a process create and a wait on
     // the UI thread to show nothing.
     //
-    // The store is not loaded yet either (SessionModel is constructed by QML),
-    // so a named profile cannot be resolved here; only the ad-hoc case, which
-    // carries its own profile, can be pre-placed. The named case is handled
-    // after the tree exists and accepts the swap that costs.
+    // Both kinds resolve here now that the store is loaded before the engine:
+    // `krait ssh user@host` carries its own profile, and `krait prod` is a
+    // lookup this can finally do.
+    QString launchError;
+    QString launchErrorDetail;
     if (launch.kind == kses::Launch::Kind::Adhoc) {
         krait::app::TerminalItem::setLaunchProfile(launch.profile);
+    } else if (launch.kind == kses::Launch::Kind::Profile) {
+        const kses::Profile* named = nullptr;
+        for (const kses::Profile& profile : store.profiles()) {
+            if (profile.name == launch.profileName) {
+                named = &profile;
+                break;
+            }
+        }
+        if (named != nullptr) {
+            krait::app::TerminalItem::setLaunchProfile(store.resolve(*named));
+        } else {
+            // Named something that is not there. The window still opens — with
+            // a local shell and a banner saying why — because exiting would
+            // leave a typo looking like a crash.
+            launchError = QCoreApplication::translate("main", "No saved session is called that.");
+            launchErrorDetail = QString::fromStdString(launch.profileName);
+        }
     }
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("benchMode", qEnvironmentVariableIsSet("KRAIT_BENCH"));
+    // Read once by Main.qml on completion. A context property rather than a
+    // call into the item: the banner belongs to whichever tab exists, and at
+    // this point none do.
+    engine.rootContext()->setContextProperty("launchError", launchError);
+    engine.rootContext()->setContextProperty("launchErrorDetail", launchErrorDetail);
+    // No uiSelfTest context property: the self-test is invoked by name below,
+    // after the tree exists. A context property nothing reads is a global name
+    // waiting to shadow a real one.
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
@@ -184,79 +237,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Every terminal reads the same live registry rather than caching its own
-    // copy, so a hot reload reaches all of them.
-    for (QObject* root : engine.rootObjects()) {
-        for (krait::app::TerminalItem* item : root->findChildren<krait::app::TerminalItem*>()) {
-            item->setSettings(&registry);
-            item->setVault(&vault);
-        }
-    }
-
-    // The settings page reads the same one, for the same reason — and it is
-    // where a hot reload has to land visibly, since a page showing stale values
-    // is a page that will be edited on top of them.
+    // The settings page reads the same live registry, and it is where a hot
+    // reload has to land visibly since a page showing stale values is a page
+    // that will be edited on top of them. Still a findChildren() sweep because
+    // there is exactly one settings page and it exists from startup — unlike a
+    // terminal, which a new tab creates whenever it likes.
     for (QObject* root : engine.rootObjects()) {
         for (krait::app::SettingsModel* model : root->findChildren<krait::app::SettingsModel*>()) {
             model->setRegistry(&registry);
-        }
-    }
-
-    // T52: choosing a session in the palette opens it. The lookup lives here
-    // and not in QML because rules/ui.md keeps decisions out of views, and
-    // because a Profile is not something QML can carry.
-    //
-    // One terminal, so one target; T53 replaces this with "open a new tab" and
-    // nothing else about the path changes.
-    krait::app::TerminalItem* terminal = nullptr;
-    for (QObject* root : engine.rootObjects()) {
-        const QList<krait::app::TerminalItem*> items =
-            root->findChildren<krait::app::TerminalItem*>();
-        if (!items.isEmpty()) {
-            terminal = items.first();
-        }
-        for (krait::app::SessionModel* model : root->findChildren<krait::app::SessionModel*>()) {
-            QObject::connect(
-                model, &krait::app::SessionModel::sessionRequested, model,
-                [model, terminal](const QString& id) {
-                    if (terminal == nullptr) {
-                        return;
-                    }
-                    const std::optional<kses::Profile> profile = model->profileById(id);
-                    if (!profile) {
-                        // The palette offered it, so this means the
-                        // store changed underneath — say so rather
-                        // than opening a shell nobody asked for.
-                        terminal->raiseError(
-                            QCoreApplication::translate("main", "That session is no longer saved."),
-                            id);
-                        return;
-                    }
-                    terminal->openProfile(*profile);
-                });
-        }
-
-        // What the command line asked for, now that there is something to open
-        // it in. `Default` deliberately does nothing: the terminal starts a
-        // local shell on its own.
-        const QList<krait::app::SessionModel*> models =
-            root->findChildren<krait::app::SessionModel*>();
-        if (terminal != nullptr && !models.isEmpty()) {
-            // Adhoc was already pre-placed above, before the item existed.
-            if (launch.kind == kses::Launch::Kind::Profile) {
-                const std::optional<kses::Profile> profile =
-                    models.first()->profileByName(QString::fromStdString(launch.profileName));
-                if (profile) {
-                    terminal->openProfile(*profile);
-                } else {
-                    // Named something that is not there. Saying so beats
-                    // opening a local shell and letting the user work out why
-                    // their server is not answering.
-                    terminal->raiseError(
-                        QCoreApplication::translate("main", "No saved session is called that."),
-                        QString::fromStdString(launch.profileName));
-                }
-            }
         }
     }
 
@@ -316,10 +304,32 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // KRAIT_UI_SELFTEST: drive the tab and split actions and log what came out
+    // (T53). Called from HERE rather than from a QML Timer, which reports
+    // running == true and never triggers in a window that is never composited
+    // — which is exactly how an unattended run works.
+    if (qEnvironmentVariableIsSet("KRAIT_UI_SELFTEST") && !engine.rootObjects().isEmpty()) {
+        QObject* uiRoot = engine.rootObjects().first();
+        QTimer::singleShot(1500, uiRoot, [uiRoot] {
+            if (!QMetaObject::invokeMethod(uiRoot, "runSelfTest")) {
+                qCritical("selftest: Main.qml has no runSelfTest()");
+                QCoreApplication::exit(4);
+            }
+        });
+    }
+
     // Headless verification hook: KRAIT_SPIKE_AUTOQUIT closes after 2 s so
     // the T11 gate (log line above) can run unattended.
     if (qEnvironmentVariableIsSet("KRAIT_SPIKE_AUTOQUIT")) {
         QTimer::singleShot(3000, &app, &QCoreApplication::quit);
     }
     return app.exec();
+} catch (const std::exception& error) {
+
+    // stderr, not a banner: by definition there is no window to put one in.
+    std::fprintf(stderr, "krait: fatal: %s\n", error.what());
+    return 4;
+} catch (...) {
+    std::fprintf(stderr, "krait: fatal: unknown error\n");
+    return 4;
 }

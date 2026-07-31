@@ -13,23 +13,20 @@ namespace krait::app {
 
 namespace {
 
-// sessions.toml sits beside krait.toml, so portable mode and KRAIT_CONFIG_DIR
-// move both together — a config directory that holds the settings but not the
-// sessions would be a surprise nobody wants twice.
-QString sessionsPath() {
-    namespace ks = settings;
-    const ks::Resolution dir = ks::resolveConfigDir(
-        ks::systemPathInputs(), [](const QString& path) { return QFile::exists(path); });
-    QDir().mkpath(dir.dir);
-    return dir.dir + "/sessions.toml";
-}
-
+// Moved to settings::sessionsFilePath — main() resolves the directory once and
+// loads the store, rather than every view-model re-deriving the path and
+// opening its own copy of the file.
 // Kept in the registry's order for readability; the test compares them as sets,
 // so a reorder is fine and a rename is not.
 constexpr const char* const kActionLabels[] = {
     QT_TR_NOOP("New session"),
     QT_TR_NOOP("Close session"),
     QT_TR_NOOP("Reconnect session"),
+    QT_TR_NOOP("Next tab"),
+    QT_TR_NOOP("Previous tab"),
+    QT_TR_NOOP("Split right"),
+    QT_TR_NOOP("Split down"),
+    QT_TR_NOOP("Close pane"),
     QT_TR_NOOP("Command palette"),
     QT_TR_NOOP("Open a saved session"),
     QT_TR_NOOP("Manage sessions"),
@@ -49,17 +46,31 @@ std::span<const char* const> translatableActionLabels() {
     return kActionLabels;
 }
 
-SessionModel::SessionModel(QObject* parent) : QObject(parent) {
+namespace {
+session::ProfileStore* g_store = nullptr;
+}  // namespace
+
+void SessionModel::setStore(session::ProfileStore* store) {
+    g_store = store;
+}
+
+SessionModel::SessionModel(QObject* parent) : QObject(parent), m_store(g_store) {
     load();
 }
 
 void SessionModel::load() {
-    const QString path = sessionsPath();
-    if (!m_store.load(path.toStdString())) {
+    if (m_store == nullptr) {
+        return;
+    }
+    // The FILE was read by main(); a broken one is already reported there. This
+    // only rebuilds the rows, which is what the importer needs after it adds
+    // some — and what a second SessionModel needs in order to see them.
+    if (!m_store->error().empty()) {
         // A banner, not a dialog, and the app keeps running with no sessions
         // rather than refusing to start (rules/ui.md).
-        emit loadError(
-            tr("Could not read %1: %2").arg(path, QString::fromStdString(m_store.error())));
+        emit loadError(tr("Could not read %1: %2")
+                           .arg(QString::fromStdString(m_store->path()),
+                                QString::fromStdString(m_store->error())));
     }
     refresh();
 }
@@ -74,10 +85,18 @@ void SessionModel::setQuery(const QString& query) {
 }
 
 void SessionModel::refresh() {
+    // The guard lives HERE, not in load(): setQuery() and importFromPutty()
+    // reach refresh() without going through load(), and the unit binary
+    // compiles this file directly (tests/unit/CMakeLists.txt) without ever
+    // calling setStore(). A guard only on load() advertises the class as
+    // null-safe while leaving the paths that actually run unprotected.
+    if (m_store == nullptr) {
+        return;
+    }
     const std::string query = m_query.toStdString();
 
     m_entries.clear();
-    for (const session::PaletteEntry& entry : session::rankPalette(query, m_store)) {
+    for (const session::PaletteEntry& entry : session::rankPalette(query, *m_store)) {
         QVariantMap row;
         row["kind"] = entry.kind == session::PaletteEntry::Kind::Session ? "session" : "action";
         row["id"] = QString::fromStdString(entry.id);
@@ -92,7 +111,7 @@ void SessionModel::refresh() {
     emit entriesChanged();
 
     m_tree.clear();
-    for (const session::TreeRow& node : session::buildTree(m_store)) {
+    for (const session::TreeRow& node : session::buildTree(*m_store)) {
         QVariantMap row;
         row["isFolder"] = node.isFolder;
         row["depth"] = node.depth;
@@ -115,29 +134,10 @@ void SessionModel::activate(int index) {
     }
 }
 
-std::optional<session::Profile> SessionModel::profileById(const QString& id) const {
-    const session::Profile* raw = m_store.find(id.toStdString());
-    if (raw == nullptr) {
-        return std::nullopt;
-    }
-    // resolve(), not the stored profile: the store holds only the keys each
-    // profile owns, so a session that inherits its user from [folders."prod"]
-    // would otherwise reach the backend with an empty user and fail with a
-    // message about a value the user never wrote.
-    return m_store.resolve(*raw);
-}
-
-std::optional<session::Profile> SessionModel::profileByName(const QString& name) const {
-    const std::string wanted = name.toStdString();
-    for (const session::Profile& profile : m_store.profiles()) {
-        if (profile.name == wanted) {
-            return m_store.resolve(profile);
-        }
-    }
-    return std::nullopt;
-}
-
 QString SessionModel::importFromPutty() {
+    if (m_store == nullptr) {
+        return {};
+    }
     const session::PuttyImport imported = session::importFromPuttyRegistry();
     if (!imported.error.empty()) {
         return tr("No PuTTY sessions were found.");
@@ -147,10 +147,10 @@ QString SessionModel::importFromPutty() {
     for (const session::Profile& profile : imported.profiles) {
         // add() de-duplicates the id, so importing twice makes copies rather
         // than silently overwriting a profile the user has since edited.
-        m_store.add(profile);
+        m_store->add(profile);
         ++added;
     }
-    m_store.save();
+    m_store->save();
     refresh();
 
     if (imported.skipped.empty()) {
