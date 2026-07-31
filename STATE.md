@@ -1,12 +1,13 @@
 # STATE
 
 Phase: **M3 code-complete — T52-T63 done**, on branch `t52-backend-factory`.
-**M2 IS MERGED** (PR #24, commit 2794cc4 on main). The M3 branch is pushed; no
-PR opened yet.
+**M2 IS MERGED** (PR #24, commit 2794cc4 on main). **M3 is PR #25**, opened
+2026-07-31 at commit 683eda3 and pushed.
 
-**Next: open the M3 PR and let CI run it.** Then M4. Read "What is NOT done"
-before telling anyone M3 is finished — several milestone bullets shipped as a
-deliberate, documented refusal rather than as code.
+**Next: watch PR #25's CI, fix what it finds, merge.** Then M4. Read "What is
+NOT done" before telling anyone M3 is finished — several milestone bullets
+shipped as a deliberate, documented refusal rather than as code, and the fast
+gate has a history of being green while checking nothing.
 
 ## What landed
 
