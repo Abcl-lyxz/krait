@@ -235,8 +235,36 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
 
     // Selection and cursor are NOT part of the row cache: they move without the
     // grid changing, so caching them per row would need its own invalidation.
+    // Highlights UNDER the selection: the selection is what the user is doing
+    // right now, and it has to stay visible over anything a trigger painted.
+    appendHighlights(params, rowCount);
     appendSelection(params, rowCount);
     appendCursor(viewport, params);
+}
+
+void FrameBuilder::appendHighlights(const FrameParams& params, int rowCount) {
+    const float cellW = static_cast<float>(m_metrics.cellWidth);
+    const float cellH = static_cast<float>(cellHeight());
+    for (const HighlightSpan& span : params.highlights) {
+        if (span.row < 0 || span.row >= rowCount || span.endCol <= span.beginCol) {
+            continue;
+        }
+        const int first = std::max(0, span.beginCol);
+        const int last = std::min(params.cols, span.endCol);
+        if (last <= first) {
+            continue;
+        }
+        SolidInstance rect;
+        rect.x = static_cast<float>(first) * cellW;
+        rect.y = static_cast<float>(span.row) * cellH;
+        rect.w = static_cast<float>(last - first) * cellW;
+        rect.h = cellH;
+        unpackColor(m_theme.highlightBg, rect.r, rect.g, rect.b);
+        // Semi-transparent for the same reason the selection is: the glyphs
+        // underneath stay legible without a second text pass in another colour.
+        rect.a = 0.35F;
+        m_solids.push_back(rect);
+    }
 }
 
 bool FrameBuilder::rowNeedsRebuild(int row, const core::vt::DamageList& damage) const {

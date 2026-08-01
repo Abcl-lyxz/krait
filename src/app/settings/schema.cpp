@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 11> kDefs{{
+constexpr std::array<Def, 14> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -136,6 +136,52 @@ constexpr std::array<Def, 11> kDefs{{
         .doc = "settings.notify.taskbarProgress",
         .searchEn = "taskbar progress bar osc 9 4 remote button percent build download",
         .searchTh = "แถบงาน ความคืบหน้า แถบสถานะ เปอร์เซ็นต์ ทางไกล ดาวน์โหลด",
+    },
+    {
+        .id = "triggers.enabled",
+        .type = Type::Bool,
+        // On, because a profile with no triggers costs nothing: the engine
+        // compiles nothing and feed() returns on the first line. The switch
+        // exists because the WORK is driven by remote bytes — a master off is
+        // what someone reaches for when a rule they wrote turns out to be
+        // expensive on a chatty host, and editing every profile to find out
+        // which one is not that.
+        .fallback = true,
+        .choices = "",
+        .doc = "settings.triggers.enabled",
+        .searchEn = "trigger triggers regex match highlight notify watch output alert",
+        .searchTh = "ทริกเกอร์ ตัวกระตุ้น รูปแบบ ค้นหา เน้นสี แจ้งเตือน เฝ้าดู",
+    },
+    {
+        .id = "triggers.allowSend",
+        .type = Type::Bool,
+        // OFF, and this is the one default in the file that is not about
+        // taste. A trigger that sends text back, fired by output the REMOTE
+        // side chose, is a remote-controlled input primitive the user pointed
+        // at themselves — the same shape as an answerback, which rules/net.md
+        // rate-limits for exactly this reason. Everything else about triggers
+        // only ever costs a highlight or a banner; this one runs commands. It
+        // is opt-in per install, on top of the per-trigger rate limit and the
+        // size cap, so a profile file arriving from somewhere else cannot
+        // enable it on its own.
+        .fallback = false,
+        .choices = "",
+        .doc = "settings.triggers.allowSend",
+        .searchEn = "trigger send auto respond reply automation type input answer",
+        .searchTh = "ทริกเกอร์ ส่ง ตอบกลับ อัตโนมัติ พิมพ์ คำสั่ง",
+    },
+    {
+        .id = "triggers.logFile",
+        .type = Type::String,
+        // Empty means <config dir>/logs/triggers.log, beside the session logs
+        // — one file for every session, because the question a trigger log
+        // answers ("when did that last happen") is usually asked across
+        // sessions rather than inside one.
+        .fallback = std::string_view{},
+        .choices = "",
+        .doc = "settings.triggers.logFile",
+        .searchEn = "trigger log file path record match history",
+        .searchTh = "ทริกเกอร์ บันทึก ไฟล์ ที่อยู่ไฟล์ ประวัติ",
     },
     {
         .id = "ui.language",

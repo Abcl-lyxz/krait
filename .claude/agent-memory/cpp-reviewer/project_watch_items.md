@@ -457,3 +457,50 @@ T67 verified CORRECT, do not re-flag:
   so remote `C`/`D` pairs are bounded to ~1 notification/sec.
 - `visualRowsOfLine` counts rows identically to `reflow()` (verified line by
   line) and is bounds-guarded; `scrollToLine`'s INT_MAX clamp is real.
+
+## T68/T69 triggers + snippet bar (src/app/session/triggers.*, terminal_item)
+
+BLOCKING found:
+- `feed()` dedupes a straddling match with `begin + length <= tailLen`, which
+  only drops matches whose END is inside the carried tail. Any pattern whose
+  match GROWS as the line completes (`err(or)?`, `error.*`, `\w+`, `Continue.*`)
+  fires twice — duplicate banner/log and a duplicate `send` (burst=3 covers the
+  second). Correct shape: dedupe on the ABSOLUTE begin offset per rule, not on
+  the end.
+- `plainText()` is a stateless per-chunk skipper and diverges from
+  `parser/tables.h`, where `t[s][0x1B] = {None, State::Escape}` makes ESC an
+  ANYWHERE transition. `ESC ESC ] 0 ; error BEL` and `ESC [ 0 ESC ] 0 ; error
+  BEL` both leak the OSC payload as matchable text, and a sequence split across
+  two chunks leaks whatever lands in the second. Defeats the "cannot be baited
+  from inside an escape payload" claim in triggers.h AND docs/configuration.md.
+
+Latent (re-flag if untouched):
+- `feed()` computes the carried tail from the TRUNCATED subject when a chunk
+  exceeds kMaxScan, gluing the 64 KB mark to bytes that arrive megabytes later
+  — a fabricated adjacency that can fire a rule. Clear m_tail on truncation.
+- `catch (regex_error) { continue; }` in feed/highlightRanges retries a rule
+  that hit MSVC's complexity ceiling forever. `highlightRanges` runs per VISIBLE
+  ROW per `rebuildFrame()`, and rebuildFrame runs per output CHUNK — so the
+  ceiling is paid rows x chunks on the UI thread. Disable the rule after the
+  first complexity throw.
+- `TerminalItem::logTrigger` retries `resolveConfigDir` + `mkpath` + `open` +
+  `emit errorRaised` on EVERY hit when the path is unwritable (up to 64/chunk),
+  and never reopens when `triggers.logFile` changes.
+
+Verified CORRECT, do not re-flag:
+- `lineText`'s `columns` out-param: `charge()` does `resize(out.size(), cell)`
+  after each cell, wide-trailing cells contribute nothing, holes charge 1 byte,
+  terminator = `last`. size == text.size()+1, so rebuildFrame's
+  `end >= columns.size()` guard rejects nothing valid. Map is in step.
+- `runTriggers` placement (after `Session::feed`, before `rebuildFrame`) IS
+  safe: `Grid::viewportRows()` returns by VALUE, so a banner->strip-height->
+  `Grid::resize()` re-entry during the emit cannot dangle m_viewport, and
+  rebuildFrame re-reads everything afterwards.
+- `takeSendToken` arithmetic: no overflow (steps*interval <= nowMs), refilledMs
+  floor-aligns, burst clamps to kSendBurst. Sound token bucket.
+- The subject/tail buffers are bounded (4 KB + 64 KB); `sregex_iterator` holds
+  iterators into a local `subject` that nothing mutates; handleOutput arrives
+  QueuedConnection so the engine is UI-thread-only.
+- `sessionTitle()` is profile-derived, NOT remote-settable (OSC title is still
+  core silence), so the tab-separated trigger log cannot be forged.
+- i18n: EN+TH both landed for every new tr()/qsTr() string.

@@ -274,6 +274,17 @@
     </message>
 </context>
 <context>
+    <name>SnippetBar</name>
+    <message>
+        <source>This session has no snippets. Add a snippets = list to it in sessions.toml.</source>
+        <translation>เซสชันนี้ยังไม่มีสนิปเป็ต เพิ่มรายการ snippets = ให้เซสชันนี้ในไฟล์ sessions.toml</translation>
+    </message>
+    <message>
+        <source>%1. %2</source>
+        <translation>%1. %2</translation>
+    </message>
+</context>
+<context>
     <name>krait::app</name>
     <message>
         <source>New session</source>
@@ -322,6 +333,10 @@
     <message>
         <source>Show the file transfer panel</source>
         <translation>แสดงแผงโอนไฟล์</translation>
+    </message>
+    <message>
+        <source>Show the snippet bar</source>
+        <translation>แสดงแถบสนิปเป็ต</translation>
     </message>
     <message>
         <source>Jump to the previous prompt</source>
@@ -503,6 +518,18 @@
     <message>
         <source>Could not start logging.</source>
         <translation>เริ่มบันทึกไม่ได้</translation>
+    </message>
+    <message>
+        <source>A trigger pattern is not valid and was skipped.</source>
+        <translation>รูปแบบทริกเกอร์ไม่ถูกต้อง จึงข้ามรูปแบบนี้ไป</translation>
+    </message>
+    <message>
+        <source>Could not write the trigger log.</source>
+        <translation>เขียนไฟล์บันทึกทริกเกอร์ไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>A trigger matched: %1</source>
+        <translation>ทริกเกอร์ตรงกับ: %1</translation>
     </message>
     <message>
         <source>A command failed after %1 s (exit status %2).</source>

@@ -15,6 +15,7 @@
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
 #include "session/profile.h"
+#include "session/triggers.h"
 #include "settings/registry.h"
 #include "sftp_model.h"
 #include "taskbar_progress.h"
@@ -26,6 +27,7 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -65,6 +67,10 @@ class TerminalItem : public QQuickRhiItem {
     // backend and reports available == false for the ones that cannot transfer
     // files, so QML has one thing to ask rather than a null check plus a check.
     Q_PROPERTY(krait::app::SftpModel* files READ files CONSTANT)
+    // T69. The snippet bar's model: one row per snippet this profile defines,
+    // {name, preview}. Empty for a profile that defines none, which is what
+    // keeps the strip from appearing on tabs it has nothing to say about.
+    Q_PROPERTY(QVariantList snippets READ snippets NOTIFY sessionChanged)
 
   public:
     TerminalItem();
@@ -164,6 +170,16 @@ class TerminalItem : public QQuickRhiItem {
 
     SftpModel* files() const { return m_files; }
 
+    const QVariantList& snippets() const { return m_snippets; }
+
+    // T69. Sends snippet `index` to the session. Goes through preparePaste()
+    // like every other block of text entering a pty — a snippet is user-authored
+    // and therefore trusted in a way trigger-matched remote text is not, but it
+    // must not become the one path that skips the ESC/C0 strip that path does.
+    // Out-of-range is a no-op: QML holds an index into a list the profile can
+    // replace under it.
+    Q_INVOKABLE void sendSnippet(int index);
+
     // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
     // has moved on, so a banner answered late cannot reach a different backend.
     Q_INVOKABLE void respondHostKey(bool trust);
@@ -244,6 +260,12 @@ class TerminalItem : public QQuickRhiItem {
     // one arrives precisely when the user is doing something else.
     void commandFinished(const QString& message, const QString& detail);
 
+    // T68. A trigger matched. Its own signal rather than reusing the one above:
+    // the two arrive for different reasons and a handler that wanted to treat
+    // them differently would have nothing to branch on. `message` already
+    // contains sanitised remote text.
+    void triggerMatched(const QString& message);
+
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
     // ItemDevicePixelRatioHasChanged: the only hook Qt gives for a per-monitor
@@ -263,6 +285,16 @@ class TerminalItem : public QQuickRhiItem {
 
   private:
     void handleOutput(const QByteArray& bytes);
+    // T68. Runs the profile's triggers over one chunk of output and carries out
+    // whatever fired. Called from handleOutput, after the parser has seen the
+    // bytes — the actions can raise a banner, and a banner changes the strip
+    // height, which reaches Grid::resize(); doing that mid-parse is the same
+    // re-entrancy handleOsc() defers around.
+    void runTriggers(const QByteArray& bytes);
+    // Rebuilds the compiled trigger set from the current profile and settings.
+    void applyTriggers();
+    // Appends one line to the trigger log. Opened on first use and left open.
+    void logTrigger(const QString& text);
     // Acts on what the core decided an OSC string asked for. Only OSC 9;4 and
     // OSC 133 reach here so far; the clipboard and title kinds are still the
     // core's honest silence (docs/conformance.md).
@@ -328,6 +360,30 @@ class TerminalItem : public QQuickRhiItem {
     // T65. Owned by this (QObject parent), so QML holding the pointer through
     // the `files` property cannot outlive or delete it.
     SftpModel* m_files = nullptr;
+    // T68/T69. Compiled from m_profile on every openProfile() and on every
+    // settings reload; empty when the profile defines none, which is the case
+    // that has to cost nothing.
+    session::TriggerEngine m_triggers;
+    std::vector<session::Snippet> m_snippetList;
+    QVariantList m_snippets;
+    // Monotonic, for the send rate limiter. Started once and never restarted:
+    // an elapsed() that resets would hand every trigger a fresh token bucket.
+    QElapsedTimer m_triggerClock;
+    std::ofstream m_triggerLog;
+    // Latched. Without it a log path that cannot be opened costs a path
+    // resolution, an mkpath, an open and a banner on EVERY match — at a rate
+    // the remote side sets.
+    bool m_triggerLogFailed = false;
+    // Where plainText() was when the last chunk ran out. A remote chooses where
+    // its writes are cut, so a stripper that restarts at Ground every read can
+    // be walked through with a sequence split across two packets.
+    session::StripState m_stripState = session::StripState::Ground;
+    // The highlight rectangles for the CURRENT frame, in viewport coordinates.
+    // Rebuilt from the visible rows each time rather than remembered, so reflow
+    // cannot leave one pointing at text that moved.
+    std::vector<render::HighlightSpan> m_highlights;
+    std::vector<std::pair<std::size_t, std::size_t>> m_highlightRanges;
+    std::vector<int> m_highlightColumns;
     // What this terminal is pointed at. Default-constructed = a local shell,
     // which is what a window opened with no arguments should be.
     session::Profile m_profile;

@@ -101,6 +101,37 @@ TEST_CASE("taskbar progress is on by default and can be declined", "[settings]")
     CHECK_FALSE(reader.boolean("notify.taskbarProgress"));
 }
 
+TEST_CASE("sending from a trigger is off until the user opts in", "[settings]") {
+    // T68. The DEFAULT is the whole point of this one. A trigger that sends text
+    // back is fired by output the REMOTE side chose, so it is a remote-triggered
+    // input primitive the user has pointed at themselves — the only setting in
+    // the file where shipping it on would be a security decision made for them.
+    const Def* def = find("triggers.allowSend");
+    REQUIRE(def != nullptr);
+    CHECK(def->type == krait::app::settings::Type::Bool);
+
+    const QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("krait.toml");
+
+    Registry fresh;
+    REQUIRE(fresh.load(path));
+    CHECK_FALSE(fresh.boolean("triggers.allowSend"));
+    // Matching itself is on: a profile with no rules already costs nothing, and
+    // a feature that ships off is a feature nobody has.
+    CHECK(fresh.boolean("triggers.enabled"));
+    CHECK(fresh.text("triggers.logFile").empty());
+
+    REQUIRE(fresh.set("triggers.allowSend", true));
+    REQUIRE(fresh.set("triggers.enabled", false));
+    REQUIRE(fresh.save());
+
+    Registry reader;
+    REQUIRE(reader.load(path));
+    CHECK(reader.boolean("triggers.allowSend"));
+    CHECK_FALSE(reader.boolean("triggers.enabled"));
+}
+
 TEST_CASE("a saved file is readable and complete", "[settings]") {
     const QTemporaryDir dir;
     REQUIRE(dir.isValid());

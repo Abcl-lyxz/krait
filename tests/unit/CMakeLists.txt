@@ -23,6 +23,7 @@ add_executable(krait-core-tests
     session_test.cpp
     shaper_test.cpp
     smoke_test.cpp
+    triggers_test.cpp
     width_test.cpp
 )
 # krait-shaper brings krait-core with it (PUBLIC), and stays Qt-free so real

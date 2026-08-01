@@ -2,12 +2,14 @@
 
 #include "backend_factory.h"
 #include "capture.h"
+#include "core/grid/search.h"
 #include "core/unicode/width.h"
 #include "error_banner.h"
 #include "input/ime.h"
 #include "input/keymap.h"
 #include "input/mouse.h"
 #include "input/paste.h"
+#include "net/remote_text.h"
 #include "notifier.h"
 #include "render/shaper/run_splitter.h"
 #include "settings/paths.h"
@@ -15,7 +17,10 @@
 
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QInputMethodEvent>
@@ -25,6 +30,7 @@
 #include <QQuickWindow>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVariantMap>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -318,6 +324,10 @@ void TerminalItem::resetSession() {
 
 void TerminalItem::openProfile(const session::Profile& profile) {
     m_profile = profile;
+    // Before resetSession(), so the first bytes of the new connection are
+    // already being matched: a login banner is exactly the kind of thing people
+    // write a trigger for.
+    applyTriggers();
     resetSession();
     // Nothing else to do before the first geometry: ensureStarted() bails until
     // the grid size is known, and updateGrid() calls it again once it is.
@@ -402,6 +412,134 @@ QString TerminalItem::toggleLogging() {
 
 void TerminalItem::raiseError(const QString& message, const QString& hint) {
     emit errorRaised(message, hint);
+}
+
+void TerminalItem::applyTriggers() {
+    const bool enabled = m_settings == nullptr || m_settings->boolean("triggers.enabled");
+    // `triggers.allowSend` is read HERE and nowhere else: the engine drops every
+    // send action at compile time when it is off, so there is exactly one place
+    // in the build where the answer can become yes.
+    const bool allowSend =
+        enabled && m_settings != nullptr && m_settings->boolean("triggers.allowSend");
+    m_triggers.setTriggers(enabled ? session::parseTriggers(m_profile.triggers)
+                                   : std::vector<session::Trigger>{},
+                           allowSend);
+    if (!m_triggerClock.isValid()) {
+        m_triggerClock.start();
+    }
+    // The log destination may have just changed, and the stripper's state
+    // belongs to a rule set that no longer exists. Both are reopened lazily.
+    m_triggerLog.close();
+    m_triggerLogFailed = false;
+    m_stripState = session::StripState::Ground;
+    for (const std::string& error : m_triggers.errors()) {
+        // A rule that will never match is worth one banner when it is loaded,
+        // not silence until the user wonders why nothing highlights.
+        emit errorRaised(tr("A trigger pattern is not valid and was skipped."),
+                         QString::fromStdString(error));
+    }
+
+    m_snippetList = session::parseSnippets(m_profile.snippets);
+    m_snippets.clear();
+    for (const session::Snippet& snippet : m_snippetList) {
+        QVariantMap row;
+        row["name"] = QString::fromStdString(snippet.name);
+        // What will actually be sent, on one line, so a snippet whose name says
+        // "restart" cannot quietly be something else. Escapes stay escaped for
+        // the same reason: an invisible CR in a preview is a preview that lies.
+        row["preview"] = QString::fromStdString(session::escapeText(snippet.text));
+        m_snippets.append(row);
+    }
+}
+
+void TerminalItem::logTrigger(const QString& text) {
+    if (m_triggerLogFailed) {
+        return;  // said once, at the rate the user's own config caused it
+    }
+    if (!m_triggerLog.is_open()) {
+        QString path = m_settings != nullptr
+                           ? QString::fromStdString(m_settings->text("triggers.logFile"))
+                           : QString();
+        if (path.isEmpty()) {
+            namespace ks = settings;
+            const ks::Resolution dir = ks::resolveConfigDir(
+                ks::systemPathInputs(), [](const QString& at) { return QFile::exists(at); });
+            path = dir.dir + "/logs/triggers.log";
+        }
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        // The wide overload, not toStdString(): the narrow one decodes with the
+        // active code page, so a config directory under a Thai user name never
+        // opens. MSVC-specific, like the rest of this file's Win32 assumptions.
+        m_triggerLog.open(path.toStdWString(), std::ios::app | std::ios::binary);
+        if (!m_triggerLog.is_open()) {
+            m_triggerLogFailed = true;
+            emit errorRaised(tr("Could not write the trigger log."), path);
+            return;
+        }
+    }
+    // Appended, never rewritten, and the session name is in every line: one
+    // file serves every tab, and a line that does not say which one is a line
+    // nobody can act on.
+    const QString line = QDateTime::currentDateTime().toString(Qt::ISODate) + "\t" +
+                         sessionTitle() + "\t" + text + "\n";
+    const QByteArray bytes = line.toUtf8();
+    m_triggerLog.write(bytes.constData(), bytes.size());
+    m_triggerLog.flush();
+}
+
+void TerminalItem::runTriggers(const QByteArray& bytes) {
+    if (m_triggers.empty()) {
+        return;  // the common case, and it has to cost one branch
+    }
+    // The control layer comes out first. Matching the raw bytes would let a
+    // remote bait a pattern from inside an escape payload it knows will never
+    // be drawn, and would anchor `^` to wherever the last write happened to
+    // stop rather than to a line.
+    const std::string text = session::plainText(
+        {bytes.constData(), static_cast<std::size_t>(bytes.size())}, m_stripState);
+    const auto nowMs = static_cast<std::uint64_t>(m_triggerClock.elapsed());
+
+    for (const session::TriggerHit& hit : m_triggers.feed(text, nowMs)) {
+        // The matched text is REMOTE-chosen and about to sit next to words the
+        // user trusts. rules/net.md, and the helper that already solves exactly
+        // this: controls out, length and line count capped.
+        const QString matched = net::sanitizeRemoteText(hit.matched, 120, 1);
+        if (hit.log) {
+            logTrigger(matched);
+        }
+        if (hit.notify) {
+            if (QWindow* const own = window();
+                own != nullptr && g_notifier != nullptr && QGuiApplication::focusWindow() != own) {
+                g_notifier->notify(own, sessionTitle(), matched);
+            }
+            // A per-tab banner as well as (or instead of) the balloon: the
+            // banner is the surface that survives being missed, and rules/ui.md
+            // makes it the only in-session error surface. Never modal.
+            emit triggerMatched(tr("A trigger matched: %1").arg(matched));
+        }
+        if (!hit.send.empty()) {
+            // Through preparePaste like every other block of text entering a
+            // pty: the send text is user-authored, but it is also the ONE
+            // action a remote host can fire, so it gets the same ESC/C0 strip
+            // and bracketed-paste wrapping a clipboard paste does. The risk
+            // classification is deliberately ignored — the user wrote this into
+            // their own profile, and a confirmation banner on an automated
+            // response is a response that never happens.
+            const auto guarded = input::preparePaste(QString::fromStdString(hit.send),
+                                                     m_session->grid().bracketedPaste);
+            sendPaste(guarded.bytes);
+        }
+    }
+}
+
+void TerminalItem::sendSnippet(int index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= m_snippetList.size() || !m_session) {
+        return;
+    }
+    const auto guarded = input::preparePaste(
+        QString::fromStdString(m_snippetList[static_cast<std::size_t>(index)].text),
+        m_session->grid().bracketedPaste);
+    sendPaste(guarded.bytes);
 }
 
 void TerminalItem::respondCredential(const QString& text, bool remember) {
@@ -631,6 +769,12 @@ void TerminalItem::applySettings() {
         g_taskbar->forget(this);
     }
 
+    // T68. Recompiled on every reload rather than only on connect: turning
+    // triggers off, or turning `allowSend` on, has to reach the tabs that are
+    // already open — a switch that only applies to the next session is one the
+    // user cannot tell apart from a broken one.
+    applyTriggers();
+
     // Against the CONFIGURED family, not the resolved one: ensureFont() writes
     // its fallback into m_family, so comparing that made every hot reload of
     // any unrelated setting look like a font change and tear the whole stack
@@ -738,12 +882,20 @@ void TerminalItem::handleOutput(const QByteArray& bytes) {
         const std::string dump = formatHexdump(bytes, m_hexdumpOffset);
         m_hexdumpOffset += static_cast<std::uint64_t>(bytes.size());
         m_session->feed({reinterpret_cast<const std::uint8_t*>(dump.data()), dump.size()});
+        // The REAL bytes, not the dump: a hexdump is a view, not a mode, so a
+        // trigger keeps watching the session rather than watching hex digits.
+        runTriggers(bytes);
         rebuildFrame();
         update();
         return;
     }
     m_session->feed({reinterpret_cast<const std::uint8_t*>(bytes.constData()),
                      static_cast<std::size_t>(bytes.size())});
+    // After the parser, never during it: a trigger can raise a banner, a banner
+    // changes the strip height, and that reaches Grid::resize() — resizing the
+    // grid under a parser part-way through a chunk is the re-entrancy
+    // handleOsc() already defers around.
+    runTriggers(bytes);
     rebuildFrame();
     update();
 }
@@ -901,8 +1053,40 @@ void TerminalItem::rebuildFrame() {
     // a reader scrolled up must see history, not the live bottom.
     m_viewport = grid.viewportRows();
 
+    // T68's highlight action. Re-derived from the VISIBLE rows every frame
+    // rather than recorded where a match landed: a coordinate captured at feed
+    // time is invalidated by the next reflow, which is the scrollback landmine
+    // CLAUDE.md names, and it would also miss text scrolled back into view.
+    //
+    // Reuses the search path's lineText() — same text extraction, same column
+    // mapping — because two notions of "what is on this row" is how a highlight
+    // ends up one cell off from the characters it is meant to be under.
+    //
+    // ponytail: one regex pass per visible row per rebuild, bounded by
+    // TriggerEngine::kMaxScan per row and skipped entirely when no rule asks for
+    // a highlight. If a profile with many highlight rules ever costs a visible
+    // frame, the upgrade is to cache per row against the damage list the way
+    // FrameBuilder already caches its instances.
+    m_highlights.clear();
+    if (m_triggers.hasHighlight()) {
+        for (std::size_t row = 0; row < m_viewport.size(); ++row) {
+            const std::string text =
+                core::vt::lineText(m_viewport[row], grid.clusters(), &m_highlightColumns);
+            m_triggers.highlightRanges(text, m_highlightRanges);
+            for (const auto& [begin, end] : m_highlightRanges) {
+                if (end >= m_highlightColumns.size()) {
+                    continue;  // a range past the row's text has no cells
+                }
+                m_highlights.push_back({.row = static_cast<int>(row),
+                                        .beginCol = m_highlightColumns[begin],
+                                        .endCol = m_highlightColumns[end]});
+            }
+        }
+    }
+
     render::FrameParams params;
     params.cols = grid.cols;
+    params.highlights = m_highlights;
     params.selection = m_selection;
     params.cursor.visible = grid.viewOffset() == 0;  // hidden while scrolled back
     params.cursor.focused = hasActiveFocus();

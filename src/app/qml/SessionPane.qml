@@ -62,6 +62,20 @@ Item {
         }
     }
 
+    // T69: the snippet bar, a strip for the same reason the other two are. It
+    // opens on any backend — a snippet is text going into a session, and a
+    // local shell takes text as readily as a remote one.
+    property bool showSnippets: false
+
+    function toggleSnippets() {
+        tab.showSnippets = !tab.showSnippets
+        if (tab.showSnippets) {
+            snippetBar.forceActiveFocus()
+        } else {
+            tab.focusCurrent()
+        }
+    }
+
     // Credential prompts that arrived while the banner was busy with another
     // pane's. One banner and N panes means they have to queue somewhere, and
     // dropping them means a backend waits for an answer nobody can give.
@@ -325,6 +339,17 @@ Item {
             }
         }
 
+        SnippetBar {
+            id: snippetBar
+            width: parent.width
+            visible: tab.showSnippets
+            terminal: tab.terminal
+            onCloseRequested: {
+                tab.showSnippets = false
+                tab.focusCurrent()
+            }
+        }
+
         // The panel's failures are the tab's banner, like every other error
         // here (rules/ui.md). The target follows the focused terminal, so a
         // split tab cannot show one pane's failure over another's session.
@@ -342,6 +367,7 @@ Item {
             id: area
             width: parent.width
             height: parent.height - banner.height - tunnels.height - filePanel.height
+                    - snippetBar.height
 
             Repeater {
                 id: repeater
@@ -430,6 +456,16 @@ Item {
                             return  // a live prompt outranks a finished command
                         }
                         tab.raiseSessionNotice(message, detail)
+                    }
+
+                    // T68. Calm severity and no focus steal, like a finished
+                    // command: a trigger firing is news, not a failure, and it
+                    // must never take the banner from a live prompt.
+                    onTriggerMatched: (message) => {
+                        if (banner.message.length > 0) {
+                            return
+                        }
+                        tab.raiseSessionNotice(message, "")
                     }
 
                     onConnectionNotice: (message) => {

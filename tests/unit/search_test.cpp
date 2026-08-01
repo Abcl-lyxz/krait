@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace krait::core::vt;
 
@@ -37,6 +38,34 @@ TEST_CASE("a row becomes text without its padding", "[core][search]") {
     feed(cjk, "\xe6\x97\xa5\xe6\x9c\xac");  // 日本
     const std::string wide = lineText(cjk.grid().viewportRows().front(), cjk.grid().clusters());
     CHECK(wide == "\xe6\x97\xa5\xe6\x9c\xac");
+}
+
+TEST_CASE("a row's bytes map back to the cells they came from", "[core][search]") {
+    // T68's highlight action turns match byte offsets into cells to paint. The
+    // mapping ships with lineText rather than beside it because a second walk of
+    // the row is a second chance to disagree with this one — and a highlight one
+    // cell off from its text is worse than no highlight.
+    Session session(4, 20);
+    feed(session, "a\xe6\x97\xa5"
+                  "b");  // a日b: 1 + 3 + 1 bytes over 1 + 2 + 1 cells
+
+    std::vector<int> columns;
+    const std::string text =
+        lineText(session.grid().viewportRows().front(), session.grid().clusters(), &columns);
+    REQUIRE(text == "a\xe6\x97\xa5"
+                    "b");
+    REQUIRE(columns.size() == text.size() + 1);
+
+    CHECK(columns[0] == 0);  // 'a'
+    // All three bytes of the wide cluster belong to its LEAD cell, and the byte
+    // after them is the next cell — which is 3, not 2, because the cluster
+    // claimed two columns.
+    CHECK(columns[1] == 1);
+    CHECK(columns[3] == 1);
+    CHECK(columns[4] == 3);  // 'b'
+    // One past the end, so [begin, end) maps straight to a column range with no
+    // special case on the last byte.
+    CHECK(columns.back() == 4);
 }
 
 TEST_CASE("literal search finds every occurrence, case-insensitively", "[core][search]") {

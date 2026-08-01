@@ -69,7 +69,7 @@ std::string lowered(std::string_view text) {
 
 }  // namespace
 
-std::string lineText(const Line& line, const ClusterPool& pool) {
+std::string lineText(const Line& line, const ClusterPool& pool, std::vector<int>* columns) {
     // Find the last written cell first, so the padding a fixed-width row always
     // carries never reaches the output.
     std::size_t last = line.cells.size();
@@ -79,6 +79,19 @@ std::string lineText(const Line& line, const ClusterPool& pool) {
 
     std::string out;
     out.reserve(last);
+    if (columns != nullptr) {
+        columns->clear();
+        columns->reserve(last + 1);
+    }
+    // Every byte appended is charged to the cell that produced it, so the two
+    // stay in step even where one cell contributes several bytes (a Thai
+    // syllable) or none (the trailing half of a wide cluster).
+    const auto charge = [&](std::size_t cell) {
+        if (columns != nullptr) {
+            columns->resize(out.size(), static_cast<int>(cell));
+        }
+    };
+
     for (std::size_t i = 0; i < last; ++i) {
         const char32_t ch = line.cells[i].ch;
         if (ch == 0) {
@@ -86,6 +99,7 @@ std::string lineText(const Line& line, const ClusterPool& pool) {
             // keeps the column alignment that makes a match offset mean
             // something.
             out += ' ';
+            charge(i);
             continue;
         }
         if (isWideTrailing(ch)) {
@@ -97,9 +111,17 @@ std::string lineText(const Line& line, const ClusterPool& pool) {
             for (const char32_t cp : pool.lookup(ch)) {
                 appendUtf8(out, cp);
             }
+            charge(i);
             continue;
         }
         appendUtf8(out, ch);
+        charge(i);
+    }
+    if (columns != nullptr) {
+        // One past the end, so a half-open byte range [b, e) maps to the
+        // half-open column range [(*columns)[b], (*columns)[e]) with no special
+        // case at the last byte.
+        columns->push_back(static_cast<int>(last));
     }
     return out;
 }

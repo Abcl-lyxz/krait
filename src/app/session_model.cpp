@@ -33,6 +33,7 @@ constexpr const char* const kActionLabels[] = {
     QT_TR_NOOP("Start or stop logging this session"),
     QT_TR_NOOP("Show port forwards"),
     QT_TR_NOOP("Show the file transfer panel"),
+    QT_TR_NOOP("Show the snippet bar"),
     QT_TR_NOOP("Jump to the previous prompt"),
     QT_TR_NOOP("Jump to the next prompt"),
     QT_TR_NOOP("Command palette"),

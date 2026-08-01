@@ -27,6 +27,7 @@ qt_add_qml_module(krait-app
         qml/Palette.qml
         qml/SessionPane.qml
         qml/Settings.qml
+        qml/SnippetBar.qml
         qml/TabStrip.qml
     SOURCES
         backend_factory.cpp

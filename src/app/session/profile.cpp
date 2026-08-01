@@ -30,6 +30,8 @@ constexpr const char* kCommand = "command";
 constexpr const char* kBaud = "baud";
 constexpr const char* kProxyJump = "proxy_jump";
 constexpr const char* kForwards = "forwards";
+constexpr const char* kTriggers = "triggers";
+constexpr const char* kSnippets = "snippets";
 
 std::string readText(const std::string& path, bool* exists) {
     std::ifstream file(path, std::ios::binary);
@@ -113,6 +115,10 @@ bool applyField(Profile& profile, std::string_view key, std::string_view value) 
         profile.proxyJump = value;
     } else if (key == kForwards) {
         profile.forwards = value;
+    } else if (key == kTriggers) {
+        profile.triggers = value;
+    } else if (key == kSnippets) {
+        profile.snippets = value;
     } else if (key == kAccent) {
         profile.accent = value;
     } else if (key == kCommand) {
@@ -167,6 +173,12 @@ std::string fieldText(const Profile& profile, std::string_view key) {
     }
     if (key == kForwards) {
         return profile.forwards;
+    }
+    if (key == kTriggers) {
+        return profile.triggers;
+    }
+    if (key == kSnippets) {
+        return profile.snippets;
     }
     if (key == kAccent) {
         return profile.accent;

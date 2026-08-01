@@ -109,6 +109,7 @@ Window {
     Shortcut { sequence: "Ctrl+Shift+D"; onActivated: root.splitCurrent(false) }
     Shortcut { sequence: "Ctrl+Shift+U"; onActivated: { const p = root.currentPane(); if (p) p.toggleTunnels() } }
     Shortcut { sequence: "Ctrl+Shift+B"; onActivated: { const p = root.currentPane(); if (p) p.toggleFiles() } }
+    Shortcut { sequence: "Ctrl+Shift+S"; onActivated: { const p = root.currentPane(); if (p) p.toggleSnippets() } }
     Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.splitCurrent(true) }
     Shortcut { sequence: "Ctrl+Shift+Up"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(-1) } }
     Shortcut { sequence: "Ctrl+Shift+Down"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(1) } }
@@ -231,6 +232,11 @@ Window {
             case "view.files": {
                 const pane = root.currentPane()
                 if (pane) pane.toggleFiles()
+                return
+            }
+            case "view.snippets": {
+                const pane = root.currentPane()
+                if (pane) pane.toggleSnippets()
                 return
             }
             case "view.previousPrompt": {

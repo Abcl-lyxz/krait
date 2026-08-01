@@ -32,6 +32,11 @@ constexpr std::array kActions = {
     // the keywords, because nobody guesses what a panel is called.
     Action{"view.files", "Show the file transfer panel", "Ctrl+Shift+B",
            "sftp scp files upload download transfer copy browse"},
+    // T69. A strip, not a window (rules/ui.md), and the bar itself is only half
+    // of "reachable from the keyboard": once it is open, 1-9 send the first
+    // nine snippets and the arrows walk the rest.
+    Action{"view.snippets", "Show the snippet bar", "Ctrl+Shift+S",
+           "snippet snippets send text macro command paste canned"},
     // T67. Ctrl+Shift+Up/Down rather than a letter: this is navigation, it is
     // pressed repeatedly, and the arrows are what iTerm2 and VS Code's terminal
     // already trained people to reach for.

@@ -64,6 +64,11 @@ longCommand = true        # notify when a slow command finishes
 longCommandSeconds = 30   # 1-3600, how slow counts as slow
 taskbarProgress = true    # let remote programs drive the taskbar progress bar
 
+[triggers]
+enabled = true       # run each session's trigger rules over its output
+allowSend = false    # let a trigger send text back to the session
+logFile = ""         # empty: <config dir>/logs/triggers.log
+
 [ui]
 language = "system"  # or "en", "th"
 ```
@@ -106,6 +111,40 @@ bar that is already showing, so a host that left one stuck cannot keep it there.
 Krait still parses the sequence and still never answers it — declining changes
 what Krait *does*, not what it accepts, so a program that emits it unconditionally
 (most do, without asking whether the terminal has a taskbar at all) is unaffected.
+
+### `triggers.enabled`, `triggers.allowSend`, `triggers.logFile`
+
+A trigger is a regular expression matched against what a session prints, with
+one or more actions attached. They are per session, in `sessions.toml` — see
+[Triggers and snippets](#triggers-and-snippets) below for the format. These
+three keys are the switches that apply to all of them.
+
+`enabled` is the master off. A profile with no triggers already costs nothing,
+but the *work* triggers do is driven by bytes the far end chooses, so there has
+to be one place to stop it without editing every profile to find out which rule
+turned out to be expensive on a chatty host.
+
+**`allowSend` is off, and it is the one default here that is not about taste.**
+A trigger that sends text back, fired by output the remote side controls, is a
+remote-triggered input primitive you have pointed at yourself — the same shape
+as a terminal answerback, which Krait rate-limits for exactly this reason. Every
+other action costs you a highlight or a banner; this one runs commands. So it is
+opt-in per installation, on top of the limits that always apply:
+
+- at most **one** send leaves per chunk of output, across all rules;
+- each rule may send at most three times in quick succession and then once every
+  two seconds — which is what stops a trigger that matches its own echo from
+  looping forever, the failure everybody hits first;
+- a sent string is capped at 256 bytes;
+- the sent text is what *you* wrote. Captured groups are deliberately **not**
+  substituted into it, so nothing the remote host chose can end up being typed
+  into your shell.
+
+`logFile` is where the `log` action writes: one tab-separated line per match,
+with a timestamp and the session name. Empty means `logs/triggers.log` beside
+the session logs. The matched text is stripped of control characters and
+truncated before it is written — a log line that can move your cursor is not a
+log line.
 
 ### `unicode.eastAsianAmbiguous`
 
@@ -163,6 +202,81 @@ libssh already reads `~/.ssh/config` on every connect, so a Krait session
 pointed at a host inherits what that file says about it either way. What
 importing buys is the host appearing in the session tree and the palette, with a
 folder and a safety accent of its own.
+
+## Triggers and snippets
+
+Both live on the session, in `sessions.toml`, as one rule per line. Use a TOML
+*literal* multi-line string (`'''`) so regex backslashes need no doubling:
+
+```toml
+[[session]]
+id = "prod-web"
+name = "Web 1 (prod)"
+backend = "ssh"
+host = "web1.example"
+
+triggers = '''
+# pattern >> action[,action]...
+\berror\b|\bFATAL\b >> highlight,notify
+kernel: .*oops     >> highlight,log,case
+Are you sure\?     >> send:yes\r
+noisy but kept     >> highlight,off
+'''
+
+snippets = '''
+Disk usage  >> df -h\r
+Tail syslog >> tail -f /var/log/syslog\r
+Who is on   >> w\r
+'''
+```
+
+Because these are ordinary profile fields, they inherit: put `triggers` in
+`[defaults]` or in `[folders."prod"]` and every session under it gets them,
+with a session's own list overriding rather than merging.
+
+**Trigger actions**
+
+| Action | What it does |
+|---|---|
+| `highlight` | Paints the matched text wherever it is visible on screen |
+| `notify` | A per-tab banner, plus a desktop notification when Krait is not focused |
+| `log` | Appends the match to `triggers.logFile` |
+| `send:<text>` | Sends `<text>` to the session. Needs `triggers.allowSend`; takes the rest of the line |
+| `case` | Match case-sensitively. The default is insensitive |
+| `off` | Keep the rule in the file, stop running it |
+
+Escapes in `send:` and in a snippet are `\r`, `\n`, `\t` and `\\` — nothing
+else, because an escape nobody can remember is one nobody uses. Most commands
+want a trailing `\r`, which is what Enter sends.
+
+The separator is `" >> "`. A trigger splits on the **last** one, so a pattern
+containing it still parses; a snippet splits on the **first**, because there it
+is the tail that is free-form.
+
+**What the matching sees.** Escape sequences are stripped before matching, so a
+pattern cannot be baited from inside an invisible OSC payload and `^` means the
+start of a line. Matching is per chunk of output with the trailing partial line
+carried over (capped at 4 KB), so a match split across two reads is found once
+and only once. A single chunk is scanned up to 64 KB; a rule with several
+matches on one chunk reports at most eight of them.
+
+**Highlights are re-derived from what is on screen**, every frame, rather than
+recorded where a match landed. A recorded coordinate is invalidated by the next
+window resize — Krait rewraps history — and would also miss text scrolled back
+into view.
+
+Patterns are ECMAScript regular expressions, matched by the standard library's
+engine rather than Qt's. That is deliberate: Qt's `QRegularExpression` is PCRE2,
+which backtracks, and Qt exposes no way to bound it. The standard library
+implementation stops itself once a match gets too expensive, which is what keeps
+a pattern like `(a+)+$` from handing a remote host your CPU. A pattern that does
+not compile is skipped, named in a banner, and does not stop the others.
+
+**The snippet bar** is `Ctrl+Shift+S`, or "Show the snippet bar" in the command
+palette. Once it is open, `1`-`9` send the first nine snippets and `Esc` closes
+it. Snippets go out through the same guard a clipboard paste does: control
+characters are stripped and the text is wrapped in bracketed paste when the
+application asked for it.
 
 ## Hot reload
 

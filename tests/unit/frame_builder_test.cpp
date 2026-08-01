@@ -2,6 +2,7 @@
 #include "render/frame_builder.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -145,6 +146,48 @@ TEST_CASE("selection covers the right cells in both drag directions", "[frame]")
             .active = false, .anchorRow = 0, .anchorCol = 0, .cursorRow = 9, .cursorCol = 9};
         CHECK_FALSE(selectionContains(sel, 3, 3));
     }
+}
+
+TEST_CASE("a trigger highlight becomes a solid the GPU can draw", "[frame]") {
+    // T68. The highlight action has to reach the renderer, and this is the
+    // seam: spans in viewport coordinates become rectangles, clipped to the
+    // grid, in the same pipeline the selection uses.
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    std::vector<Line> viewport(3, Line(20));
+    DamageList damage(3);
+    FrameParams params;
+    params.cols = 20;
+    params.cursor.visible = false;
+
+    builder.build(viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+    const std::size_t baseline = builder.solids().size();
+
+    const std::array<krait::render::HighlightSpan, 4> spans{{
+        {.row = 1, .beginCol = 2, .endCol = 6},
+        {.row = 9, .beginCol = 0, .endCol = 4},    // off the bottom: dropped
+        {.row = 0, .beginCol = 5, .endCol = 5},    // empty: dropped
+        {.row = 2, .beginCol = 18, .endCol = 99},  // clipped to the grid width
+    }};
+    params.highlights = spans;
+    damage.markAll();
+    builder.build(viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+    REQUIRE(builder.solids().size() == baseline + 2);
+
+    const auto& first = builder.solids()[baseline];
+    CHECK(first.x == 2.0F * kMetrics.cellWidth);
+    CHECK(first.y == 1.0F * kMetrics.lineHeight);
+    CHECK(first.w == 4.0F * kMetrics.cellWidth);
+    // Semi-transparent, so the glyphs underneath stay legible without a second
+    // text pass in a highlight foreground colour.
+    CHECK(first.a < 1.0F);
+
+    // Clipped rather than dropped: a match running to the end of the row is the
+    // normal case, and a rectangle past the last column would be drawn outside
+    // the grid.
+    CHECK(builder.solids()[baseline + 1].w == 2.0F * kMetrics.cellWidth);
 }
 
 TEST_CASE("only damaged rows are rebuilt", "[frame]") {
