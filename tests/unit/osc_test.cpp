@@ -2,6 +2,7 @@
 #include "core/terminal/session.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -452,6 +453,84 @@ TEST_CASE("a D with no prompt open does no history walk at all", "[core][osc][sh
 
     feed(session, "\x1b]133;D;9\x1b\\");
     CHECK(grid.absoluteLineAt(*prompt).exitCode == 7);  // not re-claimed
+}
+
+TEST_CASE("a flood of A + 2J + D triples stays bounded instead of rescanning history",
+          "[core][osc][shell]") {
+    // The hostile case T66's `m_promptOpen` bool did NOT cover, and the reason
+    // the open prompt is a stable index now. `ESC]133;A ST` `CSI 2J`
+    // `ESC]133;D ST` is 25 bytes: the 2J clears the mark (sgr.cpp) without
+    // closing the prompt, so a walk bounded only by "is a prompt open" searches
+    // ALL of history, finds nothing, and does it again for every 25 bytes.
+    // With the floor the walk stops where the A opened, which no amount of
+    // remote output can push further away for free.
+    // Small on purpose. `CSI 2J` is O(rows x cols) by definition and that work
+    // is legitimate — it is the HISTORY walk this case is about, and a walk
+    // costs the same per line at any width. A 24x80 grid buries a 10x
+    // regression under its own honest clearing; 6x20 leaves it in the open.
+    Session session(6, 20);
+
+    // A full ring first, so a regression has a whole history to rescan. This is
+    // the multiplier: with the bool alone the flood below is ~10^8 line visits.
+    std::string history;
+    for (int i = 0; i < 12'000; ++i) {
+        history += "line\r\n";
+    }
+    feed(session, history);
+    REQUIRE(session.grid().scrollbackSize() > 9'000);
+
+    std::string flood;
+    for (int i = 0; i < 40'000; ++i) {
+        flood += "\x1b]133;A\x1b\\\x1b[2J\x1b]133;D;1\x1b\\";
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    feed(session, flood);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    // A hard bound, so a regression is a FAILING ASSERTION rather than a ctest
+    // that never returns and a CI job killed by its own timeout with nothing to
+    // read (the pattern tests/unit/sftp_test.cpp's flood case uses). Generous
+    // against a loaded machine and still two orders of magnitude under the
+    // unbounded walk, which is minutes here.
+    UNSCOPED_INFO("40k A/2J/D triples over " << session.grid().scrollbackSize()
+                                             << " history lines took " << elapsed.count() << " ms");
+    CHECK(elapsed < std::chrono::seconds(5));
+
+    // And the bound did not come from refusing to do the work: a D that follows
+    // a REAL, uncleared A still finds it and still writes the status.
+    Session live(4, 20);
+    feed(live, "\x1b]133;A\x1b\\$ x\r\nout\r\n\x1b]133;D;42\x1b\\");
+    const std::optional<std::size_t> prompt =
+        live.grid().prevPrompt(live.grid().absoluteLineCount());
+    REQUIRE(prompt.has_value());
+    CHECK(live.grid().absoluteLineAt(*prompt).exitCode == 42);
+}
+
+TEST_CASE("an open prompt survives the eviction of everything around it", "[core][osc][shell]") {
+    // The other half of the same change: the floor is a STABLE index, so the
+    // bound must not turn into a wrong answer when the ring evicts underneath
+    // it. A row index here would name different text after the first eviction.
+    Session session(3, 20);
+    session.grid().scrollback().setCaps(8, 4'000);
+
+    feed(session, "\x1b]133;A\x1b\\$ slow\r\n\x1b]133;C\x1b\\");
+    // Comfortably more output than the 8-line ring holds, so the prompt line is
+    // evicted along with everything else while the command is still running.
+    for (int i = 0; i < 40; ++i) {
+        feed(session, "out\r\n");
+    }
+    REQUIRE(session.grid().scrollbackSize() <= 8);
+    REQUIRE_FALSE(session.grid().prevPrompt(session.grid().absoluteLineCount()).has_value());
+
+    // The prompt it belonged to is gone, so there is nothing to write and
+    // nothing is invented — in particular no status lands on whichever line
+    // happens to sit at the old index now.
+    feed(session, "\x1b]133;D;7\x1b\\");
+    for (std::size_t i = 0; i < session.grid().absoluteLineCount(); ++i) {
+        CHECK(session.grid().absoluteLineAt(i).exitCode == -1);
+    }
 }
 
 TEST_CASE("OSC 133 refuses a status it cannot trust", "[core][osc][shell]") {

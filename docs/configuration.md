@@ -62,6 +62,7 @@ adapter = "auto"     # or "hardware", "warp"
 [notify]
 longCommand = true        # notify when a slow command finishes
 longCommandSeconds = 30   # 1-3600, how slow counts as slow
+taskbarProgress = true    # let remote programs drive the taskbar progress bar
 
 [ui]
 language = "system"  # or "en", "th"
@@ -71,8 +72,16 @@ language = "system"  # or "en", "th"
 
 When a command marked by OSC 133 shell integration takes longer than
 `notify.longCommandSeconds` and finishes while Krait is **not** the focused
-window, the taskbar button flashes and the tab shows a banner with how long it
-took and, if the command failed, its exit status.
+window, Krait tells you three ways at once: the taskbar button flashes, a
+desktop notification appears, and the tab shows a banner with how long it took
+and, if the command failed, its exit status.
+
+Three rather than one, because they fail in different places. The flash is for
+someone still looking at the taskbar. The notification is the only one that
+reaches you in another window — it is a shell balloon, which Windows 10 files in
+the notification centre and Windows 11 shows and then forgets. The banner is the
+one that survives being missed, and the only one that says which *tab* finished
+once you come back to several of them.
 
 Two conditions, both load-bearing. It needs shell integration — without OSC 133
 Krait cannot tell where one command ends and the next begins, so nothing fires
@@ -80,9 +89,23 @@ and nothing is broken. And it never fires while you are looking at the window,
 because telling you what is already on your screen is how a notification becomes
 something people switch off.
 
-There is no toast and no tray icon: a banner in the tab that ran the command
-says which tab, which a toast does not, and Krait's own rule is that session
-messages are per-tab banners rather than anything app-modal.
+Nothing here is app-modal. A dialog that stops the other tabs because one of
+them finished a build is a bug, not a notification.
+
+### `notify.taskbarProgress`
+
+Programs on the far end can drive the Windows taskbar progress bar by emitting
+OSC 9;4 — a real percentage on the taskbar button for a long build, a big copy,
+a package install. Set this to `false` to decline.
+
+It has its own switch because the sender is *remote*. Every other surface a
+remote host can reach is inside the tab it owns; this one paints a piece of your
+desktop, and until now there was no way to say no. Turning it off also clears a
+bar that is already showing, so a host that left one stuck cannot keep it there.
+
+Krait still parses the sequence and still never answers it — declining changes
+what Krait *does*, not what it accepts, so a program that emits it unconditionally
+(most do, without asking whether the terminal has a taskbar at all) is unaffected.
 
 ### `unicode.eastAsianAmbiguous`
 

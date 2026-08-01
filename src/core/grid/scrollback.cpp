@@ -81,6 +81,7 @@ void Scrollback::evict() {
     while ((m_lines.size() > m_maxLines || m_cells > m_maxCells) && m_lines.size() > 1) {
         m_cells -= m_lines.front().cells.size();
         m_lines.pop_front();
+        ++m_dropped;  // every index below shifts; the stable numbering does not
     }
 }
 
@@ -188,6 +189,10 @@ void Scrollback::setCaps(std::size_t maxLines, std::size_t maxCells) {
 
 void Scrollback::clear() {
     ++m_generation;
+    // Counted as an eviction of everything, so linesEverStarted() keeps rising
+    // and an index captured before the clear resolves to 0 rather than to some
+    // line that happens to sit at the same position now.
+    m_dropped += m_lines.size();
     m_lines.clear();
     m_cells = 0;
 }

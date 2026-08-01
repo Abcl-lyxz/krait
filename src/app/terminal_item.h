@@ -33,6 +33,11 @@
 
 namespace krait::app {
 
+// Forward-declared rather than included: only a pointer crosses this header,
+// and notifier.h drags in nothing this file wants (cpp.md: forward-declare in
+// headers where possible).
+class Notifier;
+
 // The real terminal view (plan T25): ConPTY -> core Session -> run splitting ->
 // the HarfBuzz shaper pool -> the glyph atlas -> two instanced QRhi draws.
 // Replaces the M0 spike path, which rendered ASCII from a fixed 95-cell strip
@@ -112,6 +117,11 @@ class TerminalItem : public QQuickRhiItem {
     // Borrowed and owned by main(), like the three above; null in the tests and
     // in a bench run, which have no window and therefore no button.
     static void setTaskbar(TaskbarProgress* taskbar);
+
+    // The one notification-area icon every tab's long-command balloon goes out
+    // through (T68). Borrowed and owned by main(); null in the tests, which
+    // have no window to hang a shell icon on.
+    static void setNotifier(Notifier* notifier);
 
     // Hands over the settings registry (T31) for a terminal built outside the
     // normal path — the tests. setServices() covers the app.

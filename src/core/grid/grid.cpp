@@ -325,26 +325,39 @@ void Grid::markPrompt(std::uint8_t bits) {
         damage.mark(head, 0, std::max(0, cols - 1));
     }
     if ((bits & kMarkPromptStart) != 0) {
-        m_promptOpen = true;
+        // The prompt's line is on the SCREEN, so it has no stable index of its
+        // own yet — but the newest line already in history is a floor for the
+        // one it will get, and a floor is what bounds the walk in
+        // setCommandExit. `- 1` rather than the count itself because `head`
+        // can be screen row 0 while row 0 carries wrappedFromPrev, in which
+        // case push() coalesces this mark ONTO that newest history line
+        // instead of starting a new one.
+        const std::uint64_t started = m_scrollback.linesEverStarted();
+        m_openPrompt = started > 0 ? started - 1 : 0;
     }
 }
 
 void Grid::setCommandExit(int code) {
-    // The bound on a hostile stream. Without it every `OSC 133 ; D` — thirteen
-    // bytes — walks the whole history looking for a prompt that was never
-    // marked, so a megabyte of `\e]133;D\e\\` costs ~10^9 line visits on the
-    // parse thread (rules/vt-core.md: remote input is bounded, always). With
-    // it, a D that follows no A does no work at all, and a D that follows a
-    // real A stops at that A — which is at most as far back as the command's
-    // own output, i.e. work proportional to bytes already fed.
-    if (code < 0 || m_onAlt || !m_promptOpen) {
+    // The bound on a hostile stream, and it takes BOTH parts of m_openPrompt
+    // (grid.h). Without the optional, every `OSC 133 ; D` — thirteen bytes —
+    // walks the whole history looking for a prompt that was never marked.
+    // Without the floor, `A` `CSI 2J` `D` — twenty-five bytes — does the same
+    // thing: the 2J clears the mark and leaves the prompt open, so the walk
+    // searches all of history and finds nothing, once per triple. A megabyte
+    // of either is ~10^8 line visits on the parse thread, which is a
+    // throughput denial of service (rules/net.md: remote input is hostile and
+    // remotely-influenced work is bounded, always).
+    if (code < 0 || m_onAlt || !m_openPrompt) {
         return;
     }
-    m_promptOpen = false;
+    // Resolved BEFORE the reset: the stable value is what survives eviction,
+    // the index it maps to is only valid right now.
+    const std::size_t floor = m_scrollback.indexOfStable(*m_openPrompt);
+    m_openPrompt.reset();
     // +1 so a command whose prompt is on the cursor's own line still counts:
     // prevPrompt is strictly-before by design (grid.h).
     const std::size_t at = m_scrollback.lineCount() + static_cast<std::size_t>(row) + 1;
-    const std::optional<std::size_t> owner = prevPrompt(at);
+    const std::optional<std::size_t> owner = prevPrompt(at, floor);
     if (!owner) {
         return;
     }
@@ -366,8 +379,11 @@ void Grid::setCommandExit(int code) {
     }
 }
 
-std::optional<std::size_t> Grid::prevPrompt(std::size_t from) const {
-    for (std::size_t i = std::min(from, absoluteLineCount()); i-- > 0;) {
+std::optional<std::size_t> Grid::prevPrompt(std::size_t from, std::size_t floor) const {
+    // `i-- > floor` tests before it decrements, so the body does run at i ==
+    // floor: the floor is INCLUSIVE, which it must be — the line it names can
+    // be the prompt itself.
+    for (std::size_t i = std::min(from, absoluteLineCount()); i-- > floor;) {
         if ((absoluteLineAt(i).marks & kMarkPromptStart) != 0) {
             return i;
         }

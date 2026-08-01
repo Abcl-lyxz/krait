@@ -2,6 +2,7 @@
 
 #include "core/grid/line.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -82,6 +83,30 @@ class Scrollback {
     // setExitCode cannot change a row count.
     std::size_t visualRowCount(int cols) const;
 
+    // How many logical lines this ring has ever STARTED. Monotone: eviction
+    // and clear() do not decrease it, they advance m_dropped instead.
+    //
+    // It exists because `lineAt`'s index is not an identity. Every eviction
+    // shifts every index down by one, so an index recorded now names different
+    // text later — the landmine CLAUDE.md records for scrollback, and the
+    // reason OSC 133 marks live on the Line and not in a side table keyed by
+    // row. A value captured from here stays comparable to one read later
+    // forever, which is what lets Grid remember WHERE an open prompt is
+    // without remembering a position that eviction would invalidate.
+    std::uint64_t linesEverStarted() const { return m_dropped + m_lines.size(); }
+
+    // Turns a captured linesEverStarted() back into a current index: that
+    // line's position if it is still here, `lineCount()` if it has not been
+    // pushed yet, 0 if it has been evicted. A FLOOR for a backwards walk —
+    // Grid::setCommandExit stops there rather than scanning all of history
+    // when the mark it went looking for was cleared out from under it.
+    std::size_t indexOfStable(std::uint64_t stable) const {
+        if (stable <= m_dropped) {
+            return 0;
+        }
+        return std::min<std::size_t>(static_cast<std::size_t>(stable - m_dropped), m_lines.size());
+    }
+
     // Forces the next push() to start a new logical line even if the row
     // carries wrappedFromPrev. resize() retires rows from BOTH buffers back to
     // back, and a continuation flag from one buffer must never glue itself to
@@ -99,6 +124,10 @@ class Scrollback {
     std::size_t m_maxLines = kDefaultMaxLines;
     std::size_t m_maxCells = kDefaultMaxCells;
     bool m_forceBreak = false;
+
+    // Logical lines that have left the front of the ring, ever. The offset
+    // between the stable numbering above and the current deque index.
+    std::uint64_t m_dropped = 0;
 
     // Bumped by every method that can change a row count. Starts at 1 so the
     // zero-initialised cache below is a guaranteed miss on the first call.

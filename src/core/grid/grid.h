@@ -247,15 +247,20 @@ class Grid {
     // OSC 133 ; D ; <n>. Writes the status onto the nearest line at or above
     // the cursor carrying kMarkPromptStart — the line the user typed the
     // command on, which by now is usually in scrollback. A negative code, or a
-    // D with no prompt open, is a no-op — and that second condition is the
-    // bound that keeps a stream of bare D's from walking all of history per
-    // sequence (see the comment on the implementation).
+    // D with no prompt open, is a no-op — and the walk it does perform is
+    // bounded by where the prompt was opened, never by the size of history
+    // (see the comment on the implementation).
     void setCommandExit(int code);
 
     // Nearest kMarkPromptStart STRICTLY before / after `from`, in the index
     // space above. Strictly, because a jump-to-prompt binding pressed twice
     // has to move twice.
-    std::optional<std::size_t> prevPrompt(std::size_t from) const;
+    //
+    // `floor` is the OLDEST index worth looking at, inclusive. Default 0 for
+    // the UI, which is answering a keypress and may search everything; the
+    // parse thread passes a real floor so a remote stream cannot buy a
+    // full-history scan for 25 bytes (setCommandExit).
+    std::optional<std::size_t> prevPrompt(std::size_t from, std::size_t floor = 0) const;
     std::optional<std::size_t> nextPrompt(std::size_t from) const;
 
     // The absolute line the TOP of the viewport is currently showing — the
@@ -342,10 +347,25 @@ class Grid {
     int m_lastCol = -1;
     bool m_lastWrap = false;
 
-    // Whether an OSC 133 prompt start has been seen that no D has closed.
-    // Purely a bound on setCommandExit's backwards walk — never a position,
-    // because a position is the thing that cannot survive eviction.
-    bool m_promptOpen = false;
+    // The open OSC 133 prompt — one a D has not closed yet — as a FLOOR in
+    // Scrollback's stable numbering (scrollback.h), or nullopt when no prompt
+    // is open. Both halves are load-bearing:
+    //
+    //   * the optional bounds a stream of bare D's, which is what T66 shipped;
+    //   * the value bounds a stream of A+D PAIRS, which T66 did not. `A` then
+    //     `CSI 2J` then `D` is 25 bytes, and the 2J clears the mark (sgr.cpp)
+    //     while leaving the prompt open — so a walk bounded only by "is one
+    //     open" searches all of history, finds nothing, and does it again for
+    //     every 25 bytes the remote sends.
+    //
+    // A stable index rather than a row index because a row index is precisely
+    // what eviction, scrolling and reflow invalidate. It is deliberately only
+    // a FLOOR, not the prompt's own index: when `A` arrives its line is still
+    // on the screen and has no stable index yet, but it can only ever land on
+    // or after the newest line already in history, and a floor is all a bound
+    // needs. The walk is then proportional to lines pushed since `A` — work
+    // the remote already paid for in bytes — plus at most the screen.
+    std::optional<std::uint64_t> m_openPrompt;
 };
 
 }  // namespace krait::core::vt

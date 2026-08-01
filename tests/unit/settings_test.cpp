@@ -76,6 +76,31 @@ TEST_CASE("settings round-trip through the file", "[settings]") {
     CHECK(reader.text("unicode.eastAsianAmbiguous") == "wide");
 }
 
+TEST_CASE("taskbar progress is on by default and can be declined", "[settings]") {
+    // T68. The OSC 9;4 opt-out, flagged in T67's review: a remote host could
+    // drive the Windows taskbar with nothing to switch it off. The DEFAULT is
+    // the load-bearing half — a switch that ships off is a feature nobody has,
+    // and the point was to make the feature declinable, not to remove it.
+    const Def* def = find("notify.taskbarProgress");
+    REQUIRE(def != nullptr);
+    CHECK(def->type == krait::app::settings::Type::Bool);
+
+    const QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = dir.filePath("krait.toml");
+
+    Registry fresh;
+    REQUIRE(fresh.load(path));
+    CHECK(fresh.boolean("notify.taskbarProgress"));  // a first run keeps the bar
+
+    REQUIRE(fresh.set("notify.taskbarProgress", false));
+    REQUIRE(fresh.save());
+
+    Registry reader;
+    REQUIRE(reader.load(path));
+    CHECK_FALSE(reader.boolean("notify.taskbarProgress"));
+}
+
 TEST_CASE("a saved file is readable and complete", "[settings]") {
     const QTemporaryDir dir;
     REQUIRE(dir.isValid());

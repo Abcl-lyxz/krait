@@ -8,6 +8,7 @@
 #include "input/keymap.h"
 #include "input/mouse.h"
 #include "input/paste.h"
+#include "notifier.h"
 #include "render/shaper/run_splitter.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
@@ -63,6 +64,7 @@ settings::Registry* g_registry = nullptr;
 net::Vault* g_vault = nullptr;
 session::ProfileStore* g_store = nullptr;
 TaskbarProgress* g_taskbar = nullptr;
+Notifier* g_notifier = nullptr;
 
 }  // namespace
 
@@ -79,6 +81,10 @@ void TerminalItem::setServices(settings::Registry* registry, net::Vault* vault,
 
 void TerminalItem::setTaskbar(TaskbarProgress* taskbar) {
     g_taskbar = taskbar;
+}
+
+void TerminalItem::setNotifier(Notifier* notifier) {
+    g_notifier = notifier;
 }
 
 TerminalItem::TerminalItem() {
@@ -615,6 +621,16 @@ void TerminalItem::applySettings() {
                                                    kCellsPerLineBudget);
     }
 
+    // T68. Switching taskbar progress off has to retract what is already on the
+    // button, not just stop the next report: the bar a remote host put there is
+    // exactly what the user is declining, and leaving it would make "off" mean
+    // "off from now on" — with no way to clear a bar that is already stuck.
+    // forget() is the same path a closing tab takes, so the aggregate across
+    // the other tabs is recomputed rather than blanked.
+    if (!m_settings->boolean("notify.taskbarProgress") && g_taskbar != nullptr) {
+        g_taskbar->forget(this);
+    }
+
     // Against the CONFIGURED family, not the resolved one: ensureFont() writes
     // its fallback into m_family, so comparing that made every hot reload of
     // any unrelated setting look like a font change and tear the whole stack
@@ -747,6 +763,15 @@ void TerminalItem::handleOsc(const core::vt::OscAction& action) {
     using Kind = core::vt::OscAction::Kind;
 
     if (action.kind == Kind::Progress) {
+        // T68. Checked HERE rather than at the far end of the post, so a host
+        // hammering `\e]9;4;1;1\e\\` costs nothing at all when the user has
+        // declined it — the whole point of the switch is that a remote sender
+        // cannot make Krait do work on the user's desktop. A bar already on
+        // the button is cleared by applySettings(), not by this path, which is
+        // never reached again once the setting is off.
+        if (m_settings != nullptr && !m_settings->boolean("notify.taskbarProgress")) {
+            return;
+        }
         // COALESCED, one posted event at a time. TaskbarProgress throttles the
         // COM calls, but a 64 KiB read of `\e]9;4;1;1\e\\` is ~5000 sequences,
         // and posting a QMetaCallEvent for each would allocate 5000 times
@@ -822,6 +847,19 @@ void TerminalItem::handleOsc(const core::vt::OscAction& action) {
                 // activated. Not requestActivate(), which STEALS focus — the
                 // user is deliberately somewhere else.
                 now->alert(0);
+                // T68. All THREE surfaces fire, and they are complementary
+                // rather than redundant: the flash is for someone still
+                // looking at the taskbar, the balloon reaches someone in
+                // another window entirely, and the banner below is the only
+                // one that survives being missed. `notify.longCommand` gates
+                // all of them together — it was checked before this was
+                // posted.
+                if (g_notifier != nullptr) {
+                    // The session title heads the balloon so it says WHICH tab
+                    // even from outside the app; an empty one falls back to
+                    // the application name inside notify().
+                    g_notifier->notify(now, detail, message);
+                }
             }
             emit commandFinished(message, detail);
         },

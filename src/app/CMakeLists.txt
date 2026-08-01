@@ -35,6 +35,8 @@ qt_add_qml_module(krait-app
         backend_factory.h
         mremoteng_import.cpp
         mremoteng_import.h
+        notifier.cpp
+        notifier.h
         session_model.cpp
         settings_model.cpp
         settings_model.h
@@ -84,7 +86,11 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
 target_link_libraries(krait-app
     PRIVATE krait-core krait-render krait-input krait-settings krait-session krait-net Qt6::Quick Qt6::GuiPrivate
-            freetype ole32)
+            freetype ole32
+            # shell32 for Shell_NotifyIconW (notifier.cpp) — the library
+            # learn.microsoft.com names for it, alongside ole32's CoCreateInstance
+            # for the taskbar.
+            shell32)
 
 # Translations (plan T32). EN and TH ship together: rules/ui.md makes Thai a
 # first-class locale, not an afterthought, so a string that lands without both

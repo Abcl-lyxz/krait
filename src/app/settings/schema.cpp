@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 10> kDefs{{
+constexpr std::array<Def, 11> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -117,6 +117,25 @@ constexpr std::array<Def, 10> kDefs{{
         .doc = "settings.notify.longCommandSeconds",
         .searchEn = "notify threshold seconds duration long command slow",
         .searchTh = "แจ้งเตือน เกณฑ์ วินาที ระยะเวลา คำสั่ง ช้า",
+    },
+    {
+        .id = "notify.taskbarProgress",
+        .type = Type::Bool,
+        // On, because the feature is genuinely useful and a default that is not
+        // useful is a default nobody keeps: OSC 9;4 is what puts a real
+        // progress bar on the taskbar button for a long build or a big copy.
+        //
+        // It exists as a switch at all because the sender is REMOTE. Every
+        // other surface a remote host can reach is inside the tab it owns;
+        // this one paints a piece of the user's desktop, and there was no way
+        // to decline it (T67 review). Off means Krait parses the sequence and
+        // reports nothing, which is also the honest reading — the core still
+        // consumes the bytes and still never replies to them.
+        .fallback = true,
+        .choices = "",
+        .doc = "settings.notify.taskbarProgress",
+        .searchEn = "taskbar progress bar osc 9 4 remote button percent build download",
+        .searchTh = "แถบงาน ความคืบหน้า แถบสถานะ เปอร์เซ็นต์ ทางไกล ดาวน์โหลด",
     },
     {
         .id = "ui.language",

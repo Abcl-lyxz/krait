@@ -9,6 +9,7 @@
 #define NOMINMAX
 #include "../net/vault/vault.h"
 #include "gpu_policy.h"
+#include "notifier.h"
 #include "session/cli.h"
 #include "session_model.h"
 #include "settings/paths.h"
@@ -194,6 +195,14 @@ int main(int argc, char* argv[]) try {
     // are released while the tabs that report into it are already gone.
     krait::app::TaskbarProgress taskbar;
     krait::app::TerminalItem::setTaskbar(&taskbar);
+
+    // T68, the desktop notification. Here for a third reason on top of those
+    // two: it holds a notification-area icon keyed by the window's HWND, and
+    // its destructor is the only thing that retracts it. Declared before the
+    // engine means destroyed after it — late enough that every tab is gone,
+    // and the cached HWND is what makes that work with no window left.
+    krait::app::Notifier notifier;
+    krait::app::TerminalItem::setNotifier(&notifier);
 
     // BEFORE the engine builds the tree. TerminalView gets its geometry during
     // loadFromModule(), and geometry is what starts the first shell — so a
