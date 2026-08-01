@@ -50,6 +50,7 @@ Item {
                 required property int index
                 required property string title
                 required property string accent
+                required property bool broadcasting
 
                 readonly property bool current: item.index === strip.currentIndex
 
@@ -84,10 +85,22 @@ Item {
                     }
                 }
 
+                // T74. This tab is a broadcast target. On the tab itself and
+                // not only in the broadcast strip, so the answer to "is this
+                // one of them" survives the tab being behind another.
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    x: 10
-                    width: parent.width - close.width - 18
+                    x: 3
+                    visible: item.broadcasting
+                    text: "»"
+                    color: "#f38ba8"
+                    font.bold: true
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: item.broadcasting ? 16 : 10
+                    width: parent.width - close.width - (item.broadcasting ? 24 : 18)
                     text: item.title
                     color: item.current ? strip.tabFg : strip.idleFg
                     elide: Text.ElideMiddle

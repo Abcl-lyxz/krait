@@ -18,7 +18,29 @@ Window {
     // and all this holds is how many panes exist and which is in front.
     ListModel {
         id: tabs
-        ListElement { title: ""; accent: "" }
+        ListElement { title: ""; accent: ""; broadcasting: false }
+    }
+
+    // T74. ONE broadcast for the window, because that is what it broadcasts
+    // ACROSS. Owned here for the same reason the tab list is: every pane binds
+    // to it, and two copies would each believe a different set of sessions was
+    // receiving. main() hands it the settings registry by findChildren, the way
+    // it does for the settings page.
+    BroadcastModel {
+        id: broadcastModel
+
+        // A held destructive line, and anything the fan-out has to report,
+        // land on the CURRENT tab's banner — never a dialog (rules/ui.md), and
+        // never N banners, which is what connecting this inside each pane
+        // would have produced.
+        onConfirmRequested: (message, detail) => {
+            const pane = root.currentPane()
+            if (pane) pane.showBroadcastConfirm(message, detail)
+        }
+        onReported: (message, detail) => {
+            const pane = root.currentPane()
+            if (pane) pane.raiseSessionNotice(message, detail)
+        }
     }
 
     property int currentTab: 0
@@ -34,7 +56,7 @@ Window {
     // deferred callback would then act on a different tab than the one it
     // created. That is how a saved session gets opened over a running one.
     function addTab() {
-        tabs.append({ title: "", accent: "" })
+        tabs.append({ title: "", accent: "", broadcasting: false })
         root.currentTab = tabs.count - 1
         const pane = root.currentPane()
         if (pane) {
@@ -97,6 +119,17 @@ Window {
         }
     }
 
+    // Something that failed outside any session — so far only a drop-down
+    // hotkey another program already owns. Invoked by name from main(), because
+    // it is discovered after the tree is built and so cannot ride the
+    // launchError context property the command line uses.
+    function raiseGlobalError(message, detail) {
+        const pane = root.currentPane()
+        if (pane) {
+            pane.raiseSessionError(message, detail)
+        }
+    }
+
     // --- keyboard (rules/ui.md: every action has a binding, none is mouse-only)
 
     Shortcut { sequence: "Ctrl+Shift+P"; onActivated: palette.open() }
@@ -113,6 +146,7 @@ Window {
     Shortcut { sequence: "Ctrl+Shift+K"; onActivated: { const p = root.currentPane(); if (p) p.toggleCopyMode() } }
     Shortcut { sequence: "Ctrl+Shift+L"; onActivated: { const p = root.currentPane(); if (p) p.toggleLogging() } }
     Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.splitCurrent(true) }
+    Shortcut { sequence: "Ctrl+Shift+A"; onActivated: { const p = root.currentPane(); if (p) p.toggleBroadcast() } }
     Shortcut { sequence: "Ctrl+Shift+Up"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(-1) } }
     Shortcut { sequence: "Ctrl+Shift+Down"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(1) } }
     Shortcut { sequence: "Ctrl+Alt+Right"; onActivated: root.stepPane(1) }
@@ -182,6 +216,7 @@ Window {
                     required property int index
 
                     anchors.fill: parent
+                    broadcast: broadcastModel
                     // Only the current tab is visible, and only it takes keys.
                     // The others keep running: a build in tab 2 must not stop
                     // because tab 1 is in front.
@@ -193,9 +228,14 @@ Window {
                     // ListModel rows are not bindable targets.
                     onTitleChanged: tabs.setProperty(pane.index, "title", pane.title)
                     onAccentChanged: tabs.setProperty(pane.index, "accent", pane.accent)
+                    // T74. The tab strip's broadcast mark, so a tab that is
+                    // receiving says so from behind the one in front.
+                    onBroadcastingChanged:
+                        tabs.setProperty(pane.index, "broadcasting", pane.broadcasting)
                     Component.onCompleted: {
                         tabs.setProperty(pane.index, "title", pane.title)
                         tabs.setProperty(pane.index, "accent", pane.accent)
+                        tabs.setProperty(pane.index, "broadcasting", pane.broadcasting)
                     }
 
                     // Closing the last pane in a tab closes the tab.
@@ -266,6 +306,11 @@ Window {
             case "view.copyMode": {
                 const pane = root.currentPane()
                 if (pane) pane.toggleCopyMode()
+                return
+            }
+            case "session.broadcast": {
+                const pane = root.currentPane()
+                if (pane) pane.toggleBroadcast()
                 return
             }
             case "view.closePane": {
@@ -380,6 +425,32 @@ Window {
         console.info("selftest: after closing pane 0 panes=" + pane.paneCount +
                      " terminalAlive=" + (pane.terminal !== null) +
                      " title='" + pane.title + "'")
+
+        // C) T74. The broadcast wiring is QML on both ends — every pane offers
+        //    its terminal, the strip renders the model's rows — and none of
+        //    that is reachable from the Catch2 suite, which tests the model
+        //    against a plain QObject. What this checks is that the two halves
+        //    are actually connected: that panes registered themselves, that
+        //    arming reaches Active, and that a line lands in a real session.
+        const bpane = root.currentPane()
+        console.info("selftest: broadcast targets=" + broadcastModel.tabs.length)
+        bpane.toggleBroadcast()
+        console.info("selftest: broadcast ready state=" + broadcastModel.state)
+        // Ticked the way a user does, from the strip. bpane.terminal is NOT
+        // used to pick one here: the delegates closed above are deleteLater'd
+        // and this function runs in a single turn, so the tab's `terminal`
+        // binding can still resolve to one of them. That window does not exist
+        // between two keystrokes, which is the only way a person reaches this.
+        broadcastModel.toggleAt(0)
+        broadcastModel.arm()
+        const before = broadcastModel.sentCount
+        broadcastModel.send("echo krait-broadcast-selftest")
+        console.info("selftest: broadcast armed state=" + broadcastModel.state +
+                     " marked=" + broadcastModel.markedCount +
+                     " sent=" + (broadcastModel.sentCount > before))
+        broadcastModel.stop()
+        console.info("selftest: broadcast stopped state=" + broadcastModel.state +
+                     " marked=" + broadcastModel.markedCount)
 
         console.info("selftest: done")
     }

@@ -66,6 +66,14 @@ add_executable(krait-qt-tests
     settings_test.cpp
     ../../src/app/taskbar_progress.cpp
     taskbar_progress_test.cpp
+    # T74. Compiled straight in for the same reason taskbar_progress.cpp is:
+    # both live in krait-app, which is an executable, and the decision halves —
+    # the broadcast interlock, the hotkey parser, the screen arithmetic — are
+    # exactly what has to be tested without a window.
+    ../../src/app/broadcast.cpp
+    broadcast_test.cpp
+    ../../src/app/quake.cpp
+    quake_test.cpp
     forwards_test.cpp
     socks5_test.cpp
     raw_contract_test.cpp

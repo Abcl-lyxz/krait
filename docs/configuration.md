@@ -69,6 +69,14 @@ enabled = true       # run each session's trigger rules over its output
 allowSend = false    # let a trigger send text back to the session
 logFile = ""         # empty: <config dir>/logs/triggers.log
 
+[broadcast]
+confirmDangerous = true   # hold a destructive-looking line for confirmation
+idleSeconds = 300         # 0-3600; pause the broadcast after this long idle
+
+[quake]
+hotkey = ""          # empty: no drop-down and no system-wide hotkey
+heightPercent = 45   # 10-100, how much of the screen the drop-down covers
+
 [editor]
 command = ""         # empty: whatever this computer opens the file with
 
@@ -215,6 +223,88 @@ trust. So:
 The protections are procedural rather than technical, and all three matter: it
 is off until a person turns it on, it is per session rather than global, and the
 tab says so on screen for as long as it runs.
+
+### `broadcast.confirmDangerous`, `broadcast.idleSeconds`
+
+Broadcast types once and sends to many sessions at a time. `Ctrl+Shift+A` opens
+its strip; the strip lists **every** open session, `1`-`9` or a click pick the
+targets, and `Ctrl+Enter` starts it. Only then does anything get sent, and only
+a line you finish with Enter.
+
+The interlock is the feature, not a wrapper around it, so it is worth saying
+exactly what it does:
+
+- **The targets are on screen the whole time**, on every tab — the strip is not
+  only on the tab you opened it from — and each targeted tab carries a `»` in
+  the tab bar. There is no way to be looking at Krait and not know which
+  sessions your line is going to.
+- **The line is typed in the strip, not in the terminal.** That is what puts
+  the command and the target list in front of you at the same moment.
+- **It survives switching tabs**, because that is the job: watching one host's
+  output while typing to all of them.
+- **It does not survive Krait losing the window.** Alt-tab away and it drops
+  back to *ready*: your selection is kept, and one `Ctrl+Enter` starts it again.
+  Coming back from somewhere else is exactly when a mode is forgotten, and
+  falling back to "keystrokes reach one session" is the safe direction to fail.
+- **It pauses itself after `idleSeconds`** with nothing sent, the same way and
+  for the same reason — reading a log for ten minutes never leaves Krait at all.
+  `0` turns the timeout off.
+- **A session that is not connected is dropped, not pretended to.** If a shell
+  exits mid-broadcast, it leaves the target set, the strip stops listing it, and
+  a banner names it. Krait never counts a line as delivered to somewhere it went
+  nowhere.
+
+`confirmDangerous` is the one that needed a real decision. Confirming *every*
+line makes broadcast useless and teaches people to press the button without
+reading it, which is how a guard stops guarding anything; confirming *nothing*
+is how twelve production hosts get an `rm -rf`. So the confirmation is triggered
+by the **content** of the line, using the same classifier as the paste guard —
+`sudo`, `rm -rf`, `mkfs`, `dd if=`, `curl … | sh` and friends. An ordinary
+command never sees a banner.
+
+What that check cannot see, said plainly: it only reads the line you typed **in
+the strip**. A command recalled with the up-arrow inside the shell on the far
+end is text Krait never saw, so it is not classified. Closing that would mean
+parsing every host's output, which is a different feature.
+
+Text sent by broadcast goes through the same sanitiser as a paste and a snippet:
+escape sequences and control characters are stripped, and the Enter is sent
+separately so bracketed paste cannot swallow it.
+
+### `quake.hotkey`, `quake.heightPercent`
+
+Set `quake.hotkey` and Krait becomes a drop-down terminal: no title bar, no
+taskbar button, hidden until you press the combination, and gone again when you
+press it a second time. Empty — the default — leaves Krait an ordinary window
+and registers no system-wide hotkey at all.
+
+Write the combination the way every other shortcut in Krait is written:
+`Ctrl+Alt+` `` ` ``, `Ctrl+Shift+F12`, `Win+Space`. Letters, digits, `` ` ``,
+`Space`, `Tab`, `Esc` and `F1`-`F24` are understood. A combination with no
+`Ctrl`, `Alt`, `Shift` or `Win` is refused unless the key is a function key,
+because a bare letter claimed system-wide takes that letter away from every
+other program on the machine.
+
+**If another program already owns the combination**, Krait says so in a banner
+naming it, and shows the window instead of hiding it. That is the common real
+failure, and an app that started invisible with a hotkey that does nothing would
+have no way back. Windows keeps some combinations for itself: `F12` belongs to
+the debugger, and most things with the Windows key belong to Windows.
+
+**Turning quake mode on or off needs a restart**; *changing* the combination
+once it is on does not — edit `quake.hotkey` and Krait re-registers immediately,
+banner and all, so a combination that turns out to be taken can be replaced
+without restarting the app that just told you about it. The restart is only for
+the empty↔set transition: becoming a drop-down changes the window's frame and
+always-on-top behaviour, which on Windows means destroying and recreating the
+window, and doing that underneath running sessions is not worth it.
+
+The window drops down on **the monitor the mouse is on**, across the top of that
+screen's usable area — under a taskbar docked at the top, not behind it — and
+covers `heightPercent` of it. Everything there is in the same
+DPI-independent units Qt reports screens in, so the drop-down covers the same
+fraction of a 200% display as of a 100% one. Hiding it hands the keyboard back
+to whatever you were doing before it appeared.
 
 ### `unicode.eastAsianAmbiguous`
 

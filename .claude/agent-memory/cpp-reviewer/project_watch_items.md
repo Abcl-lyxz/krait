@@ -551,3 +551,55 @@ Verified CORRECT, do not re-flag:
   `Sftp::put` opens the LOCAL ifstream before `sftp_open(..., O_TRUNC)`.
 - `~SftpModel` calling `discardEdit` → `m_watcher->removePath` is fine; QObject
   children die after the derived dtor body.
+
+## T74 — broadcast (src/app/broadcast.*) + quake (src/app/quake.*)
+
+Open at review time (2026-08-01, uncommitted on t64-m4-power-tools):
+- BLOCKING: `BroadcastModel::resolve(bool)` is not bound to the line it
+  displayed. `m_pending` is a single slot; `confirmRequested` routes to
+  `root.currentPane()`. Two tabs → two held dangerous lines → Accept on the
+  older banner runs the NEWER line. Fix = pass `banner.detail` (or a token)
+  into resolve() and refuse on mismatch.
+- BLOCKING: `TerminalItem::sendBroadcast` liveness test is
+  `m_session && m_started && m_backend && !m_exited` — it misses
+  "connected but RECONNECTING". SSH queues into `m_writeQueue`,
+  `TcpBackend::writeInput` DROPS on `!isConnected()`, yet true is returned and
+  the line is counted delivered. IBackend has no `isConnected()`; the cheap fix
+  is an `m_reconnecting` flag driven by the existing SSH
+  `reconnecting`/`connected` lambdas in adoptBackend.
+- BLOCKING: `QuakeWindow::applyHotkey()` live-failure path emits `hotkeyFailed`
+  → a banner on a window that is HIDDEN in drop-down mode. main() enforces
+  "stay visible on failure" only at startup. Fix = showDropDown() from the
+  failure paths when `m_dropDown && !m_visible`.
+- `attach()` returns before `connect(registry, &Registry::changed, ...)` when
+  quake.hotkey is EMPTY (the default) → setting it later is dead until restart,
+  contradicting docs/configuration.md ("re-registers immediately — no restart").
+- Broadcast confirm only holds `PasteRisk::DangerousCommand`; `Multiline` /
+  `ExecutesOnPaste` (which `PasteResult::needsConfirm()` covers) fan out to
+  every host unconfirmed.
+- No test destroys a marked target QObject without calling `forget()`, so the
+  central QPointer-nulls lifetime claim is untested.
+
+Verified CORRECT, do not re-flag:
+- `rebuildRows()`'s `std::erase_if(m_targets, ...)` is re-entrancy-safe from
+  every caller. `offer()` calls it mid-range-for but `return`s on the next
+  statement (dangling ref never read); `fanOut()`/`begin()`/`stop()`/`forget()`
+  all finish iterating first. `rebuildRows` emits `tabsChanged` LAST.
+- No synchronous re-entry into `m_targets` from inside `fanOut`'s loop: every
+  `IBackend::writeInput` queues (conpty/ssh/serial mutex+cv, tcp socket write),
+  `sendPaste`→`rebuildFrame` emits nothing QML routes back to offer/forget, and
+  `emit sessionChanged()` fires only from `openProfile()`.
+- `Component.onDestruction` → `forget(view)`: QPointer is ALREADY null there
+  (~QObject zeroes sharedRefcount before the declarative destroyed callback),
+  so `target.tab == tab` is false — the `|| target.tab.isNull()` clause is
+  load-bearing, not belt-and-braces. Do not "simplify" it away.
+- Nothing reaches a pty bypassing `input::preparePaste`; `looksDangerous()` runs
+  on the SANITISED text, so classifier and payload agree. The separate
+  `sendInput("\r")` outside the bracketed-paste wrapper is correct.
+- Quake HWND caching (register-time cache, never `winId()` at unregister),
+  `removeNativeEventFilter` in the dtor, and `QuakeWindow quake;` declared
+  before `QQmlApplicationEngine engine;` (destroyed after it) are all right.
+- `Registry` keeps the DEFAULT for out-of-range values rather than clamping, so
+  `seconds * 1000` in `restartIdleTimer` cannot overflow.
+- Notifier/TaskbarProgress cache their HWND lazily (first notify / per apply),
+  AFTER quake's `setFlags()`, so no stale-HWND cross-feature bug.

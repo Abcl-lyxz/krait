@@ -21,6 +21,29 @@
     </message>
 </context>
 <context>
+    <name>BroadcastBar</name>
+    <message>
+        <source>BROADCAST ON</source>
+        <translation>กระจายคำสั่งอยู่</translation>
+    </message>
+    <message>
+        <source>BROADCAST READY</source>
+        <translation>กระจายคำสั่ง พร้อม</translation>
+    </message>
+    <message>
+        <source>%1. %2</source>
+        <translation>%1. %2</translation>
+    </message>
+    <message>
+        <source>Enter sends this line to every session above.</source>
+        <translation>กด Enter เพื่อส่งบรรทัดนี้ไปยังทุกเซสชันด้านบน</translation>
+    </message>
+    <message>
+        <source>Pick sessions with 1-9 or the mouse, then Ctrl+Enter to start.</source>
+        <translation>เลือกเซสชันด้วยปุ่ม 1-9 หรือเมาส์ แล้วกด Ctrl+Enter เพื่อเริ่ม</translation>
+    </message>
+</context>
+<context>
     <name>ErrorBanner</name>
     <message>
         <source>Could not create the pseudoconsole.</source>
@@ -234,6 +257,10 @@
         <translation>การโอนไฟล์ต้องใช้เซสชัน SSH แต่แท็บนี้ไม่ใช่</translation>
     </message>
     <message>
+        <source>Send to every selected session</source>
+        <translation>ส่งไปยังทุกเซสชันที่เลือกไว้</translation>
+    </message>
+    <message>
         <source>Logging this session to %1</source>
         <translation>กำลังบันทึกเซสชันนี้ไปที่ %1</translation>
     </message>
@@ -375,6 +402,10 @@
         <translation>โหมดคัดลอก (ปุ่มแบบ vim)</translation>
     </message>
     <message>
+        <source>Broadcast to several sessions</source>
+        <translation>กระจายคำสั่งไปหลายเซสชัน</translation>
+    </message>
+    <message>
         <source>Show port forwards</source>
         <translation>แสดงการส่งต่อพอร์ต</translation>
     </message>
@@ -445,6 +476,72 @@
     <message>
         <source>About Krait</source>
         <translation>เกี่ยวกับ Krait</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::BroadcastModel</name>
+    <message>
+        <source>Broadcast paused: nothing was sent for a while.</source>
+        <translation>หยุดกระจายคำสั่งชั่วคราว เพราะไม่ได้ส่งอะไรมาสักพักแล้ว</translation>
+    </message>
+    <message>
+        <source>Press Ctrl+Enter in the broadcast strip to start it again. The wait is the broadcast.idleSeconds setting.</source>
+        <translation>กด Ctrl+Enter ในแถบกระจายคำสั่งเพื่อเริ่มใหม่ ระยะเวลารอกำหนดได้ที่การตั้งค่า broadcast.idleSeconds</translation>
+    </message>
+    <message>
+        <source>Broadcast paused: Krait is no longer the active window.</source>
+        <translation>หยุดกระจายคำสั่งชั่วคราว เพราะ Krait ไม่ใช่หน้าต่างที่ใช้งานอยู่แล้ว</translation>
+    </message>
+    <message>
+        <source>The sessions you picked are still selected. Press Ctrl+Enter in the broadcast strip to start it again.</source>
+        <translation>เซสชันที่คุณเลือกไว้ยังถูกเลือกอยู่ กด Ctrl+Enter ในแถบกระจายคำสั่งเพื่อเริ่มใหม่</translation>
+    </message>
+    <message>
+        <source>Broadcast stopped: every session it was sending to has closed.</source>
+        <translation>หยุดกระจายคำสั่งแล้ว เพราะทุกเซสชันที่ส่งอยู่ถูกปิดไปหมด</translation>
+    </message>
+    <message>
+        <source>Pick at least one session before starting the broadcast.</source>
+        <translation>เลือกอย่างน้อยหนึ่งเซสชันก่อนเริ่มกระจายคำสั่ง</translation>
+    </message>
+    <message>
+        <source>This line can destroy data or escalate privileges, and broadcast will run it on every selected session at once.</source>
+        <translation>บรรทัดนี้อาจทำลายข้อมูลหรือยกระดับสิทธิ์ และการกระจายคำสั่งจะรันมันบนทุกเซสชันที่เลือกไว้พร้อมกัน</translation>
+    </message>
+    <message>
+        <source>Broadcast was paused while that was waiting, so nothing was sent.</source>
+        <translation>การกระจายคำสั่งถูกหยุดชั่วคราวระหว่างที่รอคำตอบ จึงไม่มีอะไรถูกส่งออกไป</translation>
+    </message>
+    <message>
+        <source>Dropped from the broadcast — these sessions are not connected, so they received nothing.</source>
+        <translation>ถูกนำออกจากการกระจายคำสั่ง — เซสชันเหล่านี้ไม่ได้เชื่อมต่ออยู่ จึงไม่ได้รับอะไรเลย</translation>
+    </message>
+    <message>
+        <source>Broadcast stopped: nothing is left to send to.</source>
+        <translation>หยุดกระจายคำสั่งแล้ว เพราะไม่เหลือปลายทางให้ส่ง</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::QuakeWindow</name>
+    <message>
+        <source>Krait does not understand the drop-down hotkey “%1”.</source>
+        <translation>Krait ไม่เข้าใจปุ่มลัดหน้าต่างเลื่อนลง “%1”</translation>
+    </message>
+    <message>
+        <source>Write it the way the other shortcuts are written, for example Ctrl+Alt+` or Ctrl+Shift+F12. A combination with no Ctrl, Alt, Shift or Win is only allowed for a function key.</source>
+        <translation>เขียนแบบเดียวกับปุ่มลัดอื่น ๆ เช่น Ctrl+Alt+` หรือ Ctrl+Shift+F12 ชุดปุ่มที่ไม่มี Ctrl, Alt, Shift หรือ Win ใช้ได้เฉพาะกับปุ่มฟังก์ชันเท่านั้น</translation>
+    </message>
+    <message>
+        <source>Another program is already using %1, so Krait&apos;s drop-down hotkey is off.</source>
+        <translation>มีโปรแกรมอื่นใช้ %1 อยู่แล้ว ปุ่มลัดหน้าต่างเลื่อนลงของ Krait จึงถูกปิดไว้</translation>
+    </message>
+    <message>
+        <source>Krait could not claim %1 as a system-wide hotkey, so the drop-down is off.</source>
+        <translation>Krait จอง %1 เป็นปุ่มลัดทั่วระบบไม่สำเร็จ หน้าต่างเลื่อนลงจึงถูกปิดไว้</translation>
+    </message>
+    <message>
+        <source>Pick a different combination in the quake.hotkey setting. Windows keeps some for itself — F12 belongs to the debugger, and anything with the Windows key usually belongs to Windows.</source>
+        <translation>เลือกชุดปุ่มอื่นในการตั้งค่า quake.hotkey Windows สงวนบางปุ่มไว้ใช้เอง — F12 เป็นของตัวดีบัก และปุ่มที่มี Windows key มักเป็นของ Windows</translation>
     </message>
 </context>
 <context>

@@ -76,6 +76,65 @@ Item {
         }
     }
 
+    // T74: the broadcast strip. One shared BroadcastModel, owned by Main.qml
+    // and handed to every tab, because the whole point is that it spans them —
+    // and because the strip has to be on screen on EVERY tab while it is armed,
+    // not only the one it was opened from.
+    property var broadcast: null
+
+    // Whether THIS tab is a broadcast target, for the tab strip's marking.
+    //
+    // Reads `revision` first for its dependency: isMarked() is a method, so a
+    // binding registers nothing on it — the same reason `terminal` below reads
+    // panes.count. Approximated by the FOCUSED pane: targets are sessions, and
+    // a split tab has more than one. The strip names every target in full, so
+    // the tab mark is the shorthand, not the source of truth.
+    readonly property bool broadcasting:
+        tab.broadcast && tab.terminal
+        ? (tab.broadcast.revision, tab.broadcast.isMarked(tab.terminal))
+        : false
+
+    // Opens the strip on this tab, pre-selecting this session. Nothing is sent
+    // until it is armed from the strip — opening it is not turning it on.
+    function toggleBroadcast() {
+        if (!tab.broadcast) {
+            return
+        }
+        if (tab.broadcast.state === 0) {
+            tab.broadcast.begin(tab.terminal)
+            broadcastBar.focusInput()
+        } else {
+            tab.broadcast.stop()
+            tab.focusCurrent()
+        }
+    }
+
+    // The held destructive line. rules/ui.md: a per-tab banner, never a dialog.
+    function showBroadcastConfirm(message, detail) {
+        // A changed host key outranks everything (rules/net.md), so this waits
+        // rather than replacing it. Nothing is lost: the line stays held in the
+        // model and pressing Enter again re-raises this question.
+        if (banner.mode === "hostkey") {
+            return
+        }
+        // A credential prompt is HELD, not dropped. Overwriting it left the
+        // backend waiting for an answer that could never arrive — the same bug
+        // two panes prompting at once already has a queue for, so it uses that
+        // queue. banner.dismiss() re-raises it when this is answered.
+        if (banner.mode === "credential" && banner.target) {
+            tab.queueCredential(banner.target, banner.message, banner.inputEcho)
+        }
+        banner.target = null
+        banner.mode = "broadcast"
+        banner.severity = "danger"
+        banner.showAccept = true
+        banner.acceptText = qsTr("Send to every selected session")
+        banner.rejectText = qsTr("Cancel")
+        banner.detail = detail
+        banner.message = message
+        banner.forceActiveFocus()
+    }
+
     // Credential prompts that arrived while the banner was busy with another
     // pane's. One banner and N panes means they have to queue somewhere, and
     // dropping them means a backend waits for an answer nobody can give.
@@ -186,6 +245,16 @@ Item {
     }
 
     function raiseSessionBanner(message, detail, severity) {
+        // A notice never takes the banner from a question. Both of those modes
+        // have a backend waiting on an answer, and T74 made this reachable with
+        // NOBODY AT THE KEYBOARD: the broadcast idle timeout is a timer, so it
+        // could clobber a focused host-key prompt on its own. One guard here
+        // rather than at each caller, since raiseSessionNotice is the shared
+        // door every one of them comes through.
+        if (severity === "warning"
+                && (banner.mode === "credential" || banner.mode === "hostkey")) {
+            return
+        }
         banner.target = null
         banner.mode = "error"
         banner.severity = severity
@@ -275,9 +344,17 @@ Item {
                         to.resolvePaste(true)
                     }
                 }
+                // Not addressed to a pane: the broadcast spans them, so the
+                // held line lives in the model rather than in one terminal.
+                if (banner.mode === "broadcast" && tab.broadcast) {
+                    tab.broadcast.resolve(true)
+                }
                 banner.dismiss()
             }
             onRejected: {
+                if (banner.mode === "broadcast" && tab.broadcast) {
+                    tab.broadcast.resolve(false)
+                }
                 const to = banner.target
                 if (to) {
                     if (banner.mode === "credential") {
@@ -372,6 +449,17 @@ Item {
             }
         }
 
+        // On every tab, not only the one it was opened from: while a broadcast
+        // is live the user must never be able to look at a tab that does not
+        // say so and name the targets.
+        BroadcastBar {
+            id: broadcastBar
+            width: parent.width
+            broadcast: tab.broadcast
+            visible: tab.broadcast ? tab.broadcast.state !== 0 : false
+            onCloseRequested: tab.focusCurrent()
+        }
+
         // T70/T71: the one strip that says what this tab is currently DOING to
         // the user's keyboard and to their disk.
         //
@@ -438,7 +526,7 @@ Item {
             id: area
             width: parent.width
             height: parent.height - banner.height - tunnels.height - filePanel.height
-                    - snippetBar.height - statusStrip.height
+                    - snippetBar.height - broadcastBar.height - statusStrip.height
 
             Repeater {
                 id: repeater
@@ -458,6 +546,29 @@ Item {
                     // Clicking an unfocused pane focuses it, the way every
                     // tiling terminal behaves.
                     onActiveFocusChanged: if (activeFocus) tab.currentPane = index
+
+                    // T74. Registered per PANE, not per tab: a split pane is
+                    // its own session, and "send to many sessions" means all of
+                    // them. offer() is register-or-relabel, so pointing a pane
+                    // at a different profile renames it in the strip rather
+                    // than adding a second row for the same terminal.
+                    Component.onCompleted: {
+                        if (tab.broadcast) {
+                            tab.broadcast.offer(view, view.sessionTitle)
+                        }
+                    }
+                    onSessionChanged: {
+                        if (tab.broadcast) {
+                            tab.broadcast.offer(view, view.sessionTitle)
+                        }
+                    }
+                    // A closed pane stops being a target. Without this the
+                    // model keeps a row the user reads as "still receiving".
+                    Component.onDestruction: {
+                        if (tab.broadcast) {
+                            tab.broadcast.forget(view)
+                        }
+                    }
 
                     onErrorRaised: (message, hint) => {
                         // A changed host key arrives as TWO signals — the

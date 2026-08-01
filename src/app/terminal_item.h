@@ -189,6 +189,16 @@ class TerminalItem : public QQuickRhiItem {
     // replace under it.
     Q_INVOKABLE void sendSnippet(int index);
 
+    // T74. One broadcast line, through the same preparePaste() path as every
+    // other block of text entering a pty. FALSE means this session could not
+    // take it — no backend, not started yet, or the shell has exited — and the
+    // broadcast drops it from the target set rather than swallowing the line.
+    //
+    // Called by name through QMetaObject::invokeMethod (see broadcast.h), so
+    // the signature here is the contract: renaming it or changing its
+    // parameters breaks the fan-out at runtime, not at compile time.
+    Q_INVOKABLE bool sendBroadcast(const QString& text);
+
     // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
     // has moved on, so a banner answered late cannot reach a different backend.
     Q_INVOKABLE void respondHostKey(bool trust);
@@ -481,6 +491,23 @@ class TerminalItem : public QQuickRhiItem {
     int m_cols = 0;
     int m_rows = 0;
     bool m_started = false;
+    // T74. The far end ran `exit`. m_backend stays non-null after that — the
+    // object is alive, it just has nowhere to write — so it is not on its own a
+    // usable answer to "can this session take input", which is the question a
+    // broadcast has to get right before it reports a line as delivered.
+    bool m_exited = false;
+    // T74. The connection dropped and the backend is retrying. Neither
+    // m_started nor m_exited covers this: m_started is only cleared by
+    // resetSession() and m_exited only by a real EOF, so a tab showing
+    // "Reconnecting in 5 s" otherwise looks fully alive — and a broadcast
+    // would count it as delivered while the bytes were dropped on the floor or
+    // queued to be replayed into a FRESH shell later.
+    //
+    // ponytail: fed only by the SSH reconnect signals, because they are the
+    // only ones TerminalItem wires at all — telnet, raw and serial declare
+    // `reconnecting` too, but nothing in the app listens to any of them yet.
+    // When that gap is closed, set this there as well.
+    bool m_reconnecting = false;
     int m_benchFrames = 0;
     int m_benchSteps = 0;
     // Set only by a 4K bench run, to pin the grid to the M0 baseline's 240x63.

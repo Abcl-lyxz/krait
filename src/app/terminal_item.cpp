@@ -159,6 +159,8 @@ TerminalItem::TerminalItem() {
 
 void TerminalItem::adoptBackend(net::IBackend* backend) {
     m_backend = backend;
+    m_exited = false;
+    m_reconnecting = false;
     // EVERY lambda below re-checks that `backend` is still the current one, and
     // that is not belt-and-braces — it is the whole correctness argument for
     // switching sessions.
@@ -207,6 +209,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
                 return;
             }
             qInfo("shell exited (%d)", exitCode);
+            m_exited = true;
             // A shell that ran `exit` is NOT an error. Raising a banner here is
             // how a banner teaches people to ignore banners.
             if (exitCode != 0) {
@@ -258,6 +261,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
             // Clears whatever the last reconnect notice said. A banner that
             // stays up after the thing it describes is over is a banner people
             // stop reading.
+            m_reconnecting = false;
             emit connectionNotice(QString());
         },
         Qt::QueuedConnection);
@@ -277,6 +281,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
             if (backend != m_backend) {
                 return;
             }
+            m_reconnecting = true;
             emit connectionNotice(tr("Connection lost. Reconnecting in %1 s (%2 of %3)…")
                                       .arg(QString::number((delayMs + 999) / 1000),
                                            QString::number(attempt), QString::number(ofAttempts)));
@@ -677,6 +682,25 @@ void TerminalItem::sendSnippet(int index) {
         QString::fromStdString(m_snippetList[static_cast<std::size_t>(index)].text),
         m_session->grid().bracketedPaste);
     sendPaste(guarded.bytes);
+}
+
+bool TerminalItem::sendBroadcast(const QString& text) {
+    // Reported honestly rather than swallowed. A broadcast that counts a dead
+    // tab as delivered is the failure mode the whole interlock exists to
+    // prevent: the user believes twelve hosts ran the command and nine did.
+    if (!m_session || !m_started || m_backend == nullptr || m_exited || m_reconnecting) {
+        return false;
+    }
+    // The same path a paste and a snippet take — this must not become the one
+    // way text reaches a pty without the ESC/C0 strip (rules/net.md).
+    const auto guarded = input::preparePaste(text, m_session->grid().bracketedPaste);
+    sendPaste(guarded.bytes);
+    // Enter, OUTSIDE the brackets. A CR inside a bracketed paste is inserted
+    // as a literal newline by readline rather than accepted as a command, so
+    // wrapping it would leave the line sitting unrun on every host — which is
+    // the same lie as swallowing it, arriving one step later.
+    sendInput(QByteArrayLiteral("\r"));
+    return true;
 }
 
 void TerminalItem::respondCredential(const QString& text, bool remember) {

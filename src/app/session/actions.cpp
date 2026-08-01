@@ -35,6 +35,13 @@ constexpr std::array kActions = {
     // only free letter next to the navigation ones.
     Action{"view.copyMode", "Copy mode (vim keys)", "Ctrl+Shift+K",
            "copy mode vim keyboard scrollback select yank navigate history"},
+    // T74. A is free (T W D E U B S H P O C V F L K are taken) and is what
+    // SecureCRT and MobaXterm's "send to all" already trained people to reach
+    // for. The shortcut only OPENS the strip: arming is a second, deliberate
+    // keystroke inside it, because a single accelerator that starts fanning
+    // keystrokes to twelve hosts is the accident this feature exists to stop.
+    Action{"session.broadcast", "Broadcast to several sessions", "Ctrl+Shift+A",
+           "broadcast send all multiple sessions same time type once interlock"},
     Action{"view.tunnels", "Show port forwards", "Ctrl+Shift+U", "tunnel forward port socks"},
     // T65. "Browse" earns the B; every other file word people reach for is in
     // the keywords, because nobody guesses what a panel is called.

@@ -22,6 +22,7 @@ qt_add_qml_module(krait-app
     QML_FILES
         qml/Banner.qml
         qml/BannerButton.qml
+        qml/BroadcastBar.qml
         qml/FilePanel.qml
         qml/Main.qml
         qml/Palette.qml
@@ -31,9 +32,13 @@ qt_add_qml_module(krait-app
         qml/TabStrip.qml
     SOURCES
         backend_factory.cpp
+        broadcast.cpp
+        broadcast.h
         capture.cpp
         capture.h
         backend_factory.h
+        quake.cpp
+        quake.h
         mremoteng_import.cpp
         mremoteng_import.h
         notifier.cpp
@@ -87,6 +92,7 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # T23/T24/T25 render pipeline the spike path was replaced with.
 # ole32 for CoCreateInstance(CLSID_TaskbarList) — the OSC 9;4 taskbar bar (T67).
 # uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
+# user32 (RegisterHotKey/SetForegroundWindow, quake.cpp) is another MSVC default.
 target_link_libraries(krait-app
     PRIVATE krait-core krait-render krait-input krait-settings krait-session krait-net Qt6::Quick Qt6::GuiPrivate
             freetype ole32

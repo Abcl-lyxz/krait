@@ -21,6 +21,29 @@
     </message>
 </context>
 <context>
+    <name>BroadcastBar</name>
+    <message>
+        <source>BROADCAST ON</source>
+        <translation>BROADCAST ON</translation>
+    </message>
+    <message>
+        <source>BROADCAST READY</source>
+        <translation>BROADCAST READY</translation>
+    </message>
+    <message>
+        <source>%1. %2</source>
+        <translation>%1. %2</translation>
+    </message>
+    <message>
+        <source>Enter sends this line to every session above.</source>
+        <translation>Enter sends this line to every session above.</translation>
+    </message>
+    <message>
+        <source>Pick sessions with 1-9 or the mouse, then Ctrl+Enter to start.</source>
+        <translation>Pick sessions with 1-9 or the mouse, then Ctrl+Enter to start.</translation>
+    </message>
+</context>
+<context>
     <name>ErrorBanner</name>
     <message>
         <source>Could not create the pseudoconsole.</source>
@@ -234,6 +257,10 @@
         <translation>File transfer needs an SSH session, and this tab is not one.</translation>
     </message>
     <message>
+        <source>Send to every selected session</source>
+        <translation>Send to every selected session</translation>
+    </message>
+    <message>
         <source>Logging this session to %1</source>
         <translation>Logging this session to %1</translation>
     </message>
@@ -375,6 +402,10 @@
         <translation>Copy mode (vim keys)</translation>
     </message>
     <message>
+        <source>Broadcast to several sessions</source>
+        <translation>Broadcast to several sessions</translation>
+    </message>
+    <message>
         <source>Show port forwards</source>
         <translation>Show port forwards</translation>
     </message>
@@ -445,6 +476,72 @@
     <message>
         <source>About Krait</source>
         <translation>About Krait</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::BroadcastModel</name>
+    <message>
+        <source>Broadcast paused: nothing was sent for a while.</source>
+        <translation>Broadcast paused: nothing was sent for a while.</translation>
+    </message>
+    <message>
+        <source>Press Ctrl+Enter in the broadcast strip to start it again. The wait is the broadcast.idleSeconds setting.</source>
+        <translation>Press Ctrl+Enter in the broadcast strip to start it again. The wait is the broadcast.idleSeconds setting.</translation>
+    </message>
+    <message>
+        <source>Broadcast paused: Krait is no longer the active window.</source>
+        <translation>Broadcast paused: Krait is no longer the active window.</translation>
+    </message>
+    <message>
+        <source>The sessions you picked are still selected. Press Ctrl+Enter in the broadcast strip to start it again.</source>
+        <translation>The sessions you picked are still selected. Press Ctrl+Enter in the broadcast strip to start it again.</translation>
+    </message>
+    <message>
+        <source>Broadcast stopped: every session it was sending to has closed.</source>
+        <translation>Broadcast stopped: every session it was sending to has closed.</translation>
+    </message>
+    <message>
+        <source>Pick at least one session before starting the broadcast.</source>
+        <translation>Pick at least one session before starting the broadcast.</translation>
+    </message>
+    <message>
+        <source>This line can destroy data or escalate privileges, and broadcast will run it on every selected session at once.</source>
+        <translation>This line can destroy data or escalate privileges, and broadcast will run it on every selected session at once.</translation>
+    </message>
+    <message>
+        <source>Broadcast was paused while that was waiting, so nothing was sent.</source>
+        <translation>Broadcast was paused while that was waiting, so nothing was sent.</translation>
+    </message>
+    <message>
+        <source>Dropped from the broadcast — these sessions are not connected, so they received nothing.</source>
+        <translation>Dropped from the broadcast — these sessions are not connected, so they received nothing.</translation>
+    </message>
+    <message>
+        <source>Broadcast stopped: nothing is left to send to.</source>
+        <translation>Broadcast stopped: nothing is left to send to.</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::QuakeWindow</name>
+    <message>
+        <source>Krait does not understand the drop-down hotkey “%1”.</source>
+        <translation>Krait does not understand the drop-down hotkey “%1”.</translation>
+    </message>
+    <message>
+        <source>Write it the way the other shortcuts are written, for example Ctrl+Alt+` or Ctrl+Shift+F12. A combination with no Ctrl, Alt, Shift or Win is only allowed for a function key.</source>
+        <translation>Write it the way the other shortcuts are written, for example Ctrl+Alt+` or Ctrl+Shift+F12. A combination with no Ctrl, Alt, Shift or Win is only allowed for a function key.</translation>
+    </message>
+    <message>
+        <source>Another program is already using %1, so Krait&apos;s drop-down hotkey is off.</source>
+        <translation>Another program is already using %1, so Krait&apos;s drop-down hotkey is off.</translation>
+    </message>
+    <message>
+        <source>Krait could not claim %1 as a system-wide hotkey, so the drop-down is off.</source>
+        <translation>Krait could not claim %1 as a system-wide hotkey, so the drop-down is off.</translation>
+    </message>
+    <message>
+        <source>Pick a different combination in the quake.hotkey setting. Windows keeps some for itself — F12 belongs to the debugger, and anything with the Windows key usually belongs to Windows.</source>
+        <translation>Pick a different combination in the quake.hotkey setting. Windows keeps some for itself — F12 belongs to the debugger, and anything with the Windows key usually belongs to Windows.</translation>
     </message>
 </context>
 <context>

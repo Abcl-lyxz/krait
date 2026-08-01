@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 18> kDefs{{
+constexpr std::array<Def, 22> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -224,6 +224,71 @@ constexpr std::array<Def, 18> kDefs{{
         .doc = "settings.logging.includeInput",
         .searchEn = "log input keystrokes typed password secret record include",
         .searchTh = "บันทึก สิ่งที่พิมพ์ การกดแป้น รหัสผ่าน ความลับ",
+    },
+    {
+        .id = "broadcast.confirmDangerous",
+        .type = Type::Bool,
+        // ON. The alternative designs both fail: a confirmation on EVERY line
+        // makes broadcast useless and trains people to press the button without
+        // reading, and no confirmation at all is exactly how twelve production
+        // hosts get an `rm -rf`. Triggered by the CONTENT, using the same
+        // classifier the paste guard uses, so an ordinary command never sees a
+        // banner and "dangerous" means one thing in Krait rather than two.
+        .fallback = true,
+        .choices = "",
+        .doc = "settings.broadcast.confirmDangerous",
+        .searchEn = "broadcast confirm dangerous destructive rm sudo guard ask multiple sessions",
+        .searchTh = "กระจายคำสั่ง ยืนยัน อันตราย ทำลาย ถาม หลายเซสชัน ป้องกัน",
+    },
+    {
+        .id = "broadcast.idleSeconds",
+        .type = Type::Int,
+        // Five minutes. Broadcast pauses ITSELF after this long with nothing
+        // sent, because the accident is the mode outliving the task and losing
+        // the window is not the only way that happens — reading a log in one
+        // tab for ten minutes never leaves Krait at all. It pauses rather than
+        // stops, so the selection survives and resuming is one keystroke.
+        // 0 turns the timeout off for someone who genuinely wants it latched.
+        .fallback = std::int64_t{300},
+        .min = 0,
+        .max = 3600,
+        .choices = "",
+        .doc = "settings.broadcast.idleSeconds",
+        .searchEn = "broadcast idle timeout pause automatic disarm safety minutes seconds",
+        .searchTh = "กระจายคำสั่ง หมดเวลา ว่าง หยุดชั่วคราว อัตโนมัติ ความปลอดภัย วินาที",
+    },
+    {
+        .id = "quake.hotkey",
+        .type = Type::String,
+        // EMPTY, which means quake mode is off and no system-wide hotkey is
+        // registered. A default combination would take a key away from every
+        // other program on the machine for a feature the user never asked for,
+        // and the one thing a global hotkey must not do is surprise you.
+        // Spelling is the same as every other shortcut in Krait ("Ctrl+Alt+`").
+        // Turning quake mode ON or OFF needs a restart — the window's frame and
+        // always-on-top behaviour are set once, and changing them on Windows
+        // means recreating the window underneath running sessions. CHANGING an
+        // already-set combination is live, which is the case that matters:
+        // it is what someone does right after being told one was taken.
+        .fallback = std::string_view{},
+        .choices = "",
+        .doc = "settings.quake.hotkey",
+        .searchEn = "quake hotkey global shortcut drop down dropdown toggle summon guake yakuake",
+        .searchTh = "ปุ่มลัด ทั่วระบบ หน้าต่างเลื่อนลง เรียก สลับ ซ่อน แสดง",
+    },
+    {
+        .id = "quake.heightPercent",
+        .type = Type::Int,
+        // Just under half the screen: enough terminal to work in, and enough of
+        // whatever is underneath left visible that the drop-down still reads as
+        // something laid OVER your work rather than as a new full-screen app.
+        .fallback = std::int64_t{45},
+        .min = 10,
+        .max = 100,
+        .choices = "",
+        .doc = "settings.quake.heightPercent",
+        .searchEn = "quake height size percent drop down screen coverage",
+        .searchTh = "ความสูง ขนาด เปอร์เซ็นต์ หน้าต่างเลื่อนลง หน้าจอ",
     },
     {
         .id = "ui.language",
