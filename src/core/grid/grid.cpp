@@ -3,6 +3,9 @@
 #include "core/grid/reflow.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <optional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -11,6 +14,14 @@ namespace krait::core::vt {
 
 namespace {
 
+// Deliberately does NOT consider marks. An earlier cut of T66 required
+// `marks == 0` here so an OSC 133 ; A arriving before its prompt was printed
+// could not be absorbed as spare space by a resize. That was wrong twice over:
+// resize's absorption loop already refuses to pop past `row + 1`, so the
+// cursor's own line — the only one that window can be on — was never at risk;
+// and ED/EL blank cells without clearing marks, so after a `clear` the bottom
+// rows would have counted as non-blank and a narrowing resize would have
+// retired live content into scrollback instead of absorbing them.
 bool isBlankLine(const Line& line) {
     return std::all_of(line.cells.begin(), line.cells.end(),
                        [](const Cell& cell) { return cell.ch == 0; });
@@ -281,13 +292,166 @@ void Grid::pushToScrollback(Line&& line) {
     }
 }
 
+const Line& Grid::absoluteLineAt(std::size_t i) const {
+    const std::size_t history = m_scrollback.lineCount();
+    return i < history ? m_scrollback.lineAt(i) : m_screen[i - history];
+}
+
+void Grid::markPrompt(std::uint8_t bits) {
+    if (m_onAlt) {
+        // The alternate screen belongs to a full-screen application that owns
+        // and redraws its viewport; m_scrollback is the NORMAL buffer's
+        // history, so a mark placed here would splice two buffers' line spaces
+        // together and an exit status would land on unrelated normal-screen
+        // text. Shells do not emit shell integration from inside vim.
+        return;
+    }
+    // Walk to the head of the logical line. It may have scrolled into history
+    // already, in which case row 0 is as far back as the screen can see —
+    // reflow() treats row 0 as a line start for the same reason.
+    int head = row;
+    while (head > 0 && m_screen[static_cast<std::size_t>(head)].wrappedFromPrev) {
+        --head;
+    }
+    Line& line = m_screen[static_cast<std::size_t>(head)];
+    const std::uint8_t before = line.marks;
+    line.marks |= bits;
+    if (line.marks != before) {
+        // A mark changes how the row is DRAWN — a prompt gutter, a jump
+        // highlight — while changing not one cell, so nothing else on the write
+        // path will ever dirty it. Without this the row keeps whatever the
+        // renderer last put there until something unrelated happens to touch
+        // it, which is a mark that appears seconds late or not at all.
+        damage.mark(head, 0, std::max(0, cols - 1));
+    }
+    if ((bits & kMarkPromptStart) != 0) {
+        m_promptOpen = true;
+    }
+}
+
+void Grid::setCommandExit(int code) {
+    // The bound on a hostile stream. Without it every `OSC 133 ; D` — thirteen
+    // bytes — walks the whole history looking for a prompt that was never
+    // marked, so a megabyte of `\e]133;D\e\\` costs ~10^9 line visits on the
+    // parse thread (rules/vt-core.md: remote input is bounded, always). With
+    // it, a D that follows no A does no work at all, and a D that follows a
+    // real A stops at that A — which is at most as far back as the command's
+    // own output, i.e. work proportional to bytes already fed.
+    if (code < 0 || m_onAlt || !m_promptOpen) {
+        return;
+    }
+    m_promptOpen = false;
+    // +1 so a command whose prompt is on the cursor's own line still counts:
+    // prevPrompt is strictly-before by design (grid.h).
+    const std::size_t at = m_scrollback.lineCount() + static_cast<std::size_t>(row) + 1;
+    const std::optional<std::size_t> owner = prevPrompt(at);
+    if (!owner) {
+        return;
+    }
+    const std::size_t history = m_scrollback.lineCount();
+    if (*owner < history) {
+        m_scrollback.setExitCode(*owner, code);
+        if (m_viewOffset > 0) {
+            // The owning line is in history, which is only on screen while the
+            // viewport is scrolled back — and then the DamageList's rows do not
+            // address it at all (see pushToScrollback), so all is the only
+            // honest answer.
+            damage.markAll();
+        }
+    } else {
+        const auto screenRow = static_cast<int>(*owner - history);
+        m_screen[static_cast<std::size_t>(screenRow)].exitCode = code;
+        // Same reason as markPrompt: a status is drawn, not stored in a cell.
+        damage.mark(screenRow, 0, std::max(0, cols - 1));
+    }
+}
+
+std::optional<std::size_t> Grid::prevPrompt(std::size_t from) const {
+    for (std::size_t i = std::min(from, absoluteLineCount()); i-- > 0;) {
+        if ((absoluteLineAt(i).marks & kMarkPromptStart) != 0) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::size_t> Grid::nextPrompt(std::size_t from) const {
+    const std::size_t count = absoluteLineCount();
+    if (from + 1 >= count || from + 1 == 0) {
+        return std::nullopt;  // the +1 must not wrap a caller's SIZE_MAX into 0
+    }
+    for (std::size_t i = from + 1; i < count; ++i) {
+        if ((absoluteLineAt(i).marks & kMarkPromptStart) != 0) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
 int Grid::maxViewOffset() const {
-    // Bounded by the history that exists. lineCount() is LOGICAL lines and a
-    // narrow screen wraps each into several, so this under-reports at small
-    // widths — deliberately: over-reporting would scroll into rows that do not
-    // exist and show blanks above the oldest output.
-    return static_cast<int>(
-        std::min<std::size_t>(m_scrollback.lineCount(), static_cast<std::size_t>(rows) * 1000));
+    // The VISUAL height of history at the current width, cached by Scrollback
+    // so this stays cheap on the wheel and on the output path.
+    //
+    // It used to be the LOGICAL line count, which under-reports by a row for
+    // every line that wrapped — a viewport that cannot reach the top of its own
+    // history, and a jump-to-prompt (T67) clamped short of the mark it found.
+    //
+    // ponytail: the `rows * 1000` cap stays, and it is a real bound rather than
+    // belt-and-braces. viewRows() serves a window by rewrapping everything
+    // newer than it, with a cell budget derived from this number — so an
+    // unbounded offset would let one repaint rewrap the entire ring. At a
+    // normal window that cap is tens of thousands of rows, far more than the
+    // ring produces, so nothing reachable is cut off; at a one-column window it
+    // is what stops a scroll from costing 4M Lines. Lift it only together with
+    // a viewRows() that seeks instead of rewrapping a prefix.
+    return static_cast<int>(std::min<std::size_t>(m_scrollback.visualRowCount(cols),
+                                                  static_cast<std::size_t>(rows) * 1000));
+}
+
+std::size_t Grid::viewTopLine() const {
+    if (m_viewOffset <= 0) {
+        return m_scrollback.lineCount();  // the live screen's first row
+    }
+    // Walk back until history's visual height reaches the offset, accumulating
+    // rather than re-summing: the scan starts at the newest end, so a viewport
+    // one screenful up costs a screenful of work rather than a history's worth.
+    const std::size_t history = m_scrollback.lineCount();
+    const auto want = static_cast<std::size_t>(m_viewOffset);
+    std::size_t seen = 0;
+    for (std::size_t i = history; i-- > 0;) {
+        seen += m_scrollback.visualRowsOfLine(i, cols);
+        if (seen >= want) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+void Grid::scrollToLine(std::size_t i) {
+    if (i >= m_scrollback.lineCount()) {
+        scrollViewToBottom();  // already on the live screen, which is never hidden
+        return;
+    }
+    // viewOffset counts VISUAL rows back from the newest history row, so the
+    // distance to a LOGICAL line is a rewrap count — the same one viewRows()
+    // performs when it serves the window, which is why it is asked for here
+    // rather than estimated from the line count.
+    //
+    // Clamped by the SAME maxViewOffset() everything else uses, so a jump can
+    // never park the viewport somewhere the wheel could not have reached — that
+    // asymmetry was what let one repaint rewrap the whole ring, and what froze
+    // the view in place because pushToScrollback's clamp then had nothing to
+    // give. A prompt further back than the cap lands as deep as the cap allows.
+    const std::size_t below = m_scrollback.visualRowsFrom(i, cols);
+    const int wanted =
+        std::clamp(static_cast<int>(std::min<std::size_t>(
+                       below, static_cast<std::size_t>(std::numeric_limits<int>::max()))),
+                   0, maxViewOffset());
+    if (wanted == m_viewOffset) {
+        return;
+    }
+    m_viewOffset = wanted;
+    damage.markAll();
 }
 
 bool Grid::scrollView(int delta) {

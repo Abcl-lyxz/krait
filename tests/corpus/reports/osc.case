@@ -26,14 +26,51 @@ EXPECT -
 IN \x1B]52;c;?\x1B\x5C
 EXPECT -
 
+# OSC 9;4 taskbar progress IS implemented (T67) and, like OSC 133, answers
+# NOTHING. It is a report to the window manager, not a query — a terminal that
+# replied would be telling a remote program whether it has a taskbar.
+#
+# READ WHAT THESE PIN, AND WHAT THEY DO NOT. This category's sink implements
+# oscStart/oscPut/oscEnd as no-ops (harness.cpp), so nothing here ever builds an
+# OscHandler: these cases would pass unchanged if parseProgress were deleted.
+# What they prove is the pair of things this file exists for — that the bytes
+# are consumed silently, and that the parser is left usable afterwards (the DA1
+# below is the proof of the second). The GRAMMAR is pinned by the unit tests,
+# `[core][osc]` in tests/unit/osc_test.cpp, which run a real Session and read
+# the OscAction back.
+IN \x1B]9;4;1;50\x1B\x5C
+EXPECT -
+IN \x1B]9;4;0\x1B\x5C
+EXPECT -
+IN \x1B]9;4;3\x07
+EXPECT -
+
+# ...and the malformed forms are silent for the ordinary reason: nothing to say.
+# What they must NOT do is leave the parser confused, which the DA1 pins.
+IN \x1B]9;4;9;50\x1B\x5C
+EXPECT -
+IN \x1B]9;5;1;50\x1B\x5C
+EXPECT -
+IN \x1B]9;this is a notification\x1B\x5C
+EXPECT -
+IN \x1B[c
+EXPECT reply:\x1B[?1;2c
+
 # Codes we have not implemented stay silent rather than half-handled
 IN \x1B]4;1;rgb:00/00/00\x1B\x5C
 EXPECT -
 IN \x1B]10;?\x1B\x5C
 EXPECT -
+IN \x1B]7;file:///tmp\x1B\x5C
+EXPECT -
+
+# OSC 133 IS implemented (T66, see corpus/shell/) and still answers NOTHING.
+# A prompt mark is an assertion, not a query, and a terminal that replied to
+# one would be handing a remote program a probe for whether shell integration
+# is on. What it does instead is entirely on the grid line.
 IN \x1B]133;A\x1B\x5C
 EXPECT -
-IN \x1B]7;file:///tmp\x1B\x5C
+IN \x1B]133;D;1\x1B\x5C
 EXPECT -
 
 # Aborted mid-string (CAN). xterm discards these and so do we — and, more to

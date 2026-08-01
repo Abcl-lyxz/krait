@@ -16,6 +16,8 @@
 #include "render/shaper/shape_pool.h"
 #include "session/profile.h"
 #include "settings/registry.h"
+#include "sftp_model.h"
+#include "taskbar_progress.h"
 #include <rhi/qrhi.h>
 
 #include <QElapsedTimer>
@@ -54,6 +56,10 @@ class TerminalItem : public QQuickRhiItem {
     // state. Empty for every backend that has no tunnels, which is all of them
     // except SSH.
     Q_PROPERTY(QVariantList tunnels READ tunnels NOTIFY tunnelsChanged)
+    // T65. The SFTP panel's view-model. Never null — it exists for every
+    // backend and reports available == false for the ones that cannot transfer
+    // files, so QML has one thing to ask rather than a null check plus a check.
+    Q_PROPERTY(krait::app::SftpModel* files READ files CONSTANT)
 
   public:
     TerminalItem();
@@ -102,6 +108,11 @@ class TerminalItem : public QQuickRhiItem {
     static void setServices(settings::Registry* registry, net::Vault* vault,
                             session::ProfileStore* store);
 
+    // The one taskbar button every tab's OSC 9;4 reports collapse onto (T67).
+    // Borrowed and owned by main(), like the three above; null in the tests and
+    // in a bench run, which have no window and therefore no button.
+    static void setTaskbar(TaskbarProgress* taskbar);
+
     // Hands over the settings registry (T31) for a terminal built outside the
     // normal path — the tests. setServices() covers the app.
     void setSettings(settings::Registry* registry);
@@ -141,6 +152,8 @@ class TerminalItem : public QQuickRhiItem {
 
     const QVariantList& tunnels() const { return m_tunnels; }
 
+    SftpModel* files() const { return m_files; }
+
     // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
     // has moved on, so a banner answered late cannot reach a different backend.
     Q_INVOKABLE void respondHostKey(bool trust);
@@ -161,6 +174,13 @@ class TerminalItem : public QQuickRhiItem {
     Q_INVOKABLE QString toggleLogging();
 
     Q_INVOKABLE bool loggingEnabled() const { return m_log.isOpen(); }
+
+    // T67, jump-to-prompt. `direction` is -1 for the previous OSC 133 prompt
+    // mark and +1 for the next one, counted from the row at the top of the
+    // viewport so pressing it twice walks two prompts rather than returning to
+    // the same one. False when there is no prompt that way — the caller says so
+    // in a banner rather than leaving a shortcut that silently does nothing.
+    Q_INVOKABLE bool jumpToPrompt(int direction);
 
     // Raises a banner from outside the backend path — the command line naming a
     // session that does not exist, and nothing else so far. Exists because
@@ -208,6 +228,12 @@ class TerminalItem : public QQuickRhiItem {
     // with the attempt count. Empty message clears it.
     void connectionNotice(const QString& message);
 
+    // T67. A command marked by OSC 133 ran longer than the configured
+    // threshold and finished while the window was NOT focused. A banner, not a
+    // dialog — rules/ui.md bans app-modal surfaces in session flows, and this
+    // one arrives precisely when the user is doing something else.
+    void commandFinished(const QString& message, const QString& detail);
+
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
     // ItemDevicePixelRatioHasChanged: the only hook Qt gives for a per-monitor
@@ -227,6 +253,10 @@ class TerminalItem : public QQuickRhiItem {
 
   private:
     void handleOutput(const QByteArray& bytes);
+    // Acts on what the core decided an OSC string asked for. Only OSC 9;4 and
+    // OSC 133 reach here so far; the clipboard and title kinds are still the
+    // core's honest silence (docs/conformance.md).
+    void handleOsc(const core::vt::OscAction& action);
     void ensureStarted();
     // Takes ownership of `backend` and wires the IBackend contract plus, when
     // it is an SSH one, the prompts. One place, so a fifth backend cannot
@@ -285,6 +315,9 @@ class TerminalItem : public QQuickRhiItem {
     // The tunnel pane's rows, mirrored from the SSH backend. Empty for every
     // backend that has no tunnels, which is all of them except SSH.
     QVariantList m_tunnels;
+    // T65. Owned by this (QObject parent), so QML holding the pointer through
+    // the `files` property cannot outlive or delete it.
+    SftpModel* m_files = nullptr;
     // What this terminal is pointed at. Default-constructed = a local shell,
     // which is what a window opened with no arguments should be.
     session::Profile m_profile;
@@ -315,6 +348,19 @@ class TerminalItem : public QQuickRhiItem {
     // Which slice of m_runs belongs to each viewport row: {offset, count}. Rows
     // that were not rebuilt this frame keep {0, 0}.
     std::vector<std::pair<std::size_t, std::size_t>> m_rowRanges;
+
+    // T67. Started by OSC 133 ; C (the command began producing output) and read
+    // by ; D. Invalid means no command is running, which is also what a D with
+    // no matching C leaves it as — so a shell that only ever sends D can never
+    // produce a notification claiming an invented duration.
+    QElapsedTimer m_commandSince;
+
+    // The newest OSC 9;4 report, and whether a queued delivery for it is
+    // already in flight. Coalescing here is what makes TaskbarProgress's own
+    // rate cap describe the real cost — see handleOsc().
+    std::pair<core::vt::OscAction::Progress, int> m_progress{core::vt::OscAction::Progress::Remove,
+                                                             -1};
+    bool m_progressPosted = false;
 
     render::FrameData m_frame;
     render::Selection m_selection;

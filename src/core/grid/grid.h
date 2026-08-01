@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <vector>
 
 namespace krait::core::vt {
@@ -212,6 +213,63 @@ class Grid {
     // then as much of the live screen as still fits.
     std::vector<Line> viewportRows() const;
 
+    // --- OSC 133 shell integration (T66) ---
+    //
+    // Marks live on the Line (line.h), never in a table keyed by row number.
+    // The calls below address lines as scrollback logical lines first
+    // (0 .. scrollbackSize()-1), then SCREEN rows.
+    //
+    // That is the same shape as SearchHit::line but NOT the same space: search
+    // enumerates `viewportRows()`, which serves rewrapped HISTORY rows whenever
+    // the viewport is scrolled up, while this always ends in m_screen. The two
+    // agree only at viewOffset() == 0. Said plainly here because a UI that
+    // assumed one space and got the other would scroll to the wrong line
+    // exactly when the user is scrolled back — which is when a jump-to-prompt
+    // binding is most likely to be used.
+    //
+    // Marks are NORMAL-buffer only: markPrompt/setCommandExit are no-ops while
+    // the alternate screen is up, since m_scrollback is the normal buffer's
+    // history and splicing the two would name lines that do not exist.
+    std::size_t absoluteLineCount() const { return m_scrollback.lineCount() + m_screen.size(); }
+
+    // Precondition: i < absoluteLineCount(). Unchecked, like cellAt/lineAt —
+    // and an index does NOT survive a feed() or a resize, so re-derive it from
+    // prevPrompt/nextPrompt rather than caching one across either.
+    const Line& absoluteLineAt(std::size_t i) const;
+
+    // Applies mark bits to the HEAD row of the logical line under the cursor.
+    // The head, not the cursor's row: a prompt long enough to wrap is one
+    // logical line, and reflow re-attaches marks to whichever row heads the
+    // run — so a mark parked on a continuation row would jump to the top of
+    // the prompt on the next resize instead of staying where it was put.
+    void markPrompt(std::uint8_t bits);
+
+    // OSC 133 ; D ; <n>. Writes the status onto the nearest line at or above
+    // the cursor carrying kMarkPromptStart — the line the user typed the
+    // command on, which by now is usually in scrollback. A negative code, or a
+    // D with no prompt open, is a no-op — and that second condition is the
+    // bound that keeps a stream of bare D's from walking all of history per
+    // sequence (see the comment on the implementation).
+    void setCommandExit(int code);
+
+    // Nearest kMarkPromptStart STRICTLY before / after `from`, in the index
+    // space above. Strictly, because a jump-to-prompt binding pressed twice
+    // has to move twice.
+    std::optional<std::size_t> prevPrompt(std::size_t from) const;
+    std::optional<std::size_t> nextPrompt(std::size_t from) const;
+
+    // The absolute line the TOP of the viewport is currently showing — the
+    // anchor prevPrompt/nextPrompt should be asked about, so that pressing the
+    // binding twice walks two prompts back rather than returning to the same
+    // one. Equal to scrollbackSize() while the viewport is at the bottom.
+    std::size_t viewTopLine() const;
+
+    // Scrolls so the absolute line `i` is the viewport's TOP row. A line on the
+    // live screen snaps the viewport to the bottom instead — the screen is
+    // always on show, and scrolling history over it would hide the thing asked
+    // for. Marks damage only when the view actually moved.
+    void scrollToLine(std::size_t i);
+
     // Rows: shrinking retires lines off the TOP (into scrollback for the
     // active buffer), growth appends blank rows at the bottom.
     //
@@ -225,7 +283,9 @@ class Grid {
     // Retires a line off the top of the screen into scrollback.
     void pushToScrollback(Line&& line);
 
-    // Furthest the viewport may scroll back, in visual rows.
+    // Furthest the viewport may scroll back, in visual rows. ONE clamp for
+    // every mover — the wheel, a jump to a prompt, and history arriving under a
+    // scrolled-back viewport all pass through it.
     int maxViewOffset() const;
 
     // putChar's three phases, split out because the wrap rules differ between
@@ -281,6 +341,11 @@ class Grid {
     int m_lastRow = -1;
     int m_lastCol = -1;
     bool m_lastWrap = false;
+
+    // Whether an OSC 133 prompt start has been seen that no D has closed.
+    // Purely a bound on setCommandExit's backwards walk — never a position,
+    // because a position is the thing that cannot survive eviction.
+    bool m_promptOpen = false;
 };
 
 }  // namespace krait::core::vt

@@ -28,6 +28,17 @@ constexpr std::array kActions = {
     Action{"view.hexdump", "Toggle hexdump", "Ctrl+Shift+H", "hex bytes raw debug dump"},
     Action{"session.log", "Start or stop logging this session", "", "record capture file"},
     Action{"view.tunnels", "Show port forwards", "Ctrl+Shift+U", "tunnel forward port socks"},
+    // T65. "Browse" earns the B; every other file word people reach for is in
+    // the keywords, because nobody guesses what a panel is called.
+    Action{"view.files", "Show the file transfer panel", "Ctrl+Shift+B",
+           "sftp scp files upload download transfer copy browse"},
+    // T67. Ctrl+Shift+Up/Down rather than a letter: this is navigation, it is
+    // pressed repeatedly, and the arrows are what iTerm2 and VS Code's terminal
+    // already trained people to reach for.
+    Action{"view.previousPrompt", "Jump to the previous prompt", "Ctrl+Shift+Up",
+           "prompt mark shell integration jump back scroll command"},
+    Action{"view.nextPrompt", "Jump to the next prompt", "Ctrl+Shift+Down",
+           "prompt mark shell integration jump forward scroll command"},
     Action{"palette.open", "Command palette", "Ctrl+Shift+P", "commands run action"},
     Action{"sessions.open", "Open a saved session", "Ctrl+Shift+O", "connect profile ssh host"},
     Action{"sessions.manage", "Manage sessions", "", "profiles edit folders tree"},

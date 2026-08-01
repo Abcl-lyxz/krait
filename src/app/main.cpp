@@ -14,6 +14,7 @@
 #include "settings/paths.h"
 #include "settings/registry.h"
 #include "settings_model.h"
+#include "taskbar_progress.h"
 #include "terminal_item.h"
 #include <windows.h>
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
@@ -187,6 +188,13 @@ int main(int argc, char* argv[]) try {
     krait::app::TerminalItem::setServices(&registry, &vault, &store);
     krait::app::SessionModel::setStore(&store);
 
+    // T67, OSC 9;4. Declared here — before the engine — for the same reason the
+    // vault is: it installs a native event filter on the application and holds
+    // a COM interface, and destruction in reverse declaration order means both
+    // are released while the tabs that report into it are already gone.
+    krait::app::TaskbarProgress taskbar;
+    krait::app::TerminalItem::setTaskbar(&taskbar);
+
     // BEFORE the engine builds the tree. TerminalView gets its geometry during
     // loadFromModule(), and geometry is what starts the first shell — so a
     // launch profile handed over afterwards would mean spawning PowerShell and
@@ -250,6 +258,11 @@ int main(int argc, char* argv[]) try {
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     if (window != nullptr) {
+        // Before show(): the TaskbarButtonCreated message this waits for is
+        // posted once the button exists, and Microsoft is explicit that it
+        // "must be received by your application before it calls any
+        // ITaskbarList3 method".
+        taskbar.attach(window);
         // Before scene graph init (first expose): GPU timestamps for the
         // bench, and the WARP software adapter when benching that leg.
         QQuickGraphicsConfiguration config;

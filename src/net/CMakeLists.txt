@@ -43,6 +43,8 @@ add_library(krait-net STATIC
     ssh/socks5.h
     ssh/hostkey_art.cpp
     ssh/hostkey_art.h
+    ssh/sftp.cpp
+    ssh/sftp.h
     telnet/telnet_backend.cpp
     telnet/telnet_backend.h
     telnet/telnet_negotiation.cpp

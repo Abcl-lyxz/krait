@@ -59,9 +59,30 @@ lines = 10000        # 0 turns scrollback off
 [gpu]
 adapter = "auto"     # or "hardware", "warp"
 
+[notify]
+longCommand = true        # notify when a slow command finishes
+longCommandSeconds = 30   # 1-3600, how slow counts as slow
+
 [ui]
 language = "system"  # or "en", "th"
 ```
+
+### `notify.longCommand`
+
+When a command marked by OSC 133 shell integration takes longer than
+`notify.longCommandSeconds` and finishes while Krait is **not** the focused
+window, the taskbar button flashes and the tab shows a banner with how long it
+took and, if the command failed, its exit status.
+
+Two conditions, both load-bearing. It needs shell integration — without OSC 133
+Krait cannot tell where one command ends and the next begins, so nothing fires
+and nothing is broken. And it never fires while you are looking at the window,
+because telling you what is already on your screen is how a notification becomes
+something people switch off.
+
+There is no toast and no tray icon: a banner in the tab that ran the command
+says which tab, which a toast does not, and Krait's own rule is that session
+messages are per-tab banners rather than anything app-modal.
 
 ### `unicode.eastAsianAmbiguous`
 

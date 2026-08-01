@@ -104,6 +104,41 @@
     </message>
 </context>
 <context>
+    <name>FilePanel</name>
+    <message>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>Up</source>
+        <translation>Up</translation>
+    </message>
+    <message>
+        <source>Remote</source>
+        <translation>Remote</translation>
+    </message>
+    <message>
+        <source>Local</source>
+        <translation>Local</translation>
+    </message>
+    <message>
+        <source>Drop to upload</source>
+        <translation>Drop to upload</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Stop</translation>
+    </message>
+    <message>
+        <source>Drag a file across to transfer it.</source>
+        <translation>Drag a file across to transfer it.</translation>
+    </message>
+</context>
+<context>
     <name>Main</name>
     <message>
         <source>Krait</source>
@@ -165,6 +200,22 @@
     <message>
         <source>Cancel</source>
         <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>File transfer needs an SSH session, and this tab is not one.</source>
+        <translation>File transfer needs an SSH session, and this tab is not one.</translation>
+    </message>
+    <message>
+        <source>No earlier prompt in this session.</source>
+        <translation>No earlier prompt in this session.</translation>
+    </message>
+    <message>
+        <source>No later prompt in this session.</source>
+        <translation>No later prompt in this session.</translation>
+    </message>
+    <message>
+        <source>Prompts come from OSC 133 shell integration — enable it in your shell to use this.</source>
+        <translation>Prompts come from OSC 133 shell integration — enable it in your shell to use this.</translation>
     </message>
     <message>
         <source>%1 open, %2 total</source>
@@ -267,6 +318,18 @@
     <message>
         <source>Show port forwards</source>
         <translation>Show port forwards</translation>
+    </message>
+    <message>
+        <source>Show the file transfer panel</source>
+        <translation>Show the file transfer panel</translation>
+    </message>
+    <message>
+        <source>Jump to the previous prompt</source>
+        <translation>Jump to the previous prompt</translation>
+    </message>
+    <message>
+        <source>Jump to the next prompt</source>
+        <translation>Jump to the next prompt</translation>
     </message>
     <message>
         <source>Command palette</source>
@@ -377,6 +440,53 @@
     </message>
 </context>
 <context>
+    <name>krait::app::SftpModel</name>
+    <message>
+        <source>Refused the name “%1”: it is not a plain file name.</source>
+        <translation>Refused the name “%1”: it is not a plain file name.</translation>
+    </message>
+    <message>
+        <source>A name carrying a path separator, a drive letter or a control character would decide where the file lands instead of you.</source>
+        <translation>A name carrying a path separator, a drive letter or a control character would decide where the file lands instead of you.</translation>
+    </message>
+    <message>
+        <source>“%1” is no longer in this remote folder.</source>
+        <translation>“%1” is no longer in this remote folder.</translation>
+    </message>
+    <message>
+        <source>Folders are not transferred yet — only files.</source>
+        <translation>Folders are not transferred yet — only files.</translation>
+    </message>
+    <message>
+        <source>“%1” is no longer in this folder.</source>
+        <translation>“%1” is no longer in this folder.</translation>
+    </message>
+    <message>
+        <source>Only files from this computer can be uploaded.</source>
+        <translation>Only files from this computer can be uploaded.</translation>
+    </message>
+    <message>
+        <source>Downloading %1</source>
+        <translation>Downloading %1</translation>
+    </message>
+    <message>
+        <source>Uploading %1</source>
+        <translation>Uploading %1</translation>
+    </message>
+    <message>
+        <source>Could not read the remote folder.</source>
+        <translation>Could not read the remote folder.</translation>
+    </message>
+    <message>
+        <source>Could not download “%1”.</source>
+        <translation>Could not download “%1”.</translation>
+    </message>
+    <message>
+        <source>Could not upload “%1”.</source>
+        <translation>Could not upload “%1”.</translation>
+    </message>
+</context>
+<context>
     <name>krait::app::TerminalItem</name>
     <message>
         <source>The shell exited with code %1.</source>
@@ -393,6 +503,14 @@
     <message>
         <source>Could not start logging.</source>
         <translation>Could not start logging.</translation>
+    </message>
+    <message>
+        <source>A command failed after %1 s (exit status %2).</source>
+        <translation>A command failed after %1 s (exit status %2).</translation>
+    </message>
+    <message>
+        <source>A command finished after %1 s.</source>
+        <translation>A command finished after %1 s.</translation>
     </message>
 </context>
 <context>
@@ -454,6 +572,10 @@
     <message>
         <source>Gave up reconnecting to %1 after %2 attempts.</source>
         <translation>Gave up reconnecting to %1 after %2 attempts.</translation>
+    </message>
+    <message>
+        <source>The connection closed.</source>
+        <translation>The connection closed.</translation>
     </message>
     <message>
         <source>Could not create an SSH session.</source>
@@ -518,6 +640,10 @@
     <message>
         <source>%1 stopped responding.</source>
         <translation>%1 stopped responding.</translation>
+    </message>
+    <message>
+        <source>The session is not connected.</source>
+        <translation>The session is not connected.</translation>
     </message>
 </context>
 <context>

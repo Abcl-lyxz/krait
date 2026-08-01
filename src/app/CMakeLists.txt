@@ -22,6 +22,7 @@ qt_add_qml_module(krait-app
     QML_FILES
         qml/Banner.qml
         qml/BannerButton.qml
+        qml/FilePanel.qml
         qml/Main.qml
         qml/Palette.qml
         qml/SessionPane.qml
@@ -38,6 +39,10 @@ qt_add_qml_module(krait-app
         settings_model.cpp
         settings_model.h
         session_model.h
+        sftp_model.cpp
+        sftp_model.h
+        taskbar_progress.cpp
+        taskbar_progress.h
         terminal_item.cpp
         terminal_item.h
         ../render/spike/grid_item.cpp
@@ -75,9 +80,11 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # API; its headers (rhi/qrhi.h) ship under the private include umbrella.
 # krait-shaper carries krait-core, HarfBuzz, FreeType and DirectWrite: the whole
 # T23/T24/T25 render pipeline the spike path was replaced with.
+# ole32 for CoCreateInstance(CLSID_TaskbarList) — the OSC 9;4 taskbar bar (T67).
+# uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
 target_link_libraries(krait-app
     PRIVATE krait-core krait-render krait-input krait-settings krait-session krait-net Qt6::Quick Qt6::GuiPrivate
-            freetype)
+            freetype ole32)
 
 # Translations (plan T32). EN and TH ship together: rules/ui.md makes Thai a
 # first-class locale, not an afterthought, so a string that lands without both

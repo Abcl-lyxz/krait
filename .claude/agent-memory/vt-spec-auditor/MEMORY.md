@@ -8,3 +8,4 @@
 - [T9 audit findings](t9-audit-findings.md) — DA1/DSR forms conformant; ?1;0c is VT101 not VT100; ansiColor=false is deliberate under-claim despite SGR color existing
 - [T17 audit findings](t17-audit-findings.md) — SGR 38/48/58: Pi-by-count is correct; all 3 deviations were argument-consumption, incl. subparam-index leak
 - [T18 audit findings](t18-audit-findings.md) — DECOM/1049: the 1049 idempotency guard is NOT xterm's; CPR can emit a negative param; fuzz target never routes h/l
+- [T67 audit findings](t67-audit-findings.md) — reports/ corpus sink DROPS all OSC (evidence trap); OSC 9;4 deltas vs WT DoConEmuAction; viewOffsetCeiling breaks viewRows' cost bound

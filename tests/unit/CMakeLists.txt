@@ -41,6 +41,8 @@ add_executable(krait-qt-tests
     action_labels_test.cpp
     agent_bridge_test.cpp
     ../../src/app/session_model.cpp
+    ../../src/app/sftp_model.cpp
+    sftp_panel_test.cpp
     ../../src/app/backend_factory.cpp
     ../../src/app/mremoteng_import.cpp
     mremoteng_import_test.cpp
@@ -59,10 +61,13 @@ add_executable(krait-qt-tests
     reconnect_test.cpp
     remote_text_test.cpp
     settings_test.cpp
+    ../../src/app/taskbar_progress.cpp
+    taskbar_progress_test.cpp
     forwards_test.cpp
     socks5_test.cpp
     raw_contract_test.cpp
     serial_test.cpp
+    sftp_test.cpp
     ssh_contract_test.cpp
     telnet_contract_test.cpp
     telnet_test.cpp
@@ -82,7 +87,9 @@ target_include_directories(krait-qt-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../support
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/app)
 # ws2_32 for the test server's wake-the-accept self-connect (see wakeAccept).
-target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32)
+# ole32 for CoCreateInstance(CLSID_TaskbarList): taskbar_progress.cpp is
+# compiled in for the aggregation test the same way session_model.cpp is.
+target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32 ole32)
 target_link_libraries(krait-qt-tests
     PRIVATE krait-render krait-input krait-settings krait-session krait-net Qt6::Test Qt6::Qml Qt6::Xml
             Catch2::Catch2WithMain)

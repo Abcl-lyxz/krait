@@ -415,3 +415,45 @@ T62 verified CORRECT, do not re-flag:
 - Open, LOW: no size cap in `SessionModel::readTextFile` (GUI thread,
   `readAll()`), `Block::set` is O(k^2) in distinct keywords, mRemoteNG is
   O(N*depth) in `folders.join()` per leaf. Fixed paths, so hang not privilege.
+
+## T67 — taskbar progress (OSC 9;4) + jump-to-prompt (OSC 133)
+
+BLOCKING found (fix before re-review re-flags):
+- `Grid::viewOffsetCeiling() = max(maxViewOffset(), m_viewOffset)` is
+  SELF-REFERENTIAL. Using the current offset as its own ceiling makes
+  `pushToScrollback`'s `min(off+1, ceiling)` a no-op and turns `scrollView`
+  into a one-way ratchet above `maxViewOffset()` (which under-counts, being
+  LOGICAL lines vs the visual rows `scrollToLine` computes). Any future
+  "sticky deep offset" needs a SEPARATE member, never `m_viewOffset` itself.
+- `TaskbarProgress::apply()` reaches `m_window->winId()` synchronously from
+  `~TerminalItem` -> `forget()` -> `schedule()`. `winId()` CREATES a platform
+  window; after `QWindow::close()` (which per Qt docs "effectively calls
+  destroy()") that resurrects a native window mid-teardown. A `QPointer` does
+  NOT guard this: QPointer clears at the top of `~QObject`, and QQuickWindow
+  deletes its content item (and therefore the TerminalItems) in the
+  `~QQuickWindow` BODY, before `~QObject` runs. Guard on
+  `QWindow::handle() == nullptr` (public, qwindow.h:229) instead.
+
+T67 verified CORRECT, do not re-flag:
+- The throttle cannot drop a final value: `apply()` re-reads `current()`
+  rather than a captured snapshot, and `QTimer::singleShot(ms, this, fn)` is
+  cancelled with the context object, so `m_pending` stuck true is moot.
+- COM: no `CoInitializeEx` is right (Qt OleInitializes the GUI thread STA);
+  `IID_PPV_ARGS` works with a header-level `struct ITaskbarList3;` because
+  shobjidl.h's uuid'd redeclaration precedes the use in the .cpp; no leak on
+  the `HrInit` failure path; `Release()` precedes Qt's OleUninitialize because
+  `QGuiApplication` is declared before the taskbar in main().
+- `nativeEventFilter` returning false always, and the Explorer-restart
+  release/re-acquire, are both correct. `removeNativeEventFilter` in the dtor
+  is redundant with `~QAbstractNativeEventFilter` but harmless.
+- `m_applied` / `m_buttonReady`: the early return that skips recording
+  `m_applied` is deliberate and has no stuck state.
+- Parser: `parseExitStatus` is overflow-checked, `parseProgress` clamps to
+  0-100, subparam/`k=`/positional-status handling matches ghostty+wezterm,
+  and `end(aborted||overflowed)` kills interrupted strings. Corpus has
+  CAN/SUB/new-introducer variants; fuzz seeds and the conformance row landed.
+- `notify.longCommandSeconds` cannot overflow `*1000`: `Registry::integer`
+  returns `int64_t` and out-of-range TOML keeps the default (min 1, max 3600),
+  so remote `C`/`D` pairs are bounded to ~1 notification/sec.
+- `visualRowsOfLine` counts rows identically to `reflow()` (verified line by
+  line) and is bounds-guarded; `scrollToLine`'s INT_MAX clamp is real.

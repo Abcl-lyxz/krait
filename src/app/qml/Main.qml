@@ -108,7 +108,10 @@ Window {
     Shortcut { sequence: "Ctrl+Shift+Tab"; onActivated: root.stepTab(-1) }
     Shortcut { sequence: "Ctrl+Shift+D"; onActivated: root.splitCurrent(false) }
     Shortcut { sequence: "Ctrl+Shift+U"; onActivated: { const p = root.currentPane(); if (p) p.toggleTunnels() } }
+    Shortcut { sequence: "Ctrl+Shift+B"; onActivated: { const p = root.currentPane(); if (p) p.toggleFiles() } }
     Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.splitCurrent(true) }
+    Shortcut { sequence: "Ctrl+Shift+Up"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(-1) } }
+    Shortcut { sequence: "Ctrl+Shift+Down"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(1) } }
     Shortcut { sequence: "Ctrl+Alt+Right"; onActivated: root.stepPane(1) }
     Shortcut { sequence: "Ctrl+Alt+Left"; onActivated: root.stepPane(-1) }
 
@@ -223,6 +226,21 @@ Window {
             case "view.tunnels": {
                 const pane = root.currentPane()
                 if (pane) pane.toggleTunnels()
+                return
+            }
+            case "view.files": {
+                const pane = root.currentPane()
+                if (pane) pane.toggleFiles()
+                return
+            }
+            case "view.previousPrompt": {
+                const pane = root.currentPane()
+                if (pane) pane.jumpPrompt(-1)
+                return
+            }
+            case "view.nextPrompt": {
+                const pane = root.currentPane()
+                if (pane) pane.jumpPrompt(1)
                 return
             }
             case "view.hexdump": {

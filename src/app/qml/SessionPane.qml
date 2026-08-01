@@ -41,6 +41,27 @@ Item {
         tab.showTunnels = !tab.showTunnels
     }
 
+    // T65: the SFTP file panel, a strip for the same reason the tunnel list is
+    // one. Only SSH sessions have one, and asking on any other tab says so
+    // rather than doing nothing — a shortcut that silently no-ops reads as a
+    // broken build.
+    property bool showFiles: false
+
+    function toggleFiles() {
+        const files = tab.terminal ? tab.terminal.files : null
+        if (!files || !files.available) {
+            tab.raiseSessionError(
+                qsTr("File transfer needs an SSH session, and this tab is not one."), "")
+            return
+        }
+        tab.showFiles = !tab.showFiles
+        if (tab.showFiles) {
+            // Opened here, not on connect: the SFTP channel is opened lazily by
+            // the backend because most sessions never transfer a file.
+            files.start()
+        }
+    }
+
     // Credential prompts that arrived while the banner was busy with another
     // pane's. One banner and N panes means they have to queue somewhere, and
     // dropping them means a backend waits for an answer nobody can give.
@@ -139,14 +160,40 @@ Item {
     // rules/ui.md makes the per-tab banner the only error surface, so callers
     // outside the backend path still need a way in.
     function raiseSessionError(message, detail) {
+        tab.raiseSessionBanner(message, detail, "error")
+    }
+
+    // T67: a command finished, which is news but not a failure. The calm
+    // severity on purpose — a build that succeeded must not look like a dropped
+    // connection, and it does NOT steal focus, because the whole point is that
+    // the user is somewhere else when it arrives.
+    function raiseSessionNotice(message, detail) {
+        tab.raiseSessionBanner(message, detail, "warning")
+    }
+
+    function raiseSessionBanner(message, detail, severity) {
         banner.target = null
         banner.mode = "error"
-        banner.severity = "error"
+        banner.severity = severity
         banner.showAccept = false
         banner.rejectText = qsTr("Dismiss")
         banner.detail = detail
         banner.message = message
-        banner.forceActiveFocus()
+        if (severity !== "warning") {
+            banner.forceActiveFocus()
+        }
+    }
+
+    // T67: walks OSC 133 prompt marks. A shortcut that silently does nothing
+    // reads as a broken build, so the end of the history says so.
+    function jumpPrompt(direction) {
+        if (tab.terminal && tab.terminal.jumpToPrompt(direction)) {
+            return
+        }
+        tab.raiseSessionNotice(
+            direction < 0 ? qsTr("No earlier prompt in this session.")
+                          : qsTr("No later prompt in this session."),
+            qsTr("Prompts come from OSC 133 shell integration — enable it in your shell to use this."))
     }
 
     ListModel {
@@ -263,13 +310,38 @@ Item {
             }
         }
 
+        // T65. Half the tab at most: the terminal underneath is still the
+        // point, and a file panel that pushes it to four rows is one people
+        // close instead of using.
+        FilePanel {
+            id: filePanel
+            width: parent.width
+            visible: tab.showFiles && tab.terminal && tab.terminal.files.available
+            height: visible ? Math.round(tab.height * 0.45) : 0
+            files: tab.terminal ? tab.terminal.files : null
+            onCloseRequested: {
+                tab.showFiles = false
+                tab.focusCurrent()
+            }
+        }
+
+        // The panel's failures are the tab's banner, like every other error
+        // here (rules/ui.md). The target follows the focused terminal, so a
+        // split tab cannot show one pane's failure over another's session.
+        Connections {
+            target: tab.terminal ? tab.terminal.files : null
+            function onErrorRaised(message, detail) {
+                tab.raiseSessionError(message, detail)
+            }
+        }
+
         // One axis, chosen by the first split. The panes are positioned by
         // weight rather than laid out in a Row, so a divider drag moves one
         // boundary instead of re-flowing everything after it.
         Item {
             id: area
             width: parent.width
-            height: parent.height - banner.height - tunnels.height
+            height: parent.height - banner.height - tunnels.height - filePanel.height
 
             Repeater {
                 id: repeater
@@ -348,6 +420,16 @@ Item {
                             return
                         }
                         tab.showCredential(view, prompt, echo)
+                    }
+
+                    // T67. Never forceActiveFocus: this arrives while the user
+                    // is in another window, and grabbing focus back would be
+                    // the app deciding what they should be looking at.
+                    onCommandFinished: (message, detail) => {
+                        if (banner.message.length > 0) {
+                            return  // a live prompt outranks a finished command
+                        }
+                        tab.raiseSessionNotice(message, detail)
                     }
 
                     onConnectionNotice: (message) => {

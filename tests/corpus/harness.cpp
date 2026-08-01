@@ -19,9 +19,11 @@
 #include "core/parser/kitty_keys.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
+#include "core/terminal/session.h"
 #include "core/unicode/utf8.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -387,6 +389,36 @@ class CursorSink final : public krait::core::vt::ParserEvents {
     }
 };
 
+// shell/ case tokens: mark:N:<letters> and exit:N:<status> for every line
+// carrying an OSC 133 mark, N being 1-based in Grid's absolute index space
+// (scrollback logical lines, then screen rows).
+std::vector<std::string> describeMarks(const krait::core::vt::Grid& grid) {
+    namespace vt = krait::core::vt;
+    static constexpr std::array<std::pair<std::uint8_t, char>, 4> kLetters{
+        {{vt::kMarkPromptStart, 'A'},
+         {vt::kMarkInputStart, 'B'},
+         {vt::kMarkOutputStart, 'C'},
+         {vt::kMarkCommandEnd, 'D'}}};
+
+    std::vector<std::string> tokens;
+    for (std::size_t i = 0; i < grid.absoluteLineCount(); ++i) {
+        const vt::Line& line = grid.absoluteLineAt(i);
+        if (line.marks != 0) {
+            std::string letters;
+            for (const auto& [bit, letter] : kLetters) {
+                if ((line.marks & bit) != 0) {
+                    letters += letter;
+                }
+            }
+            tokens.push_back(std::format("mark:{}:{}", i + 1, letters));
+        }
+        if (line.exitCode >= 0) {
+            tokens.push_back(std::format("exit:{}:{}", i + 1, line.exitCode));
+        }
+    }
+    return tokens;
+}
+
 }  // namespace
 
 TEST_CASE("corpus: utf8 decode", "[corpus][utf8]") {
@@ -448,6 +480,31 @@ TEST_CASE("corpus: reports (DA1/DSR) honest replies", "[corpus][reports]") {
             parser.feed(std::span(bytes).subspan(off, n));
         }
         CHECK(sink.replyTokens == parseTokens(c.expect));
+    }
+    CHECK(!cases.empty());
+}
+
+TEST_CASE("corpus: OSC 133 shell integration marks", "[corpus][shell]") {
+    const auto cases = loadCases(std::filesystem::path(KRAIT_CORPUS_DIR) / "shell");
+    for (const auto& c : cases) {
+        CAPTURE(c.file, c.in);
+        const auto bytes = parseBytes(c.in);
+
+        // Through a real Session, not a bespoke sink: OSC 133 is the first
+        // sequence whose whole effect is on the GRID rather than on a reply,
+        // and a corpus that routed it differently from the product would pin
+        // the harness instead of the terminal.
+        krait::core::vt::Session whole(24, 80);
+        whole.feed(bytes);
+        CHECK(describeMarks(whole.grid()) == parseTokens(c.expect));
+
+        // Chunk boundaries must be invisible: an OSC split mid-payload by a
+        // 4 KiB socket read is the normal case, not the exotic one.
+        krait::core::vt::Session split(24, 80);
+        for (std::uint8_t b : bytes) {
+            split.feed({&b, 1});
+        }
+        CHECK(describeMarks(split.grid()) == describeMarks(whole.grid()));
     }
     CHECK(!cases.empty());
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/grid/line.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -28,6 +30,28 @@ struct OscAction {
         ClipboardRead,
         // OSC 0/2: window title.
         Title,
+        // OSC 133: a semantic shell-integration mark. Handled inside the core
+        // FIRST — the mark belongs on the grid line, not in the app layer —
+        // and then forwarded to onOsc as well, because the C -> D transition
+        // is also the only signal the app has that a command finished and how
+        // long it took (T67's long-command notification).
+        PromptMark,
+        // OSC 9;4: taskbar progress. Nothing in the core acts on it — a
+        // taskbar is a platform surface — so this is purely a report.
+        Progress,
+    };
+
+    // OSC 9 ; 4 ; <state> ; <progress>. ConEmu originated the sequence and
+    // Microsoft documents it for Windows Terminal; the two agree on 0-3 and
+    // DISAGREE on 4, which MS calls "Warning" and ConEmu calls "paused". Both
+    // render as the same yellow bar, so the name here follows the Win32 flag
+    // they both end up setting (TBPF_PAUSED) rather than picking a side.
+    enum class Progress : std::uint8_t {
+        Remove = 0,         // 0: no progress bar. Also what an ABSENT state means.
+        Set = 1,            // 1: determinate, at `percent`
+        Error = 2,          // 2: red bar; percent is optional (ConEmu)
+        Indeterminate = 3,  // 3: marquee; consumers IGNORE percent (MS says so)
+        Paused = 4,         // 4: MS "Warning", ConEmu "paused"; percent optional
     };
 
     Kind kind = Kind::None;
@@ -40,6 +64,21 @@ struct OscAction {
     // OSC 8's id= parameter, which is what lets two runs of cells be the SAME
     // link for hover purposes even when they are not adjacent.
     std::string id;
+    // OSC 133: exactly one of the kMark* bits from line.h.
+    std::uint8_t promptMark = 0;
+    // OSC 133 ; D ; <n> only. -1 when the shell sent a bare D, or sent a
+    // status this parser refused.
+    int exitCode = -1;
+    // OSC 9;4 only.
+    Progress progress = Progress::Remove;
+    // OSC 9;4's percentage, already clamped to 0-100. -1 means the string did
+    // not carry a readable one, which states 2 and 4 are explicitly allowed to
+    // do; kept distinct from 0 so the app can tell "no figure given" from
+    // "zero" and pick a default per state rather than showing an empty bar for
+    // a failure. Parsed for EVERY state, including 0 and 3 which do not use it
+    // — refusing to read a field is not the core's call to make, and the app
+    // decides what a state does with it.
+    int percent = -1;
 };
 
 class OscHandler {

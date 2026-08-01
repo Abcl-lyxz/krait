@@ -7,11 +7,13 @@
 #include "core/parser/csi_mode.h"
 #include "core/parser/csi_scroll.h"
 #include "core/parser/machine.h"
+#include "core/parser/osc.h"
 #include "core/parser/sgr.h"
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -24,6 +26,7 @@ class FuzzSink final : public ParserEvents {
     Grid grid{24, 80};
     Capabilities caps;
     ReplyLimiter limiter;
+    OscHandler osc;
     std::string replies;
 
     void print(char32_t cp) override {
@@ -73,18 +76,67 @@ class FuzzSink final : public ParserEvents {
 
     void dcsUnhook(bool) override {}
 
-    void oscStart() override {}
+    // OSC is routed exactly as Session::oscEnd routes it (T66). Without this
+    // the OSC 133 seeds would exercise the state machine and nothing else —
+    // a fuzz run that looks clean because it never reached the code.
+    void oscStart() override { osc.start(); }
 
-    void oscPut(std::uint8_t) override {}
+    void oscPut(std::uint8_t byte) override { osc.put(byte); }
 
-    void oscEnd(bool) override {}
+    void oscEnd(bool aborted) override {
+        const OscAction action = osc.end(aborted);
+        if (action.kind != OscAction::Kind::PromptMark) {
+            return;  // clipboard/title/hyperlink are app-layer, nothing to model
+        }
+        grid.markPrompt(action.promptMark);
+        if (action.promptMark == kMarkCommandEnd) {
+            grid.setCommandExit(action.exitCode);
+        }
+        // NOT checkPrompts() here: it is O(history) and would run per OSC,
+        // which collapses exec/s once the fuzzer learns to fill scrollback and
+        // shows up as timeouts rather than as the slowdown it is. Once per
+        // input, from LLVMFuzzerTestOneInput, finds the same bugs.
+    }
 
     // Every invariant at once. Public because resize() is driven from
     // LLVMFuzzerTestOneInput rather than from a parser event.
-    void checkAll() const {
+    // Not const: checkPrompts() drives the viewport, which is the only way to
+    // fuzz the offset arithmetic behind jump-to-prompt (T67). It puts the view
+    // back at the bottom before it returns.
+    void checkAll() {
         checkCursor();
         checkRowWidths();
         checkClusters();
+        checkPrompts();
+    }
+
+    // T66. Prompt navigation is index arithmetic across two containers whose
+    // sizes both move under a resize, and it is handed indices by a UI that
+    // does not resynchronise first — so an answer outside the list is how this
+    // becomes an out-of-bounds read at the call site rather than here.
+    //
+    // T67 adds the jump itself, which walks attacker-controlled CELLS to turn a
+    // logical line index into a visual offset — the one place in the core where
+    // remote content decides how far a loop runs.
+    void checkPrompts() {
+        const std::size_t count = grid.absoluteLineCount();
+        for (const std::size_t from :
+             {std::size_t{0}, count / 2, count, count * 4, static_cast<std::size_t>(-1)}) {
+            if (const auto at = grid.prevPrompt(from)) {
+                assert(*at < count);
+                assert((grid.absoluteLineAt(*at).marks & kMarkPromptStart) != 0);
+                grid.scrollToLine(*at);
+                assert(grid.viewOffset() >= 0);
+                assert(grid.viewportRows().size() == static_cast<std::size_t>(grid.rows));
+                assert(grid.viewTopLine() <= grid.absoluteLineCount());
+            }
+            if (const auto at = grid.nextPrompt(from)) {
+                assert(*at < count);
+                assert(*at > from);
+                assert((grid.absoluteLineAt(*at).marks & kMarkPromptStart) != 0);
+            }
+        }
+        grid.scrollViewToBottom();
     }
 
   private:
@@ -148,6 +200,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     // Amplification invariant: replies bounded by the limiter's windows.
     const std::size_t maxReplies = 8 * (1 + size / 256);
     assert(sink.replies.size() <= maxReplies * 16);
+
+    sink.checkPrompts();  // T66, once per input rather than per OSC
 
     // T20: reflow, driven from the same bytes. A resize is reachable from any
     // window drag, so rewrap has to survive whatever the parser just wrote —

@@ -62,6 +62,7 @@ std::optional<session::Profile> g_launchProfile;
 settings::Registry* g_registry = nullptr;
 net::Vault* g_vault = nullptr;
 session::ProfileStore* g_store = nullptr;
+TaskbarProgress* g_taskbar = nullptr;
 
 }  // namespace
 
@@ -76,9 +77,17 @@ void TerminalItem::setServices(settings::Registry* registry, net::Vault* vault,
     g_store = store;
 }
 
+void TerminalItem::setTaskbar(TaskbarProgress* taskbar) {
+    g_taskbar = taskbar;
+}
+
 TerminalItem::TerminalItem() {
     m_vault = g_vault;
     m_store = g_store;
+    // T65. Built here rather than lazily so the `files` property can be
+    // CONSTANT: QML binds to it before any session exists, and a property that
+    // turns from null into an object needs a NOTIFY that nothing else wants.
+    m_files = new SftpModel(this);  // owned by this
     // Through setSettings(), not a bare assignment: it also subscribes to hot
     // reloads and applies the current values, and a tab opened after startup
     // needs both exactly as much as the first one did.
@@ -181,6 +190,10 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
     // and putting them on the seam would give four backends a method that can
     // only ever return "not me".
     auto* ssh = qobject_cast<net::SshBackend*>(m_backend);
+    // Before the early return: the panel has to hear about a NON-SSH session
+    // too, or a tab re-pointed at a local shell keeps offering transfers over
+    // the connection it no longer has.
+    m_files->attach(ssh);
     if (ssh == nullptr) {
         return;
     }
@@ -286,6 +299,9 @@ void TerminalItem::resetSession() {
     }
     m_session.reset();
     m_started = false;
+    // The panel goes with the connection: a listing left on screen after the
+    // session it came from is a listing of a folder nobody can reach.
+    m_files->attach(nullptr);
     if (!m_tunnels.isEmpty()) {
         // The tunnels belonged to the connection that just went. Leaving them
         // on screen would show a pane full of listeners that no longer exist.
@@ -392,6 +408,12 @@ TerminalItem::~TerminalItem() {
     if (m_backend != nullptr) {
         m_backend->stop();
     }
+    // A closed tab stops voting. Without this the taskbar keeps showing the
+    // progress of a shell that no longer exists, and nothing will ever clear it
+    // because the only thing that could has been deleted.
+    if (g_taskbar != nullptr) {
+        g_taskbar->forget(this);
+    }
 }
 
 bool TerminalItem::ensureFont() {
@@ -471,6 +493,7 @@ void TerminalItem::ensureStarted() {
         }
         sendInput(QByteArray(reply.data(), static_cast<qsizetype>(reply.size())));
     };
+    m_session->onOsc = [this](const core::vt::OscAction& action) { handleOsc(action); };
     if (m_benchFrames > 0) {
         // A bench run needs no shell: the flood is synthesised so the numbers
         // are reproducible rather than at the mercy of PowerShell's output.
@@ -707,6 +730,127 @@ void TerminalItem::handleOutput(const QByteArray& bytes) {
                      static_cast<std::size_t>(bytes.size())});
     rebuildFrame();
     update();
+}
+
+// Everything handleOsc() DOES is deferred, and that is the load-bearing part of
+// this function rather than an optimisation.
+//
+// handleOsc runs inside Session::feed(), i.e. with the parser part-way through
+// a chunk of remote bytes. Both of its side effects can re-enter the event
+// loop: raising a banner gives the strip height, which re-evaluates the
+// terminal's own height binding, which reaches geometryChange() and
+// Grid::resize() — resizing the grid UNDER the parser that is still writing to
+// it. And an STA COM call pumps window messages, which can deliver a socket
+// read and start a second feed(). The decision is made here, where the sequence
+// order is known; the effect runs once the chunk is done.
+void TerminalItem::handleOsc(const core::vt::OscAction& action) {
+    using Kind = core::vt::OscAction::Kind;
+
+    if (action.kind == Kind::Progress) {
+        // COALESCED, one posted event at a time. TaskbarProgress throttles the
+        // COM calls, but a 64 KiB read of `\e]9;4;1;1\e\\` is ~5000 sequences,
+        // and posting a QMetaCallEvent for each would allocate 5000 times
+        // before the loop drained one of them — the throttle would be bounding
+        // the wrong thing. The newest report wins; the intermediate values of a
+        // progress bar nobody has seen yet are not worth a heap allocation
+        // each. The aggregation, the tie-break between tabs and the cap on how
+        // often the taskbar is poked all stay in TaskbarProgress, so a second
+        // reporter cannot implement any of them differently.
+        m_progress = {action.progress, action.percent};
+        if (m_progressPosted) {
+            return;
+        }
+        m_progressPosted = true;
+        QMetaObject::invokeMethod(
+            this,
+            [this] {
+                m_progressPosted = false;
+                if (g_taskbar != nullptr) {
+                    g_taskbar->report(this, m_progress.first, m_progress.second);
+                }
+            },
+            Qt::QueuedConnection);
+        return;
+    }
+
+    if (action.kind != Kind::PromptMark) {
+        return;  // clipboard, title and hyperlinks are not wired yet
+    }
+
+    if (action.promptMark == core::vt::kMarkOutputStart) {
+        m_commandSince.start();
+        return;
+    }
+    if (action.promptMark != core::vt::kMarkCommandEnd || !m_commandSince.isValid()) {
+        return;
+    }
+    const qint64 elapsedMs = m_commandSince.elapsed();
+    m_commandSince.invalidate();  // one notification per command, not per D
+
+    if (m_settings == nullptr || !m_settings->boolean("notify.longCommand")) {
+        return;
+    }
+    const qint64 thresholdMs = m_settings->integer("notify.longCommandSeconds") * 1000;
+    if (elapsedMs < thresholdMs) {
+        return;
+    }
+    // Focused means the user is already watching this window; telling them what
+    // they can see is how a notification becomes something people turn off.
+    // focusWindow() rather than QWindow::isActive(), which is also true for
+    // every window in the same transient-parent chain.
+    QWindow* const own = window();
+    if (own == nullptr || QGuiApplication::focusWindow() == own) {
+        return;
+    }
+
+    const QString took = QString::number(elapsedMs / 1000);
+    const QString message =
+        action.exitCode > 0
+            ? tr("A command failed after %1 s (exit status %2).").arg(took).arg(action.exitCode)
+            : tr("A command finished after %1 s.").arg(took);
+    const QString detail = sessionTitle();
+
+    QMetaObject::invokeMethod(
+        this,
+        [this, message, detail] {
+            // Re-read rather than captured: the window can be gone by the time
+            // this runs, and alert() on a stale pointer is a crash from a
+            // notification nobody would be there to see.
+            if (QWindow* const now = window(); now != nullptr) {
+                // The platform's own "this window wants you" affordance: on
+                // Windows it flashes the taskbar button until the window is
+                // activated. Not requestActivate(), which STEALS focus — the
+                // user is deliberately somewhere else.
+                now->alert(0);
+            }
+            emit commandFinished(message, detail);
+        },
+        Qt::QueuedConnection);
+}
+
+bool TerminalItem::jumpToPrompt(int direction) {
+    if (!m_session) {
+        return false;
+    }
+    core::vt::Grid& grid = m_session->grid();
+    if (grid.onAlternateScreen()) {
+        // markPrompt refuses to place marks here for the same reason: the
+        // scrollback is the NORMAL buffer's history, so jumping would scroll
+        // another buffer's text over a full-screen application's viewport —
+        // which vim would then repaint away on the next keystroke, leaving the
+        // binding looking broken rather than refused.
+        return false;
+    }
+    const std::size_t from = grid.viewTopLine();
+    const std::optional<std::size_t> found =
+        direction < 0 ? grid.prevPrompt(from) : grid.nextPrompt(from);
+    if (!found) {
+        return false;
+    }
+    grid.scrollToLine(*found);
+    rebuildFrame();
+    update();
+    return true;
 }
 
 void TerminalItem::rebuildFrame() {

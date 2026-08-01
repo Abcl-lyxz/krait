@@ -184,6 +184,25 @@ bool SshBackend::sleepInterruptible(int ms) {
 
 SshBackend::Outcome SshBackend::runOnce(int cols, int rows) {
     const auto teardown = [this] {
+        // T64, and FIRST: sftp_free writes a channel-close over a session that
+        // is about to be freed, so it has to happen while that session is still
+        // there. m_connected drops with it, which is what makes a request
+        // arriving from the GUI during teardown get refused instead of queued
+        // against a session that is gone.
+        m_sftp.close();
+        std::deque<SftpRequest> abandoned;
+        {
+            const std::lock_guard lock(m_mutex);
+            // Cleared INSIDE the lock, with the drain. Outside it, queueSftp
+            // can read m_connected as true, this drain can run, and the push
+            // then lands in a queue nothing will ever service again — leaving
+            // the panel's spinner up until the tab closes.
+            m_connected = false;
+            abandoned.swap(m_sftpQueue);
+        }
+        for (const SftpRequest& request : abandoned) {
+            emit sftpFinished(request.id, false, false, tr("The connection closed."));
+        }
         if (m_impl->channel != nullptr) {
             ssh_channel_free(m_impl->channel);
             m_impl->channel = nullptr;
@@ -894,6 +913,12 @@ SshBackend::Outcome SshBackend::pump() {
         // priority; the 20 ms poll bounds how long a tunnel waits.
         m_forwards.service(m_impl->session);
 
+        // T64. Last, and for the same reason: a file transfer is the one thing
+        // here that can occupy the session for minutes, so it goes behind
+        // everything the user is actually looking at. One request per
+        // iteration, and the transfer itself interleaves per chunk.
+        serviceSftp();
+
         if (ssh_channel_is_eof(channel) != 0) {
             // The remote shell ended. That is an exit, not an error — telling
             // someone their connection "failed" when they typed exit is how a
@@ -999,6 +1024,198 @@ void SshBackend::respondHostKey(bool trust) {
         m_answered = true;
     }
     m_cv.notify_all();
+}
+
+void SshBackend::sftpResolve(quint64 requestId, const QString& path) {
+    queueSftp({SftpRequest::Kind::Resolve, requestId, path.toStdString(), {}});
+}
+
+void SshBackend::sftpList(quint64 requestId, const QString& path) {
+    queueSftp({SftpRequest::Kind::List, requestId, path.toStdString(), {}});
+}
+
+void SshBackend::sftpGet(quint64 requestId, const QString& remotePath, const QString& localPath) {
+    queueSftp(
+        {SftpRequest::Kind::Get, requestId, remotePath.toStdString(), localPath.toStdString()});
+}
+
+void SshBackend::sftpPut(quint64 requestId, const QString& localPath, const QString& remotePath) {
+    queueSftp(
+        {SftpRequest::Kind::Put, requestId, remotePath.toStdString(), localPath.toStdString()});
+}
+
+void SshBackend::queueSftp(SftpRequest request) {
+    // Refused rather than queued when there is no session, because a request
+    // that can never run still owes its caller an answer — and a panel waiting
+    // on a session that is not up would otherwise spin until the tab closes.
+    //
+    // The check is INSIDE the lock, with the push. Read outside it, teardown
+    // can drain the queue between the check and the push and leave this request
+    // sitting there with no worker left to answer it — which is the exact
+    // failure this guard exists to prevent.
+    {
+        const std::lock_guard lock(m_mutex);
+        if (!m_connected.load()) {
+            emit sftpFinished(request.id, false, false, tr("The session is not connected."));
+            return;
+        }
+        m_sftpQueue.push_back(std::move(request));
+    }
+    m_cv.notify_all();
+}
+
+void SshBackend::sftpCancelAll() {
+    std::deque<SftpRequest> abandoned;
+    {
+        const std::lock_guard lock(m_mutex);
+        // Bumped under the SAME lock that takes the queue, so a request cannot
+        // slip between the two and inherit a cancel meant for the batch before
+        // it: anything still in `abandoned` is cancelled here, and anything
+        // queued afterwards snapshots the new epoch and runs.
+        ++m_sftpCancelEpoch;
+        abandoned.swap(m_sftpQueue);
+    }
+    for (const SftpRequest& request : abandoned) {
+        emit sftpFinished(request.id, false, true, QString());
+    }
+}
+
+void SshBackend::interleaveShell() {
+    ssh_channel channel = m_impl->channel;
+    if (channel == nullptr) {
+        return;
+    }
+    // Keystrokes first. Without this half, typing during a 200 MB download goes
+    // nowhere until the download ends — the output would keep flowing and the
+    // input would not, which reads as a hung terminal rather than a busy one.
+    std::deque<QByteArray> pending;
+    {
+        const std::lock_guard lock(m_mutex);
+        pending.swap(m_writeQueue);
+    }
+    for (const QByteArray& bytes : pending) {
+        qsizetype written = 0;
+        // The m_shutdown guard is not decoration, and pump()'s copy of this
+        // loop has it for the same reason: a remote program that stopped
+        // reading stdin closes its window, ssh_channel_write blocks, and
+        // without a cancel path the worker spins here while stop() waits to
+        // join it (rules/net.md: every wait has one).
+        while (written < bytes.size() && !m_shutdown.load()) {
+            const int n = ssh_channel_write(channel, bytes.constData() + written,
+                                            static_cast<std::uint32_t>(bytes.size() - written));
+            if (n < 0) {
+                // Not reported from here. A broken session breaks the transfer's
+                // very next sftp call and then pump()'s next read, and both of
+                // those already emit with the right code — reporting it three
+                // times would put three banners on one failure.
+                return;
+            }
+            written += n;
+        }
+    }
+    std::vector<char> buffer(kReadChunk);
+    const int n = ssh_channel_read_nonblocking(channel, buffer.data(),
+                                               static_cast<std::uint32_t>(buffer.size()), 0);
+    if (n > 0) {
+        emit outputReceived(QByteArray(buffer.data(), n));
+    }
+}
+
+void SshBackend::serviceSftp() {
+    SftpRequest request;
+    std::uint64_t epoch = 0;
+    {
+        const std::lock_guard lock(m_mutex);
+        if (m_sftpQueue.empty()) {
+            return;
+        }
+        request = std::move(m_sftpQueue.front());
+        m_sftpQueue.pop_front();
+        // Snapshotted under the same lock as the pop. A cancel that arrived
+        // while this request was queued already removed it from that queue, so
+        // anything still here is newer than the cancel and is meant to run.
+        epoch = m_sftpCancelEpoch.load();
+    }
+    runSftpRequest(request, epoch);
+}
+
+void SshBackend::runSftpRequest(const SftpRequest& request, std::uint64_t cancelEpoch) {
+    // Lazily, on the first request that needs it. Most sessions never transfer
+    // a file, and an SFTP channel nobody asked for is one the server logs.
+    if (!m_sftp.isOpen() && !m_sftp.open(m_impl->session)) {
+        emit sftpFinished(request.id, false, false, QString::fromStdString(m_sftp.lastError()));
+        return;
+    }
+
+    switch (request.kind) {
+    case SftpRequest::Kind::Resolve: {
+        std::string resolved;
+        if (!m_sftp.realpath(request.remote, &resolved)) {
+            break;
+        }
+        emit sftpResolved(request.id, QString::fromStdString(resolved));
+        emit sftpFinished(request.id, true, false, QString());
+        return;
+    }
+    case SftpRequest::Kind::List: {
+        std::vector<SftpEntry> entries;
+        if (!m_sftp.listDir(request.remote, &entries)) {
+            break;
+        }
+        QVariantList rows;
+        rows.reserve(static_cast<qsizetype>(entries.size()));
+        for (const SftpEntry& entry : entries) {
+            QVariantMap row;
+            row["name"] = QString::fromStdString(entry.name);
+            row["size"] = static_cast<qulonglong>(entry.size);
+            row["permissions"] = static_cast<uint>(entry.permissions);
+            row["mtime"] = static_cast<qlonglong>(entry.mtime);
+            row["isDir"] = entry.isDir;
+            row["isLink"] = entry.isLink;
+            rows.append(row);
+        }
+        emit sftpListed(request.id, QString::fromStdString(request.remote), rows);
+        emit sftpFinished(request.id, true, false, QString());
+        return;
+    }
+    case SftpRequest::Kind::Get:
+    case SftpRequest::Kind::Put: {
+        // The one callback does three jobs: it reports progress, it keeps the
+        // terminal alive between chunks, and it is where a cancel or a closing
+        // tab actually takes effect. sftp_read blocks, so this is the ONLY
+        // place a transfer can be interrupted.
+        // Throttled to ~50 ms. Unthrottled this is one queued cross-thread
+        // signal per 64 KiB — about 1600 a second on a fast link, each one
+        // driving a model update, so the progress bar becomes the bottleneck
+        // the transfer is waiting on. The first and last calls always go out,
+        // so the bar still starts at 0 and lands exactly on the total.
+        auto lastEmit = std::chrono::steady_clock::now();
+        const auto progress = [this, id = request.id, cancelEpoch,
+                               &lastEmit](std::uint64_t done, std::uint64_t total) -> bool {
+            const auto now = std::chrono::steady_clock::now();
+            if (done == 0 || done == total || now - lastEmit >= std::chrono::milliseconds(50)) {
+                lastEmit = now;
+                emit sftpProgress(id, static_cast<qulonglong>(done),
+                                  static_cast<qulonglong>(total));
+            }
+            interleaveShell();
+            return !m_shutdown.load() && m_sftpCancelEpoch.load() == cancelEpoch;
+        };
+        const bool ok = request.kind == SftpRequest::Kind::Get
+                            ? m_sftp.get(request.remote, request.local, progress)
+                            : m_sftp.put(request.local, request.remote, progress);
+        if (ok) {
+            emit sftpFinished(request.id, true, false, QString());
+            return;
+        }
+        if (m_sftp.cancelled()) {
+            emit sftpFinished(request.id, false, true, QString());
+            return;
+        }
+        break;
+    }
+    }
+    emit sftpFinished(request.id, false, false, QString::fromStdString(m_sftp.lastError()));
 }
 
 void SshBackend::respondCredential(const QString& text, bool remember) {

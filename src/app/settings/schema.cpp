@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 8> kDefs{{
+constexpr std::array<Def, 10> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -90,6 +90,33 @@ constexpr std::array<Def, 8> kDefs{{
         .doc = "settings.gpu.adapter",
         .searchEn = "gpu adapter graphics warp software rdp remote",
         .searchTh = "การ์ดจอ กราฟิก ซอฟต์แวร์ รีโมท",
+    },
+    {
+        .id = "notify.longCommand",
+        .type = Type::Bool,
+        // On, because the failure mode of "off" is silent: a build that
+        // finished ten minutes ago while you were reading something else. It
+        // only ever fires when the window is NOT focused, so it cannot
+        // interrupt someone who is already watching the command run.
+        .fallback = true,
+        .choices = "",
+        .doc = "settings.notify.longCommand",
+        .searchEn = "notify notification alert long command finished done shell integration",
+        .searchTh = "แจ้งเตือน การแจ้งเตือน คำสั่ง เสร็จสิ้น ทำงานนาน",
+    },
+    {
+        .id = "notify.longCommandSeconds",
+        .type = Type::Int,
+        // 30 s is past every command a person waits at the keyboard for and
+        // short enough to catch a test run. Below it the notification is noise;
+        // the ceiling is an hour, past which nobody is waiting on a banner.
+        .fallback = std::int64_t{30},
+        .min = 1,
+        .max = 3600,
+        .choices = "",
+        .doc = "settings.notify.longCommandSeconds",
+        .searchEn = "notify threshold seconds duration long command slow",
+        .searchTh = "แจ้งเตือน เกณฑ์ วินาที ระยะเวลา คำสั่ง ช้า",
     },
     {
         .id = "ui.language",

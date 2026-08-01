@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace krait::test {
 
@@ -35,6 +36,47 @@ class SshTestServer {
         bool dropAfterShell = false;
         // Refuse every password, to drive the auth-failed banner.
         bool refuseAuth = false;
+        // When set, the session serves the SFTP subsystem rooted at this
+        // directory instead of a shell. Everything the client asks for is
+        // resolved under it and anything that escapes is refused — see
+        // resolveUnderRoot. Empty (the default) keeps the shell behaviour the
+        // contract tests are written against.
+        std::string sftpRoot;
+
+        // --- SFTP misbehaviour ------------------------------------------
+        //
+        // The knobs below exist for the same reason this class does: a real
+        // sshd will not answer with a filename it knows is illegal, stop a
+        // download halfway, or fail a listing on cue, and those are precisely
+        // the answers Sftp has to survive (rules/net.md: all remote input is
+        // hostile). They only apply when sftpRoot is set.
+
+        // Extra SSH_FXP_READDIR entries, sent verbatim and backed by no file
+        // on disk. This is how a name the client must REFUSE gets onto the
+        // wire — "../escape", a name holding a control byte, a name with a
+        // separator in it. The panel composes local paths out of these, so a
+        // name the server chose is a destination the server chose.
+        std::vector<std::string> injectNames;
+
+        // Emit this many synthetic entries that Sftp::listDir is guaranteed to
+        // reject, spread over as many READDIR replies as it takes. Set above
+        // Sftp::kMaxEntries this proves the iteration cap terminates: the cap
+        // counts ITERATIONS, and a version that counted kept entries instead
+        // would sit at zero here and never leave the loop. Generated on the
+        // fly — nothing this large goes near the disk.
+        int floodRejectedNames = 0;
+
+        // Answer the second and every later SSH_FXP_READ with SSH_FX_EOF,
+        // whatever size SSH_FXP_FSTAT already promised. A server that stops
+        // short has to reach the user as a failed download, not as a complete
+        // file that is quietly missing its tail.
+        bool truncateReads = false;
+
+        // End the listing with an error status instead of SSH_FX_EOF. Both
+        // reach the client as a NULL from sftp_readdir, and sftp_dir_eof is
+        // the only thing that tells "finished" from "stopped" — a listing that
+        // stopped must not come back looking like a smaller directory.
+        bool readdirFailsEarly = false;
     };
 
     SshTestServer();

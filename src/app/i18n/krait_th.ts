@@ -104,6 +104,41 @@
     </message>
 </context>
 <context>
+    <name>FilePanel</name>
+    <message>
+        <source>Refresh</source>
+        <translation>รีเฟรช</translation>
+    </message>
+    <message>
+        <source>Up</source>
+        <translation>ขึ้นบน</translation>
+    </message>
+    <message>
+        <source>Remote</source>
+        <translation>เครื่องปลายทาง</translation>
+    </message>
+    <message>
+        <source>Local</source>
+        <translation>เครื่องนี้</translation>
+    </message>
+    <message>
+        <source>Drop to upload</source>
+        <translation>วางเพื่ออัปโหลด</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>ปิด</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>หยุด</translation>
+    </message>
+    <message>
+        <source>Drag a file across to transfer it.</source>
+        <translation>ลากไฟล์ข้ามฝั่งเพื่อโอนไฟล์</translation>
+    </message>
+</context>
+<context>
     <name>Main</name>
     <message>
         <source>Krait</source>
@@ -165,6 +200,22 @@
     <message>
         <source>Cancel</source>
         <translation>ยกเลิก</translation>
+    </message>
+    <message>
+        <source>File transfer needs an SSH session, and this tab is not one.</source>
+        <translation>การโอนไฟล์ต้องใช้เซสชัน SSH แต่แท็บนี้ไม่ใช่</translation>
+    </message>
+    <message>
+        <source>No earlier prompt in this session.</source>
+        <translation>ไม่มีพรอมต์ก่อนหน้านี้ในเซสชันนี้</translation>
+    </message>
+    <message>
+        <source>No later prompt in this session.</source>
+        <translation>ไม่มีพรอมต์ถัดไปในเซสชันนี้</translation>
+    </message>
+    <message>
+        <source>Prompts come from OSC 133 shell integration — enable it in your shell to use this.</source>
+        <translation>พรอมต์มาจากการเชื่อมต่อเชลล์ OSC 133 — เปิดใช้งานในเชลล์ของคุณเพื่อใช้คำสั่งนี้</translation>
     </message>
     <message>
         <source>%1 open, %2 total</source>
@@ -267,6 +318,18 @@
     <message>
         <source>Show port forwards</source>
         <translation>แสดงการส่งต่อพอร์ต</translation>
+    </message>
+    <message>
+        <source>Show the file transfer panel</source>
+        <translation>แสดงแผงโอนไฟล์</translation>
+    </message>
+    <message>
+        <source>Jump to the previous prompt</source>
+        <translation>ไปยังพรอมต์ก่อนหน้า</translation>
+    </message>
+    <message>
+        <source>Jump to the next prompt</source>
+        <translation>ไปยังพรอมต์ถัดไป</translation>
     </message>
     <message>
         <source>Command palette</source>
@@ -377,6 +440,53 @@
     </message>
 </context>
 <context>
+    <name>krait::app::SftpModel</name>
+    <message>
+        <source>Refused the name “%1”: it is not a plain file name.</source>
+        <translation>ปฏิเสธชื่อ “%1” เพราะไม่ใช่ชื่อไฟล์ธรรมดา</translation>
+    </message>
+    <message>
+        <source>A name carrying a path separator, a drive letter or a control character would decide where the file lands instead of you.</source>
+        <translation>ชื่อที่มีตัวคั่นพาธ ชื่อไดรฟ์ หรืออักขระควบคุม จะเป็นตัวกำหนดว่าไฟล์จะไปอยู่ที่ใดแทนคุณ</translation>
+    </message>
+    <message>
+        <source>“%1” is no longer in this remote folder.</source>
+        <translation>“%1” ไม่อยู่ในโฟลเดอร์ปลายทางนี้แล้ว</translation>
+    </message>
+    <message>
+        <source>Folders are not transferred yet — only files.</source>
+        <translation>ยังโอนโฟลเดอร์ไม่ได้ — โอนได้เฉพาะไฟล์</translation>
+    </message>
+    <message>
+        <source>“%1” is no longer in this folder.</source>
+        <translation>“%1” ไม่อยู่ในโฟลเดอร์นี้แล้ว</translation>
+    </message>
+    <message>
+        <source>Only files from this computer can be uploaded.</source>
+        <translation>อัปโหลดได้เฉพาะไฟล์จากเครื่องนี้เท่านั้น</translation>
+    </message>
+    <message>
+        <source>Downloading %1</source>
+        <translation>กำลังดาวน์โหลด %1</translation>
+    </message>
+    <message>
+        <source>Uploading %1</source>
+        <translation>กำลังอัปโหลด %1</translation>
+    </message>
+    <message>
+        <source>Could not read the remote folder.</source>
+        <translation>ไม่สามารถอ่านโฟลเดอร์ปลายทางได้</translation>
+    </message>
+    <message>
+        <source>Could not download “%1”.</source>
+        <translation>ดาวน์โหลด “%1” ไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Could not upload “%1”.</source>
+        <translation>อัปโหลด “%1” ไม่สำเร็จ</translation>
+    </message>
+</context>
+<context>
     <name>krait::app::TerminalItem</name>
     <message>
         <source>The shell exited with code %1.</source>
@@ -393,6 +503,14 @@
     <message>
         <source>Could not start logging.</source>
         <translation>เริ่มบันทึกไม่ได้</translation>
+    </message>
+    <message>
+        <source>A command failed after %1 s (exit status %2).</source>
+        <translation>คำสั่งล้มเหลวหลังผ่านไป %1 วินาที (สถานะการออก %2)</translation>
+    </message>
+    <message>
+        <source>A command finished after %1 s.</source>
+        <translation>คำสั่งทำงานเสร็จหลังผ่านไป %1 วินาที</translation>
     </message>
 </context>
 <context>
@@ -454,6 +572,10 @@
     <message>
         <source>Gave up reconnecting to %1 after %2 attempts.</source>
         <translation>เลิกพยายามเชื่อมต่อ %1 ใหม่ หลังจากลองแล้ว %2 ครั้ง</translation>
+    </message>
+    <message>
+        <source>The connection closed.</source>
+        <translation>การเชื่อมต่อถูกปิดแล้ว</translation>
     </message>
     <message>
         <source>Could not create an SSH session.</source>
@@ -518,6 +640,10 @@
     <message>
         <source>%1 stopped responding.</source>
         <translation>%1 หยุดตอบสนอง</translation>
+    </message>
+    <message>
+        <source>The session is not connected.</source>
+        <translation>เซสชันยังไม่ได้เชื่อมต่อ</translation>
     </message>
 </context>
 <context>
