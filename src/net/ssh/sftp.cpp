@@ -30,8 +30,12 @@ namespace {
 // terminal sees during a transfer — one 4 MB read on a slow link is a terminal
 // that ignores keystrokes for several seconds. 64 KiB is a round trip the user
 // cannot feel and still fills a fast link.
-constexpr std::size_t kMinChunk = 16 * 1024;
-constexpr std::size_t kMaxChunk = 64 * 1024;
+// std::size_t{} on the left, not a bare 16 * 1024: the multiplication would
+// otherwise happen in int and only then widen, which clang-tidy gates on
+// (bugprone-implicit-widening-of-multiplication-result) and which is a real
+// overflow at larger constants. Same spelling as kReadChunk in ssh_backend.cpp.
+constexpr std::size_t kMinChunk = std::size_t{16} * 1024;
+constexpr std::size_t kMaxChunk = std::size_t{64} * 1024;
 
 // What an SFTP status code means, in words a person can act on. libssh's own
 // ssh_get_error() for these says "sftp server: no such file", which reads like
