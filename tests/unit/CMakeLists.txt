@@ -43,6 +43,7 @@ add_executable(krait-qt-tests
     agent_bridge_test.cpp
     ../../src/app/session_model.cpp
     ../../src/app/sftp_model.cpp
+    ../../src/app/shell_integration.cpp
     sftp_panel_test.cpp
     ../../src/app/backend_factory.cpp
     ../../src/app/mremoteng_import.cpp
@@ -123,7 +124,11 @@ qt_add_shaders(krait-qt-tests "krait-qt-test-shaders"
 # The i18n gate reads the .ts files from the SOURCE tree, the same way the
 # corpus harness reads its .case files: the rule is about what is committed,
 # not about what a build happened to generate.
+# KRAIT_ASSETS_DIR points at the SOURCE tree for the same reason: the shell
+# integration gate is about what is committed, not about what a POST_BUILD copy
+# happened to place beside an exe.
 target_compile_definitions(krait-qt-tests
-    PRIVATE KRAIT_I18N_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../src/app/i18n")
+    PRIVATE KRAIT_I18N_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../src/app/i18n"
+            KRAIT_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../assets")
 
 catch_discover_tests(krait-qt-tests DL_PATHS "$<TARGET_FILE_DIR:Qt6::Gui>")

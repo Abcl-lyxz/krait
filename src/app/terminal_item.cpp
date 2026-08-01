@@ -223,7 +223,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
     // Before the early return: the panel has to hear about a NON-SSH session
     // too, or a tab re-pointed at a local shell keeps offering transfers over
     // the connection it no longer has.
-    m_files->attach(ssh);
+    m_files->attach(ssh, QString::fromStdString(m_profile.host));
     if (ssh == nullptr) {
         return;
     }
@@ -855,6 +855,9 @@ void TerminalItem::itemChange(ItemChange change, const ItemChangeData& value) {
 
 void TerminalItem::setSettings(settings::Registry* registry) {
     m_settings = registry;
+    // T73. The panel reads editor.command; it has no other way to reach the
+    // registry, and a null one just means the OS default editor.
+    m_files->setSettings(registry);
     if (m_settings == nullptr) {
         return;
     }

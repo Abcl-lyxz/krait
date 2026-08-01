@@ -44,6 +44,8 @@ qt_add_qml_module(krait-app
         session_model.h
         sftp_model.cpp
         sftp_model.h
+        shell_integration.cpp
+        shell_integration.h
         taskbar_progress.cpp
         taskbar_progress.h
         terminal_item.cpp
@@ -133,4 +135,20 @@ add_custom_command(TARGET krait-app POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/OpenConsole.exe
         ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/LICENSE
         $<TARGET_FILE_DIR:krait-app>/openconsole
+)
+
+# T73. The shell-integration scripts ride next to the exe the same way, and for
+# the same reason they are FILES rather than a Qt resource: the SSH installer
+# uploads one of them verbatim, and a user with a local shell has to be able to
+# point `source` at a real path. shell_integration.cpp resolves them relative to
+# applicationDirPath().
+add_custom_command(TARGET krait-app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:krait-app>/shell-integration
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.bash
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.zsh
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.fish
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.ps1
+        $<TARGET_FILE_DIR:krait-app>/shell-integration
 )

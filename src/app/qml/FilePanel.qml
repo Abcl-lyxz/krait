@@ -6,9 +6,14 @@ import QtQuick
 // session flows, and a transfer you have to dismiss to type is one nobody
 // leaves open while a build runs.
 //
+// T73 added two things to it: opening a remote file in the user's editor and
+// watching it (the yellow strip above the footer), and installing Krait's shell
+// integration onto the server (the sheet that covers the panel).
+//
 // Every decision lives in SftpModel (src/app/sftp_model.h) — where a path
-// composes to, whether a name may be used, which reply belongs to which pane.
-// This file repeats what the model says and reports what was clicked.
+// composes to, whether a name may be used, which reply belongs to which pane,
+// and what a confirmation is allowed to say. This file repeats what the model
+// says and reports what was clicked.
 //
 // TODO(theme): the literals below become tokens once the theme system exists,
 // the same way SessionPane.qml's dividers do.
@@ -50,7 +55,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.bottom: footer.top
+        anchors.bottom: editStrip.top
         anchors.margins: 6
         spacing: 6
 
@@ -116,6 +121,15 @@ Rectangle {
                     }
                 }
 
+                // T73. Opens the row in the user's editor and watches the copy
+                // it downloads. Remote side only: a local file is already open
+                // to whatever the user wants to open it with.
+                function edit(row) {
+                    if (panel.files && side.remote && row && !row.isDir) {
+                        panel.files.editRemote(row.name)
+                    }
+                }
+
                 Item {
                     id: head
                     anchors.left: parent.left
@@ -142,9 +156,20 @@ Rectangle {
                         onClicked: side.up()
                     }
 
+                    BannerButton {
+                        id: editButton
+                        anchors.right: upButton.left
+                        anchors.rightMargin: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: side.remote
+                        text: qsTr("Edit")
+                        accent: "#7c869e"
+                        onClicked: side.edit(side.rows[list.currentIndex])
+                    }
+
                     Text {
                         anchors.left: parent.left
-                        anchors.right: upButton.left
+                        anchors.right: editButton.visible ? editButton.left : upButton.left
                         anchors.rightMargin: 6
                         anchors.verticalCenter: parent.verticalCenter
                         // The path is SERVER-CONTROLLED on the remote side.
@@ -188,6 +213,11 @@ Rectangle {
                                 event.accepted = true
                             } else if (event.key === Qt.Key_F5) {
                                 side.refresh()
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_E && side.remote) {
+                                // rules/ui.md is keyboard-first: a feature
+                                // reachable only by mouse is incomplete work.
+                                side.edit(side.rows[list.currentIndex])
                                 event.accepted = true
                             }
                         }
@@ -327,6 +357,62 @@ Rectangle {
         }
     }
 
+    // T73. Every remote file still open in an editor, and a way to stop each
+    // one. Always visible while it is non-empty and never behind a toggle: a
+    // file still being watched after the user believes they are finished is a
+    // surprise upload to a production host, and the only defence against that
+    // is being able to see it.
+    Column {
+        id: editStrip
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: footer.top
+        anchors.leftMargin: 6
+        anchors.rightMargin: 6
+        spacing: 2
+        visible: panel.files ? panel.files.editing.length > 0 : false
+        height: visible ? implicitHeight + 6 : 0
+
+        Repeater {
+            model: panel.files ? panel.files.editing : []
+
+            delegate: Item {
+                id: watched
+                required property var modelData
+
+                width: editStrip.width
+                height: 20
+
+                BannerButton {
+                    id: stopButton
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Stop watching")
+                    accent: "#f38ba8"
+                    // localPath, not name: two remote folders can each hold a
+                    // config.yml, and the name would stop the wrong one.
+                    onClicked: if (panel.files) panel.files.stopEditing(watched.modelData.localPath)
+                }
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.right: stopButton.left
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    // The remote path is SERVER-CONTROLLED, and it is the whole
+                    // point of the line: the user has to be able to see which
+                    // machine a save is going to reach.
+                    textFormat: Text.PlainText
+                    elide: Text.ElideMiddle
+                    text: qsTr("Editing %1 — saving uploads it back")
+                          .arg(watched.modelData.remotePath)
+                    color: "#f9e2af"
+                    font.family: "Cascadia Mono"
+                }
+            }
+        }
+    }
+
     Item {
         id: footer
         anchors.left: parent.left
@@ -378,8 +464,29 @@ Rectangle {
             }
         }
 
-        Text {
+        Row {
+            id: shellButtons
             anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 4
+            visible: panel.files ? panel.files.available : false
+
+            BannerButton {
+                text: qsTr("Shell integration")
+                accent: "#89b4fa"
+                onClicked: if (panel.files) panel.files.proposeShellIntegration(false)
+            }
+
+            BannerButton {
+                text: qsTr("Uninstall")
+                accent: "#7c869e"
+                onClicked: if (panel.files) panel.files.proposeShellIntegration(true)
+            }
+        }
+
+        Text {
+            anchors.left: shellButtons.visible ? shellButtons.right : parent.left
+            anchors.leftMargin: shellButtons.visible ? 8 : 0
             anchors.right: track.visible ? track.left : cancelButton.left
             anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
@@ -389,6 +496,139 @@ Rectangle {
                   ? panel.files.activity
                   : qsTr("Drag a file across to transfer it.")
             color: "#7c869e"
+        }
+    }
+
+    // T73. The confirmation for a write to SOMEONE ELSE'S MACHINE.
+    //
+    // Inside the tab, never an app-modal dialog (rules/ui.md) — but it does
+    // cover the panel while it is up, because what host, what path and what
+    // will be written is the whole of what there is to read at that moment, and
+    // a preview squeezed into a corner is one nobody reads before saying yes.
+    Rectangle {
+        id: installSheet
+        anchors.fill: parent
+        color: "#12141c"
+        visible: panel.files ? panel.files.installStage.length > 0 : false
+
+        readonly property string stage: panel.files ? panel.files.installStage : ""
+
+        // Swallows clicks so the panes underneath cannot be driven while a
+        // question about someone else's machine is open.
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Text {
+            id: installTitle
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 10
+            wrapMode: Text.WordWrap
+            // The host name comes from the profile, but the path is composed
+            // from a table plus the server's own answer to realpath.
+            textFormat: Text.PlainText
+            text: panel.files ? panel.files.installTitle : ""
+            color: "#e6e9f0"
+        }
+
+        Column {
+            id: installChoices
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: installTitle.bottom
+            anchors.margins: 10
+            spacing: 4
+            visible: panel.files ? panel.files.installChoices.length > 0 : false
+
+            Repeater {
+                model: panel.files ? panel.files.installChoices : []
+
+                delegate: BannerButton {
+                    // Typed, not `var`: installChoices is a QStringList, and
+                    // leaving the delegate to convert one at binding time makes
+                    // the QML compiler route a plain string assignment through
+                    // the JS engine.
+                    required property string modelData
+                    text: modelData
+                    accent: "#89b4fa"
+                    onClicked: if (panel.files) panel.files.chooseShellTarget(modelData)
+                }
+            }
+        }
+
+        Text {
+            id: previewLabel
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: installChoices.visible ? installChoices.bottom : installTitle.bottom
+            anchors.margins: 10
+            visible: installSheet.stage === "proposed"
+            textFormat: Text.PlainText
+            elide: Text.ElideMiddle
+            text: panel.files && panel.files.installPreview.length > 0
+                  ? qsTr("Written between two marker lines in %1. The rest of that file is left exactly as it is.").arg(panel.files.installPath)
+                  : qsTr("Krait's block comes out of %1. The rest of that file is left exactly as it is.").arg(panel.files ? panel.files.installPath : "")
+            wrapMode: Text.WordWrap
+            color: "#7c869e"
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: previewLabel.bottom
+            anchors.bottom: installButtons.top
+            anchors.margins: 10
+            color: "#0d0f17"
+            border.width: 1
+            border.color: "#2c3242"
+            radius: 3
+            clip: true
+            visible: panel.files ? panel.files.installPreview.length > 0 : false
+
+            Flickable {
+                anchors.fill: parent
+                anchors.margins: 6
+                contentWidth: previewText.width
+                contentHeight: previewText.height
+                clip: true
+
+                Text {
+                    id: previewText
+                    // Exactly what goes on the wire, unstyled and unwrapped:
+                    // a preview that reflows is not the thing being written.
+                    textFormat: Text.PlainText
+                    text: panel.files ? panel.files.installPreview : ""
+                    color: "#e6e9f0"
+                    font.family: "Cascadia Mono"
+                }
+            }
+        }
+
+        Row {
+            id: installButtons
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 10
+            spacing: 4
+
+            BannerButton {
+                visible: installSheet.stage === "proposed"
+                text: qsTr("Write the change")
+                accent: "#a6e3a1"
+                onClicked: if (panel.files) panel.files.confirmShellIntegration()
+            }
+
+            BannerButton {
+                // Nothing to press while the upload is in flight: there is no
+                // "half written" to go back to, and a button that cannot do
+                // what it says is worse than no button.
+                visible: installSheet.stage !== "writing"
+                text: installSheet.stage === "done" ? qsTr("Close") : qsTr("Cancel")
+                accent: "#7c869e"
+                onClicked: if (panel.files) panel.files.cancelShellIntegration()
+            }
         }
     }
 }

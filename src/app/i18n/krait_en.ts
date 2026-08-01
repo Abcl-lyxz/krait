@@ -114,6 +114,10 @@
         <translation>Up</translation>
     </message>
     <message>
+        <source>Edit</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
         <source>Remote</source>
         <translation>Remote</translation>
     </message>
@@ -126,6 +130,14 @@
         <translation>Drop to upload</translation>
     </message>
     <message>
+        <source>Stop watching</source>
+        <translation>Stop watching</translation>
+    </message>
+    <message>
+        <source>Editing %1 — saving uploads it back</source>
+        <translation>Editing %1 — saving uploads it back</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>Close</translation>
     </message>
@@ -134,8 +146,32 @@
         <translation>Stop</translation>
     </message>
     <message>
+        <source>Shell integration</source>
+        <translation>Shell integration</translation>
+    </message>
+    <message>
+        <source>Uninstall</source>
+        <translation>Uninstall</translation>
+    </message>
+    <message>
         <source>Drag a file across to transfer it.</source>
         <translation>Drag a file across to transfer it.</translation>
+    </message>
+    <message>
+        <source>Written between two marker lines in %1. The rest of that file is left exactly as it is.</source>
+        <translation>Written between two marker lines in %1. The rest of that file is left exactly as it is.</translation>
+    </message>
+    <message>
+        <source>Krait&apos;s block comes out of %1. The rest of that file is left exactly as it is.</source>
+        <translation>Krait&apos;s block comes out of %1. The rest of that file is left exactly as it is.</translation>
+    </message>
+    <message>
+        <source>Write the change</source>
+        <translation>Write the change</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
     </message>
 </context>
 <context>
@@ -497,8 +533,44 @@
         <translation>Downloading %1</translation>
     </message>
     <message>
+        <source>Saving %1 back to the server</source>
+        <translation>Saving %1 back to the server</translation>
+    </message>
+    <message>
+        <source>Writing %1</source>
+        <translation>Writing %1</translation>
+    </message>
+    <message>
+        <source>Reading %1</source>
+        <translation>Reading %1</translation>
+    </message>
+    <message>
         <source>Uploading %1</source>
         <translation>Uploading %1</translation>
+    </message>
+    <message>
+        <source>The change to %1 was stopped.</source>
+        <translation>The change to %1 was stopped.</translation>
+    </message>
+    <message>
+        <source>Could not write %1.</source>
+        <translation>Could not write %1.</translation>
+    </message>
+    <message>
+        <source>Removed. Open a new shell on %1 to see the change.</source>
+        <translation>Removed. Open a new shell on %1 to see the change.</translation>
+    </message>
+    <message>
+        <source>Installed. Open a new shell on %1 to see the change.</source>
+        <translation>Installed. Open a new shell on %1 to see the change.</translation>
+    </message>
+    <message>
+        <source>Could not save “%1” back to the server.</source>
+        <translation>Could not save “%1” back to the server.</translation>
+    </message>
+    <message>
+        <source>Could not open “%1” for editing.</source>
+        <translation>Could not open “%1” for editing.</translation>
     </message>
     <message>
         <source>Could not read the remote folder.</source>
@@ -511,6 +583,102 @@
     <message>
         <source>Could not upload “%1”.</source>
         <translation>Could not upload “%1”.</translation>
+    </message>
+    <message>
+        <source>Could not make a temporary folder.</source>
+        <translation>Could not make a temporary folder.</translation>
+    </message>
+    <message>
+        <source>Looking for shell start-up files on %1…</source>
+        <translation>Looking for shell start-up files on %1…</translation>
+    </message>
+    <message>
+        <source>There is no shell integration to remove on %1.</source>
+        <translation>There is no shell integration to remove on %1.</translation>
+    </message>
+    <message>
+        <source>Krait could not read any shell start-up file on %1.</source>
+        <translation>Krait could not read any shell start-up file on %1.</translation>
+    </message>
+    <message>
+        <source>It looked for %1. Create the one your shell uses and try again — Krait will not write over a file it could not read first.</source>
+        <translation>It looked for %1. Create the one your shell uses and try again — Krait will not write over a file it could not read first.</translation>
+    </message>
+    <message>
+        <source>%1 has more than one shell start-up file.</source>
+        <translation>%1 has more than one shell start-up file.</translation>
+    </message>
+    <message>
+        <source>The Krait block in %1 looks edited.</source>
+        <translation>The Krait block in %1 looks edited.</translation>
+    </message>
+    <message>
+        <source>Its start and end markers do not pair up, so Krait cannot tell where the block ends. Nothing was changed.</source>
+        <translation>Its start and end markers do not pair up, so Krait cannot tell where the block ends. Nothing was changed.</translation>
+    </message>
+    <message>
+        <source>There is no Krait block in %1.</source>
+        <translation>There is no Krait block in %1.</translation>
+    </message>
+    <message>
+        <source>Could not read the bundled %1 script.</source>
+        <translation>Could not read the bundled %1 script.</translation>
+    </message>
+    <message>
+        <source>It should be in the shell-integration folder beside Krait.</source>
+        <translation>It should be in the shell-integration folder beside Krait.</translation>
+    </message>
+    <message>
+        <source>Remove Krait&apos;s block from %1?</source>
+        <translation>Remove Krait&apos;s block from %1?</translation>
+    </message>
+    <message>
+        <source>Replace Krait&apos;s block in %1?</source>
+        <translation>Replace Krait&apos;s block in %1?</translation>
+    </message>
+    <message>
+        <source>Add Krait&apos;s block to %1?</source>
+        <translation>Add Krait&apos;s block to %1?</translation>
+    </message>
+    <message>
+        <source>Could not stage the change on this computer.</source>
+        <translation>Could not stage the change on this computer.</translation>
+    </message>
+    <message>
+        <source>Folders cannot be opened in an editor — only files.</source>
+        <translation>Folders cannot be opened in an editor — only files.</translation>
+    </message>
+    <message>
+        <source>“%1” is already open for editing.</source>
+        <translation>“%1” is already open for editing.</translation>
+    </message>
+    <message>
+        <source>Stop watching it before opening it again.</source>
+        <translation>Stop watching it before opening it again.</translation>
+    </message>
+    <message>
+        <source>“%1” is a program, so Krait will not hand it to Windows.</source>
+        <translation>“%1” is a program, so Krait will not hand it to Windows.</translation>
+    </message>
+    <message>
+        <source>Opening it with what this computer associates with it would run it. Name a text editor in the editor.command setting to open files like this one.</source>
+        <translation>Opening it with what this computer associates with it would run it. Name a text editor in the editor.command setting to open files like this one.</translation>
+    </message>
+    <message>
+        <source>Nothing on this computer opens “%1”.</source>
+        <translation>Nothing on this computer opens “%1”.</translation>
+    </message>
+    <message>
+        <source>Name the editor you want in the editor.command setting.</source>
+        <translation>Name the editor you want in the editor.command setting.</translation>
+    </message>
+    <message>
+        <source>The editor.command setting has no program in it.</source>
+        <translation>The editor.command setting has no program in it.</translation>
+    </message>
+    <message>
+        <source>Could not start the editor.</source>
+        <translation>Could not start the editor.</translation>
     </message>
 </context>
 <context>

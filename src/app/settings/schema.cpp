@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 17> kDefs{{
+constexpr std::array<Def, 18> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -233,6 +233,25 @@ constexpr std::array<Def, 17> kDefs{{
         .doc = "settings.ui.language",
         .searchEn = "language locale english thai translation",
         .searchTh = "ภาษา ไทย อังกฤษ การแปล",
+    },
+    {
+        .id = "editor.command",
+        .type = Type::String,
+        // Empty means whatever the OS opens the file with, which is the answer
+        // that is already right for most people and the only one that can be a
+        // DEFAULT — there is no editor every machine has. A value is split with
+        // QProcess::splitCommand and the temp file is appended, so
+        // `code --wait` and `"C:\Program Files\...\notepad++.exe"` both work.
+        //
+        // Note what this setting cannot buy: a GUI editor that hands the file
+        // to an already-running window returns immediately whether or not it
+        // was told to wait, so the save is detected by watching the file, never
+        // by the process exiting.
+        .fallback = std::string_view{},
+        .choices = "",
+        .doc = "settings.editor.command",
+        .searchEn = "editor external open edit remote file command program vim code notepad",
+        .searchTh = "โปรแกรมแก้ไข ตัวแก้ไข เปิด ไฟล์ คำสั่ง แก้ไข ระยะไกล",
     },
 }};
 

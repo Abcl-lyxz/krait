@@ -301,6 +301,59 @@ TEST_CASE("sftp: a put/get round trip is byte for byte identical", "[net][ssh][s
     CHECK(mine == got.end());
 }
 
+TEST_CASE("sftp: the editor round trip lands byte for byte", "[net][ssh][sftp]") {
+    // M4'S ACCEPTANCE CRITERION, end to end: edit a remote file, save it,
+    // re-download it, diff clean. Every step the panel performs is here except
+    // the two it cannot perform in CI.
+    //
+    // WHAT THIS DOES NOT TEST, plainly: launching the editor and the
+    // QFileSystemWatcher signal that follows a save. Both need a real editor
+    // process and a real desktop, and a mock of either would assert that the
+    // mock was called — which proves nothing about whether a save reaches the
+    // server. What IS under test is everything between the save and the
+    // server, which is where a corrupted round trip would actually come from.
+    SftpFixture fixture("editroundtrip");
+    requireReady(fixture);
+
+    // Not text: an editor round trip that only ever moves ASCII would pass with
+    // a transfer that mangles every high byte, and a remote file is as likely
+    // to be a binary blob someone opened by mistake.
+    const std::vector<char> original = pseudoRandomBytes(kBigFileSize, 0xED17);
+    writeFile(fixture.remote() / "config.bin", original);
+
+    // 1. The panel downloads it to a temp file of its own.
+    const std::filesystem::path scratch = fixture.local() / "config.bin";
+    REQUIRE(fixture.sftp().get("/config.bin", scratch.string(), {}));
+    REQUIRE(readFile(scratch) == original);
+
+    // 2. The editor saves. A DIFFERENT LENGTH on purpose: an upload that writes
+    // over the old file without truncating leaves the tail of the longer
+    // original behind, and a same-length edit would never catch it.
+    std::vector<char> edited = pseudoRandomBytes(kBigFileSize / 2, 0x5A5A);
+    edited.insert(edited.end(), {'k', 'r', 'a', 'i', 't'});
+    writeFile(scratch, edited);
+
+    // 3. The watcher fires and the panel uploads it back to where it came from.
+    REQUIRE(fixture.sftp().put(scratch.string(), "/config.bin", {}));
+
+    // 4. Download it again — from the server, not from the copy we just wrote —
+    // and compare.
+    const std::filesystem::path verify = fixture.local() / "verify.bin";
+    REQUIRE(fixture.sftp().get("/config.bin", verify.string(), {}));
+
+    const std::vector<char> got = readFile(verify);
+    REQUIRE(got.size() == edited.size());
+    const auto [mine, theirs] = std::mismatch(got.begin(), got.end(), edited.begin());
+    if (mine != got.end()) {
+        UNSCOPED_INFO("first differing byte at offset " << (mine - got.begin()));
+    }
+    CHECK(mine == got.end());
+    // And the server's own copy is the edited one, at the edited length — the
+    // check that catches a write that left the original's tail in place.
+    std::error_code failed;
+    CHECK(std::filesystem::file_size(fixture.remote() / "config.bin", failed) == edited.size());
+}
+
 TEST_CASE("sftp: a missing remote file fails with a reason and leaves nothing behind",
           "[net][ssh][sftp]") {
     SftpFixture fixture("missing");

@@ -114,6 +114,10 @@
         <translation>ขึ้นบน</translation>
     </message>
     <message>
+        <source>Edit</source>
+        <translation>แก้ไข</translation>
+    </message>
+    <message>
         <source>Remote</source>
         <translation>เครื่องปลายทาง</translation>
     </message>
@@ -126,6 +130,14 @@
         <translation>วางเพื่ออัปโหลด</translation>
     </message>
     <message>
+        <source>Stop watching</source>
+        <translation>หยุดเฝ้าดู</translation>
+    </message>
+    <message>
+        <source>Editing %1 — saving uploads it back</source>
+        <translation>กำลังแก้ไข %1 — เมื่อบันทึกจะอัปโหลดกลับ</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>ปิด</translation>
     </message>
@@ -134,8 +146,32 @@
         <translation>หยุด</translation>
     </message>
     <message>
+        <source>Shell integration</source>
+        <translation>การเชื่อมต่อกับเชลล์</translation>
+    </message>
+    <message>
+        <source>Uninstall</source>
+        <translation>ถอนการติดตั้ง</translation>
+    </message>
+    <message>
         <source>Drag a file across to transfer it.</source>
         <translation>ลากไฟล์ข้ามฝั่งเพื่อโอนไฟล์</translation>
+    </message>
+    <message>
+        <source>Written between two marker lines in %1. The rest of that file is left exactly as it is.</source>
+        <translation>จะเขียนไว้ระหว่างบรรทัดเครื่องหมายสองบรรทัดใน %1 ส่วนที่เหลือของไฟล์นั้นจะคงไว้เหมือนเดิมทุกประการ</translation>
+    </message>
+    <message>
+        <source>Krait&apos;s block comes out of %1. The rest of that file is left exactly as it is.</source>
+        <translation>บล็อกของ Krait จะถูกนำออกจาก %1 ส่วนที่เหลือของไฟล์นั้นจะคงไว้เหมือนเดิมทุกประการ</translation>
+    </message>
+    <message>
+        <source>Write the change</source>
+        <translation>เขียนการเปลี่ยนแปลง</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>ยกเลิก</translation>
     </message>
 </context>
 <context>
@@ -497,8 +533,44 @@
         <translation>กำลังดาวน์โหลด %1</translation>
     </message>
     <message>
+        <source>Saving %1 back to the server</source>
+        <translation>กำลังบันทึก %1 กลับไปยังเซิร์ฟเวอร์</translation>
+    </message>
+    <message>
+        <source>Writing %1</source>
+        <translation>กำลังเขียน %1</translation>
+    </message>
+    <message>
+        <source>Reading %1</source>
+        <translation>กำลังอ่าน %1</translation>
+    </message>
+    <message>
         <source>Uploading %1</source>
         <translation>กำลังอัปโหลด %1</translation>
+    </message>
+    <message>
+        <source>The change to %1 was stopped.</source>
+        <translation>การเปลี่ยนแปลง %1 ถูกหยุดไว้</translation>
+    </message>
+    <message>
+        <source>Could not write %1.</source>
+        <translation>เขียน %1 ไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Removed. Open a new shell on %1 to see the change.</source>
+        <translation>ถอนออกแล้ว เปิดเชลล์ใหม่บน %1 เพื่อดูการเปลี่ยนแปลง</translation>
+    </message>
+    <message>
+        <source>Installed. Open a new shell on %1 to see the change.</source>
+        <translation>ติดตั้งแล้ว เปิดเชลล์ใหม่บน %1 เพื่อดูการเปลี่ยนแปลง</translation>
+    </message>
+    <message>
+        <source>Could not save “%1” back to the server.</source>
+        <translation>บันทึก “%1” กลับไปยังเซิร์ฟเวอร์ไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Could not open “%1” for editing.</source>
+        <translation>เปิด “%1” เพื่อแก้ไขไม่สำเร็จ</translation>
     </message>
     <message>
         <source>Could not read the remote folder.</source>
@@ -511,6 +583,102 @@
     <message>
         <source>Could not upload “%1”.</source>
         <translation>อัปโหลด “%1” ไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Could not make a temporary folder.</source>
+        <translation>สร้างโฟลเดอร์ชั่วคราวไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Looking for shell start-up files on %1…</source>
+        <translation>กำลังค้นหาไฟล์เริ่มต้นเชลล์บน %1…</translation>
+    </message>
+    <message>
+        <source>There is no shell integration to remove on %1.</source>
+        <translation>ไม่มีการเชื่อมต่อกับเชลล์ให้ถอนออกบน %1</translation>
+    </message>
+    <message>
+        <source>Krait could not read any shell start-up file on %1.</source>
+        <translation>Krait อ่านไฟล์เริ่มต้นเชลล์บน %1 ไม่ได้เลยสักไฟล์</translation>
+    </message>
+    <message>
+        <source>It looked for %1. Create the one your shell uses and try again — Krait will not write over a file it could not read first.</source>
+        <translation>Krait มองหา %1 กรุณาสร้างไฟล์ที่เชลล์ของคุณใช้แล้วลองใหม่ — Krait จะไม่เขียนทับไฟล์ที่อ่านไม่ได้มาก่อน</translation>
+    </message>
+    <message>
+        <source>%1 has more than one shell start-up file.</source>
+        <translation>%1 มีไฟล์เริ่มต้นเชลล์มากกว่าหนึ่งไฟล์</translation>
+    </message>
+    <message>
+        <source>The Krait block in %1 looks edited.</source>
+        <translation>บล็อกของ Krait ใน %1 ดูเหมือนถูกแก้ไข</translation>
+    </message>
+    <message>
+        <source>Its start and end markers do not pair up, so Krait cannot tell where the block ends. Nothing was changed.</source>
+        <translation>เครื่องหมายเริ่มต้นและสิ้นสุดไม่จับคู่กัน Krait จึงบอกไม่ได้ว่าบล็อกสิ้นสุดที่ใด ไม่มีอะไรถูกเปลี่ยนแปลง</translation>
+    </message>
+    <message>
+        <source>There is no Krait block in %1.</source>
+        <translation>ไม่มีบล็อกของ Krait ใน %1</translation>
+    </message>
+    <message>
+        <source>Could not read the bundled %1 script.</source>
+        <translation>อ่านสคริปต์ %1 ที่มากับโปรแกรมไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>It should be in the shell-integration folder beside Krait.</source>
+        <translation>ไฟล์ควรอยู่ในโฟลเดอร์ shell-integration ข้าง ๆ Krait</translation>
+    </message>
+    <message>
+        <source>Remove Krait&apos;s block from %1?</source>
+        <translation>นำบล็อกของ Krait ออกจาก %1 หรือไม่</translation>
+    </message>
+    <message>
+        <source>Replace Krait&apos;s block in %1?</source>
+        <translation>แทนที่บล็อกของ Krait ใน %1 หรือไม่</translation>
+    </message>
+    <message>
+        <source>Add Krait&apos;s block to %1?</source>
+        <translation>เพิ่มบล็อกของ Krait ลงใน %1 หรือไม่</translation>
+    </message>
+    <message>
+        <source>Could not stage the change on this computer.</source>
+        <translation>เตรียมการเปลี่ยนแปลงบนเครื่องนี้ไม่สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Folders cannot be opened in an editor — only files.</source>
+        <translation>เปิดโฟลเดอร์ในโปรแกรมแก้ไขไม่ได้ — เปิดได้เฉพาะไฟล์</translation>
+    </message>
+    <message>
+        <source>“%1” is already open for editing.</source>
+        <translation>“%1” ถูกเปิดเพื่อแก้ไขอยู่แล้ว</translation>
+    </message>
+    <message>
+        <source>Stop watching it before opening it again.</source>
+        <translation>หยุดเฝ้าดูไฟล์นั้นก่อนจึงจะเปิดใหม่ได้</translation>
+    </message>
+    <message>
+        <source>“%1” is a program, so Krait will not hand it to Windows.</source>
+        <translation>“%1” เป็นโปรแกรม Krait จึงไม่ส่งต่อให้ Windows</translation>
+    </message>
+    <message>
+        <source>Opening it with what this computer associates with it would run it. Name a text editor in the editor.command setting to open files like this one.</source>
+        <translation>การเปิดด้วยโปรแกรมที่เครื่องนี้ผูกไว้จะเป็นการรันไฟล์นั้น ระบุโปรแกรมแก้ไขข้อความในการตั้งค่า editor.command เพื่อเปิดไฟล์แบบนี้</translation>
+    </message>
+    <message>
+        <source>Nothing on this computer opens “%1”.</source>
+        <translation>ไม่มีโปรแกรมบนเครื่องนี้ที่เปิด “%1” ได้</translation>
+    </message>
+    <message>
+        <source>Name the editor you want in the editor.command setting.</source>
+        <translation>ระบุโปรแกรมแก้ไขที่ต้องการในการตั้งค่า editor.command</translation>
+    </message>
+    <message>
+        <source>The editor.command setting has no program in it.</source>
+        <translation>การตั้งค่า editor.command ไม่มีชื่อโปรแกรมอยู่เลย</translation>
+    </message>
+    <message>
+        <source>Could not start the editor.</source>
+        <translation>เริ่มโปรแกรมแก้ไขไม่สำเร็จ</translation>
     </message>
 </context>
 <context>

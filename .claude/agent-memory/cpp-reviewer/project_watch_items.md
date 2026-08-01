@@ -504,3 +504,50 @@ Verified CORRECT, do not re-flag:
 - `sessionTitle()` is profile-derived, NOT remote-settable (OSC title is still
   core silence), so the tab-separated trigger log cannot be forged.
 - i18n: EN+TH both landed for every new tr()/qsTr() string.
+
+## T73 — sftp_model shell-integration installer + editor round trip (2026-08-01)
+
+BLOCKING found (3):
+- `stopEditing(name)` keys on the LEAF NAME while `m_edits` is keyed by local
+  path; two watched files sharing a name (different remote dirs) → the wrong
+  Edit is discarded, the clicked one keeps auto-uploading, and the stopped one
+  silently stops reaching the server. Fix: key stopEditing on `localPath`
+  (the QML row already carries it).
+- `launchEditor` with `editor.command` empty (the DEFAULT) calls
+  `QDesktopServices::openUrl` on a REMOTE-named temp file → Windows shell
+  association runs `.exe/.bat/.lnk/.hta` the server chose. Recurring shape:
+  "open with the OS default" on remote-derived content.
+- Probe failure ≠ "file absent": every non-ENOENT `sftpGet` failure collapses
+  into `found` being empty, and the resulting "Add Krait's block to X?" write
+  is an `O_TRUNC` put that erases an existing rc file. `Sftp::put` opens the
+  remote O_TRUNC, so a wrong "absent" verdict is unrecoverable data loss.
+
+Non-blocking, still open:
+- `confirmShellIntegration` ignores `QFile::write`/close status → a short write
+  uploads a truncated rc over a live one. Same shape as the T5x staged-write
+  finding; QSaveFile or a write()==size check.
+- Probe reads the rc with `readAll()` + `QString::fromUtf8`, no cap, five files
+  automatically. Also makes the `int i` loop counters in blockState/spliceBlock
+  theoretically overflowable. `Sftp::get` streams (disk-bounded) but the model
+  is not.
+- `m_editRequests` is never cleared in `attach()` — stale ids accumulate.
+- `finishProbe()` passes `m_install.found.constFirst()` by reference into
+  `chooseShellTarget`, which can `resetInstall()` (destroys `found`). Safe only
+  by statement ordering today.
+
+Verified CORRECT, do not re-flag:
+- `handleFinished` `discardEdit(*it)` then `m_edits.erase(it)` — `removePath`
+  emits nothing, so `it` is live; `errorRaised` reaches only QML banner setters,
+  no re-entry into SftpModel.
+- `flushEdits` iterates a `std::exchange`d COPY; re-inserting into `m_editDirty`
+  is safe, and `uploading` cannot latch (cancel path clears it before returning).
+- `spliceBlock`/`blockState` agree on the span for every 1-begin/1-end input;
+  CRLF and no-trailing-newline are preserved and tested. Damaged (end-before-
+  begin, doubled block, lone marker) is refused by the caller.
+- `m_remotePath` non-empty ⟹ `m_homePath` non-empty, so `afterResolve` cannot
+  strand the flow at "probing". `cancel()` → `sftpCancelAll()` emits
+  `sftpFinished(cancelled)` for every queued request, so no stage is orphaned.
+- Deleting the scratch/temp dir mid-put is NOT a remote-truncation risk:
+  `Sftp::put` opens the LOCAL ifstream before `sftp_open(..., O_TRUNC)`.
+- `~SftpModel` calling `discardEdit` → `m_watcher->removePath` is fine; QObject
+  children die after the derived dtor body.

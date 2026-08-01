@@ -69,6 +69,9 @@ enabled = true       # run each session's trigger rules over its output
 allowSend = false    # let a trigger send text back to the session
 logFile = ""         # empty: <config dir>/logs/triggers.log
 
+[editor]
+command = ""         # empty: whatever this computer opens the file with
+
 [ui]
 language = "system"  # or "en", "th"
 ```
@@ -219,6 +222,104 @@ The East-Asian-Ambiguous character class has no correct default, only a correct
 answer per person. Set it to `wide` if box-drawing and line-art in your tools
 land half a cell off; leave it `narrow` otherwise. Applications can also
 negotiate this at runtime through mode 2027.
+
+### `editor.command`
+
+Which editor the file panel's **Edit** opens a remote file in. Empty means
+whatever this computer already opens that kind of file with, which is right for
+most people and is the only default that can exist — there is no editor every
+machine has.
+
+A value is split the way a command line is, so quoting works and flags survive:
+`code --wait`, `"C:\Program Files\Notepad++\notepad++.exe"`, `gvim -f`. The
+temporary file is appended as the last argument.
+
+**One thing the empty default will not do.** If the remote file is something
+Windows would *run* rather than show — `.exe`, `.com`, `.bat`, `.cmd`, `.scr`,
+`.pif`, `.msi`, `.msp`, `.msc`, `.cpl`, `.lnk`, `.url`, `.scf`, `.hta`, `.vbs`,
+`.vbe`, `.js`, `.jse`, `.wsf`, `.wsh`, `.ws`, `.reg`, `.ps1`, `.psm1` — Edit
+refuses and points you at this setting instead. The file name and the bytes both
+came from the server, and "open it with whatever this computer associates with
+it" would mean the server chose what runs here. Set `editor.command` to a text
+editor and those files open in it like anything else.
+
+That list is fixed rather than read from `%PATHEXT%`, so it does not change from
+one machine to the next: installing Python puts `.py` in `PATHEXT`, and a remote
+`main.py` you cannot edit on your own laptop but can edit on the build server is
+worse than either answer.
+
+**How the round trip works, and what it cannot promise.** Krait downloads the
+file to a temporary folder of its own, opens it, and watches it. Every save
+uploads it back to where it came from. It keeps watching until you press **Stop
+watching** in the panel — which is why the panel shows a yellow line naming
+every file still open, with the remote path spelled out. A file still being
+watched after you think you are finished is a save going somewhere you did not
+mean it to.
+
+The save is detected by watching the file, never by waiting for the editor to
+exit. Most GUI editors hand the file to a window that is already open and the
+process you launched returns immediately, so "the editor exited" says nothing
+about whether anything was saved. `--wait` flags are still worth passing if your
+editor has one — they keep a *new* window from being reused — but nothing
+depends on them.
+
+Pressing **Stop watching** deletes the temporary copy. So does closing the tab.
+If your editor still has the file open, Windows may refuse the delete; the file
+is in the OS temporary folder and is cleaned up with the rest of it.
+
+### Shell integration
+
+The file panel's **Shell integration** button offers to install a small script
+into a shell start-up file on the machine you are connected to, so that shell
+tells Krait where each prompt starts, when a command begins, and what it exited
+with. That is what jump-to-prompt, the long-command notification and the
+exit-status marks all read.
+
+Krait writes to someone else's machine here, so it never does it quietly:
+
+- It **looks** for the start-up files rather than guessing which shell you use —
+  `.bashrc`, `.zshrc`, `.config/fish/config.fish`, and both places a PowerShell
+  `$PROFILE` lands. If more than one exists it asks which, rather than picking.
+  Installing a bash script into a fish profile is a broken login shell for
+  somebody.
+- It **only ever edits a file it has read**. If it could not read any of them it
+  says so and stops, and it will not offer to create one. "No such file" and
+  "permission denied" come back from SFTP looking identical, and writing a
+  brand-new file on the strength of a failed read is how a 200-line `.bashrc`
+  becomes a four-line one. If your machine genuinely has no start-up file, make
+  an empty one and ask again.
+- It shows **which host, which path, and the exact text** that will be written,
+  and nothing happens until you press **Write the change**.
+- It **never clobbers**. The script goes between two marker lines:
+
+  ```
+  # >>> krait shell integration >>>
+  # <<< krait shell integration <<<
+  ```
+
+  Installing again replaces exactly what is between them and returns the rest of
+  the file byte for byte — including its line endings. **Uninstall** takes the
+  block out and leaves the file as it was before. If the markers are there but do
+  not pair up, Krait says so and changes nothing: there is no way to tell where a
+  half-deleted block ends, and guessing truncates a file on a machine you are a
+  guest on.
+- The file is downloaded, edited here, and uploaded back over SFTP. It is not
+  appended to through the shell, because an append cannot be shown to you before
+  it happens and cannot see that a block is already there.
+
+The same four scripts ship in the `shell-integration` folder beside `krait.exe`
+if you would rather install them yourself — `source` the one for your shell, or
+add it to the start-up file by hand.
+
+**What each shell reports.** All four mark the prompt and the exit status.
+`bash`, `zsh` and `fish` also mark the moment a command starts running, which is
+what arms the long-command notification. PowerShell has no hook between Enter and
+the command running that does not mean taking over PSReadLine's Enter key, so it
+does not send that mark and long-command notifications do not fire for remote
+PowerShell. A PowerShell *cmdlet* that fails has no exit code at all — Krait's
+script reports `1` for it, the way a POSIX shell reports a failed builtin, rather
+than passing on `$LASTEXITCODE`, which at that moment still holds the exit code of
+some earlier native command.
 
 ### `gpu.adapter`
 
