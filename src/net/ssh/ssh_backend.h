@@ -12,12 +12,14 @@
 #include <QVariantList>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 // At GLOBAL scope, and deliberately: `struct ssh_session_struct*` written
 // inside the namespace below declares a NEW type called
@@ -241,6 +243,23 @@ class SshBackend : public IBackend {
     bool openShell(int cols, int rows);
     Outcome pump();
 
+    // One turn of everything the session needs doing apart from SFTP: drain the
+    // write queue, apply a pending resize, read stdout (blocking up to
+    // `readTimeoutMs`, or polling when that is 0), drain stderr, service the
+    // tunnels.
+    //
+    // pump() and interleaveShell() BOTH go through this, and that is the whole
+    // point of it existing. A transfer occupies the session for minutes, so an
+    // interleave hook that does LESS than the loop body starves whatever it
+    // left out for the transfer's whole duration — which is how stderr, the
+    // tunnels and pending resizes were starved when this was two copies of a
+    // list. Anything added to the loop body belongs here, not next to it.
+    //
+    // False means a channel read or write failed. Only pump() reports that: a
+    // broken session breaks the transfer's very next sftp call and then pump()'s
+    // next read too, and three banners for one failure is two too many.
+    bool serviceChannel(int readTimeoutMs);
+
     // T64. What the GUI asked for, waiting its turn on the worker thread.
     struct SftpRequest {
         enum class Kind { Resolve, List, Get, Put };
@@ -301,6 +320,14 @@ class SshBackend : public IBackend {
     // between every chunk, and that would be the only contended lock in a
     // transfer's hot path.
     std::atomic<std::uint64_t> m_sftpCancelEpoch{0};
+
+    // Worker thread only, both of them. The buffer is a member so serviceChannel
+    // does not allocate 16 KiB on every 20 ms poll; `m_lastTraffic` is what the
+    // keepalive timer measures idleness against, and it lives here because a
+    // transfer's bytes count as traffic too — pump() is not running while one
+    // is in flight.
+    std::vector<char> m_readBuffer;
+    std::chrono::steady_clock::time_point m_lastTraffic;
 
     std::thread m_worker;
     // Why a rung of the auth ladder could not work, when it knows something the

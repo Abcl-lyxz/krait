@@ -75,7 +75,17 @@ class Sftp {
     // are dropped: the panel navigates with its own model of where it is, and
     // a server that says `..` is a directory named `..` is not telling us
     // anything we did not already know.
-    bool listDir(const std::string& path, std::vector<SftpEntry>* out);
+    //
+    // `progress` is the same hook get/put take, called once per entry with
+    // (entries seen, 0 — a listing has no total to count towards). Returning
+    // false CANCELS the listing, and it is not decoration: one sftp_readdir is
+    // one round trip bounded only by SSH_OPTIONS_TIMEOUT, so kMaxEntries bounds
+    // the MEMORY a hostile listing costs and nothing at all about the time. A
+    // server answering each read in 14 s holds the session — and with it the
+    // shell, the tunnels, and the join in stop() — for as long as it likes.
+    // rules/net.md: every wait has a timeout AND a cancel path.
+    bool listDir(const std::string& path, std::vector<SftpEntry>* out,
+                 const Progress& progress = {});
 
     // stat, following symlinks. `out->name` is left empty — the server only
     // fills a name in for directory reads, and inventing one from the path

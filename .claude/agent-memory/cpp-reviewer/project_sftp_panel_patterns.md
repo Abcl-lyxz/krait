@@ -45,3 +45,17 @@ someone else's machine. Three of the four defect classes found here were
    so do not flag it without evidence.
 
 Related: [[project-watch-items]], [[project-qml-view-patterns]].
+
+7. **The install/probe state machine has TWO cancel doors, and only one is
+   wired.** `SftpModel::cancel()` goes through `sftpCancelAll()`, so in-flight
+   requests come back with `cancelled=true` and the Probe branch resets.
+   `cancelShellIntegration()` and anything else that calls `resetInstall()`
+   alone leave the request id OPEN in `m_open` — the reply then resumes the
+   chain against a zeroed `Install`, and `QDir("").filePath(...)` is a RELATIVE
+   path in the process CWD. Any new stage-driven flow needs a stage re-check at
+   the TOP of its `handleFinished` branch, not just at the entry points.
+8. **`m_edits` values are handed out as references far too freely.** Two call
+   sites already carry a "by value, because an event loop can erase this"
+   comment; check the actual signature, not the comment. `QDesktopServices::
+   openUrl`, `QProcess::startDetached` and any `emit` reaching QML can all
+   deliver a queued `sftpFinished` that erases the entry.

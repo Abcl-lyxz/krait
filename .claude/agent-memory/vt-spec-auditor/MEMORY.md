@@ -9,3 +9,4 @@
 - [T17 audit findings](t17-audit-findings.md) — SGR 38/48/58: Pi-by-count is correct; all 3 deviations were argument-consumption, incl. subparam-index leak
 - [T18 audit findings](t18-audit-findings.md) — DECOM/1049: the 1049 idempotency guard is NOT xterm's; CPR can emit a negative param; fuzz target never routes h/l
 - [T67 audit findings](t67-audit-findings.md) — reports/ corpus sink DROPS all OSC (evidence trap); OSC 9;4 deltas vs WT DoConEmuAction; viewOffsetCeiling breaks viewRows' cost bound
+- [M4 audit findings](m4-audit-findings.md) — setCommandExit anchors at the CURSOR so a moved cursor writes the status onto the previous prompt; `k=` is fail-closed; 9;4 still has no observing corpus case

@@ -32,6 +32,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -319,6 +320,11 @@ void handleSftpMessage(sftp_session sftp, sftp_client_message msg,
         if (handle == nullptr || !handle->isDir) {
             sftp_reply_status(msg, SSH_FX_INVALID_HANDLE, "not an open directory");
             break;
+        }
+        // Before the reply, not after: what the client is waiting on is the
+        // answer to the request it already sent.
+        if (options.readdirDelayMs > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(options.readdirDelayMs));
         }
         // The flood comes first and never sets `listed`, so it keeps answering
         // until its budget runs out — by which point a correct client has

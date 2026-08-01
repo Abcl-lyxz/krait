@@ -840,83 +840,104 @@ bool SshBackend::openShell(int cols, int rows) {
     return true;
 }
 
+bool SshBackend::serviceChannel(int readTimeoutMs) {
+    ssh_channel channel = m_impl->channel;
+    if (channel == nullptr) {
+        return true;
+    }
+    // Writes and resizes first: they are only allowed to touch the session
+    // from THIS thread, so the queue is the only way in.
+    std::deque<QByteArray> pending;
+    bool resize = false;
+    int cols = 0;
+    int rows = 0;
+    {
+        const std::lock_guard lock(m_mutex);
+        pending.swap(m_writeQueue);
+        resize = m_resizePending;
+        cols = m_pendingCols;
+        rows = m_pendingRows;
+        m_resizePending = false;
+    }
+    for (const QByteArray& bytes : pending) {
+        qsizetype written = 0;
+        // The m_shutdown guard is not decoration: a remote program that stopped
+        // reading stdin closes its window, ssh_channel_write blocks, and
+        // without a cancel path the worker spins here while stop() waits to
+        // join it (rules/net.md: every wait has one).
+        while (written < bytes.size() && !m_shutdown.load()) {
+            const int n = ssh_channel_write(channel, bytes.constData() + written,
+                                            static_cast<std::uint32_t>(bytes.size() - written));
+            // n < 0, not n == SSH_ERROR: SSH_AGAIN is -2, and `written += n`
+            // would then walk BACKWARDS through the buffer with a length that
+            // grows. Unreachable while the session stays blocking, but that is
+            // an invariant of our own code rather than a promise libssh makes.
+            if (n < 0) {
+                return false;
+            }
+            written += n;
+        }
+        // Our own traffic counts: a session someone is typing into does not
+        // need a keepalive on top of it.
+        m_lastTraffic = std::chrono::steady_clock::now();
+    }
+    if (resize) {
+        ssh_channel_change_pty_size(channel, cols, rows);
+    }
+
+    const auto size = static_cast<std::uint32_t>(m_readBuffer.size());
+    // A poll rather than a wait when the caller is a transfer: the chunk it is
+    // about to read is what bounds the terminal's latency there, and blocking
+    // another 20 ms per chunk on top of it would only make the transfer slower.
+    const int n =
+        readTimeoutMs > 0
+            ? ssh_channel_read_timeout(channel, m_readBuffer.data(), size, 0, readTimeoutMs)
+            : ssh_channel_read_nonblocking(channel, m_readBuffer.data(), size, 0);
+    if (n == SSH_ERROR) {
+        return false;
+    }
+    if (n > 0) {
+        m_lastTraffic = std::chrono::steady_clock::now();
+        emit outputReceived(QByteArray(m_readBuffer.data(), n));
+    }
+
+    // stderr, non-blocking. With a pty the server normally merges it, but
+    // "normally" is not "always", and an unread stream fills its window and
+    // stalls the whole channel — which is exactly as true during a transfer as
+    // it is between polls.
+    const int errBytes = ssh_channel_read_nonblocking(channel, m_readBuffer.data(), size, 1);
+    if (errBytes > 0) {
+        m_lastTraffic = std::chrono::steady_clock::now();
+        emit outputReceived(QByteArray(m_readBuffer.data(), errBytes));
+    }
+
+    // Tunnels, on the SAME thread as everything else that touches the session.
+    // Serviced after the shell read so the terminal keeps priority; the poll
+    // interval bounds how long a tunnel waits, and during a transfer the chunk
+    // size does.
+    m_forwards.service(m_impl->session);
+    return true;
+}
+
 SshBackend::Outcome SshBackend::pump() {
     ssh_channel channel = m_impl->channel;
-    std::vector<char> buffer(kReadChunk);
+    m_readBuffer.resize(kReadChunk);
     // Idle detection. An SSH session behind NAT dies silently otherwise, and
     // the user finds out by typing into a connection that has been dead for
     // twenty minutes.
-    auto lastTraffic = std::chrono::steady_clock::now();
+    m_lastTraffic = std::chrono::steady_clock::now();
 
     while (!m_shutdown.load()) {
-        // Writes and resizes first: they are only allowed to touch the session
-        // from THIS thread, so the queue is the only way in.
-        std::deque<QByteArray> pending;
-        bool resize = false;
-        int cols = 0;
-        int rows = 0;
-        {
-            const std::lock_guard lock(m_mutex);
-            pending.swap(m_writeQueue);
-            resize = m_resizePending;
-            cols = m_pendingCols;
-            rows = m_pendingRows;
-            m_resizePending = false;
-        }
-        for (const QByteArray& bytes : pending) {
-            qsizetype written = 0;
-            while (written < bytes.size() && !m_shutdown.load()) {
-                const int n = ssh_channel_write(channel, bytes.constData() + written,
-                                                static_cast<std::uint32_t>(bytes.size() - written));
-                // n < 0, not n == SSH_ERROR: SSH_AGAIN is -2, and `written += n`
-                // would then walk BACKWARDS through the buffer with a length
-                // that grows. Unreachable while the session stays blocking, but
-                // that is an invariant of our own code rather than a promise
-                // libssh makes.
-                if (n < 0) {
-                    fail(ErrorCode::IoFailed,
-                         sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
-                    return Outcome::Failed;
-                }
-                written += n;
-            }
-            // Our own traffic counts: a session someone is typing into does not
-            // need a keepalive on top of it.
-            lastTraffic = std::chrono::steady_clock::now();
-        }
-        if (resize) {
-            ssh_channel_change_pty_size(channel, cols, rows);
-        }
-
-        const int n = ssh_channel_read_timeout(
-            channel, buffer.data(), static_cast<std::uint32_t>(buffer.size()), 0, kPollMs);
-        if (n == SSH_ERROR) {
+        if (!serviceChannel(kPollMs)) {
             fail(ErrorCode::IoFailed, sanitizeRemoteText(nullSafe(ssh_get_error(m_impl->session))));
             return Outcome::Failed;
         }
-        if (n > 0) {
-            lastTraffic = std::chrono::steady_clock::now();
-            emit outputReceived(QByteArray(buffer.data(), n));
-        }
 
-        // stderr, non-blocking. With a pty the server normally merges it, but
-        // "normally" is not "always", and an unread stream fills its window and
-        // stalls the whole channel.
-        const int errBytes = ssh_channel_read_nonblocking(
-            channel, buffer.data(), static_cast<std::uint32_t>(buffer.size()), 1);
-        if (errBytes > 0) {
-            emit outputReceived(QByteArray(buffer.data(), errBytes));
-        }
-
-        // Tunnels, on the SAME thread as everything else that touches the
-        // session. Serviced after the shell read so the terminal keeps
-        // priority; the 20 ms poll bounds how long a tunnel waits.
-        m_forwards.service(m_impl->session);
-
-        // T64. Last, and for the same reason: a file transfer is the one thing
-        // here that can occupy the session for minutes, so it goes behind
-        // everything the user is actually looking at. One request per
-        // iteration, and the transfer itself interleaves per chunk.
+        // T64. Last, and deliberately: a file transfer is the one thing here
+        // that can occupy the session for minutes, so it goes behind everything
+        // the user is actually looking at. One request per iteration, and the
+        // request itself calls serviceChannel between chunks and between
+        // directory entries.
         serviceSftp();
 
         if (ssh_channel_is_eof(channel) != 0) {
@@ -928,7 +949,7 @@ SshBackend::Outcome SshBackend::pump() {
         }
 
         if (m_config.keepaliveSeconds > 0) {
-            const auto idle = std::chrono::steady_clock::now() - lastTraffic;
+            const auto idle = std::chrono::steady_clock::now() - m_lastTraffic;
             if (idle >= std::chrono::seconds(m_config.keepaliveSeconds)) {
                 // A failure here is the peer being gone, which is exactly what
                 // the keepalive is for: report it and let run() decide whether
@@ -938,7 +959,7 @@ SshBackend::Outcome SshBackend::pump() {
                          tr("%1 stopped responding.").arg(QString::fromStdString(m_config.host)));
                     return Outcome::Failed;
                 }
-                lastTraffic = std::chrono::steady_clock::now();
+                m_lastTraffic = std::chrono::steady_clock::now();
             }
         }
     }
@@ -1081,44 +1102,17 @@ void SshBackend::sftpCancelAll() {
 }
 
 void SshBackend::interleaveShell() {
-    ssh_channel channel = m_impl->channel;
-    if (channel == nullptr) {
-        return;
-    }
-    // Keystrokes first. Without this half, typing during a 200 MB download goes
-    // nowhere until the download ends — the output would keep flowing and the
-    // input would not, which reads as a hung terminal rather than a busy one.
-    std::deque<QByteArray> pending;
-    {
-        const std::lock_guard lock(m_mutex);
-        pending.swap(m_writeQueue);
-    }
-    for (const QByteArray& bytes : pending) {
-        qsizetype written = 0;
-        // The m_shutdown guard is not decoration, and pump()'s copy of this
-        // loop has it for the same reason: a remote program that stopped
-        // reading stdin closes its window, ssh_channel_write blocks, and
-        // without a cancel path the worker spins here while stop() waits to
-        // join it (rules/net.md: every wait has one).
-        while (written < bytes.size() && !m_shutdown.load()) {
-            const int n = ssh_channel_write(channel, bytes.constData() + written,
-                                            static_cast<std::uint32_t>(bytes.size() - written));
-            if (n < 0) {
-                // Not reported from here. A broken session breaks the transfer's
-                // very next sftp call and then pump()'s next read, and both of
-                // those already emit with the right code — reporting it three
-                // times would put three banners on one failure.
-                return;
-            }
-            written += n;
-        }
-    }
-    std::vector<char> buffer(kReadChunk);
-    const int n = ssh_channel_read_nonblocking(channel, buffer.data(),
-                                               static_cast<std::uint32_t>(buffer.size()), 0);
-    if (n > 0) {
-        emit outputReceived(QByteArray(buffer.data(), n));
-    }
+    // Everything pump()'s loop body does apart from SFTP itself, polling
+    // instead of waiting 20 ms for a read. Not a subset of it, deliberately:
+    // during a transfer this is the ONLY thing servicing the session, so
+    // keystrokes, output, stderr, the tunnels and a pending resize all have to
+    // come through here or they wait out the whole transfer.
+    //
+    // The return value is dropped. A broken session breaks the transfer's very
+    // next sftp call and then pump()'s next read, and both of those already
+    // emit with the right code — reporting it three times would put three
+    // banners on one failure.
+    serviceChannel(0);
 }
 
 void SshBackend::serviceSftp() {
@@ -1159,7 +1153,21 @@ void SshBackend::runSftpRequest(const SftpRequest& request, std::uint64_t cancel
     }
     case SftpRequest::Kind::List: {
         std::vector<SftpEntry> entries;
-        if (!m_sftp.listDir(request.remote, &entries)) {
+        // The same hook a transfer gets, and for the same reason. One
+        // sftp_readdir is one blocking round trip bounded only by
+        // SSH_OPTIONS_TIMEOUT, so a server that answers slowly enough holds the
+        // shell, the tunnels and stop()'s join for as long as it wants —
+        // Sftp::kMaxEntries bounds the memory that costs and none of the time.
+        // This is where a cancel or a closing tab takes effect.
+        //
+        // No sftpProgress goes out: a listing has no total to count towards,
+        // and a bar that fills up with directory entries is one nobody asked
+        // for.
+        const auto progress = [this, cancelEpoch](std::uint64_t, std::uint64_t) -> bool {
+            interleaveShell();
+            return !m_shutdown.load() && m_sftpCancelEpoch.load() == cancelEpoch;
+        };
+        if (!m_sftp.listDir(request.remote, &entries, progress)) {
             break;
         }
         QVariantList rows;
@@ -1208,12 +1216,16 @@ void SshBackend::runSftpRequest(const SftpRequest& request, std::uint64_t cancel
             emit sftpFinished(request.id, true, false, QString());
             return;
         }
-        if (m_sftp.cancelled()) {
-            emit sftpFinished(request.id, false, true, QString());
-            return;
-        }
         break;
     }
+    }
+    // Cancellation is checked here rather than per branch because a listing can
+    // now be cancelled too. `cancelled` separates "the user pressed stop" from
+    // "it broke": only one of those is a banner, and showing one for a button
+    // somebody just pressed is how banners get ignored.
+    if (m_sftp.cancelled()) {
+        emit sftpFinished(request.id, false, true, QString());
+        return;
     }
     emit sftpFinished(request.id, false, false, QString::fromStdString(m_sftp.lastError()));
 }

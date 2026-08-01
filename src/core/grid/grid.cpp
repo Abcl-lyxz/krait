@@ -284,7 +284,27 @@ void Grid::pushToScrollback(Line&& line) {
     // the user is reading by one row. Follow the content instead, until the
     // ring's cap stops giving ground.
     if (m_viewOffset > 0) {
-        m_viewOffset = std::min(m_viewOffset + 1, maxViewOffset());
+        const int wanted = m_viewOffset + 1;
+        // An O(1) LOWER BOUND on maxViewOffset(), tried before the exact one.
+        // Every logical line occupies at least one visual row, so
+        // visualRowCount() >= lineCount(); this can therefore only
+        // under-estimate, and when `wanted` fits inside it, it fits inside the
+        // real bound too and the clamp is provably a no-op.
+        //
+        // Without it, retiring a line under a scrolled-back viewport costs
+        // O(every cell in the ring): Scrollback::push() bumps the generation
+        // that keys visualRowCount()'s cache, so the exact call below is a
+        // GUARANTEED miss here, and this runs once per line of output. Reading
+        // back through history while output keeps arriving — a build log, a
+        // cat, tail -f — is the workload, and it wedges the GUI thread.
+        //
+        // ponytail: the exact call still happens once the viewport is deeper
+        // than the logical line count, i.e. parked at the very top of a
+        // wrap-heavy history. That is bounded by the ring cap and self-limiting.
+        // Lift it by maintaining the row count incrementally in
+        // Scrollback::push()/evict() instead of invalidating the whole cache.
+        const auto cheap = static_cast<int>(m_scrollback.lineCount());
+        m_viewOffset = wanted <= cheap ? wanted : std::min(wanted, maxViewOffset());
         // Every visible row is a different row now. DamageList addresses SCREEN
         // rows while the viewport is showing history, so partial damage would
         // describe the wrong lines entirely.
@@ -354,9 +374,21 @@ void Grid::setCommandExit(int code) {
     // the index it maps to is only valid right now.
     const std::size_t floor = m_scrollback.indexOfStable(*m_openPrompt);
     m_openPrompt.reset();
-    // +1 so a command whose prompt is on the cursor's own line still counts:
-    // prevPrompt is strictly-before by design (grid.h).
-    const std::size_t at = m_scrollback.lineCount() + static_cast<std::size_t>(row) + 1;
+    // The whole grid, NOT the cursor. Anchoring at the cursor started the walk
+    // BELOW the open prompt whenever anything moved the cursor up between `A`
+    // and `D` — `CSI H`, a zsh transient-prompt redraw, powerlevel10k
+    // repainting before precmd — so prevPrompt never saw the mark it was
+    // looking for and stamped the status onto the PREVIOUS command's prompt,
+    // or onto nothing at all. That is ordinary shell behaviour, not just a
+    // hostile stream.
+    //
+    // The T67 bound is unaffected. prevPrompt visits
+    // `min(from, absoluteLineCount()) - floor` lines either way, so this trades
+    // the cursor's row for the screen height: at most `rows` extra visits, which
+    // is precisely the "plus at most the screen" grid.h already documents. The
+    // FLOOR is what keeps an A+D flood proportional to lines pushed since `A`
+    // rather than to the size of history, and the floor is untouched.
+    const std::size_t at = absoluteLineCount();
     const std::optional<std::size_t> owner = prevPrompt(at, floor);
     if (!owner) {
         return;

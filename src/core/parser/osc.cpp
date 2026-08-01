@@ -59,12 +59,21 @@ bool parseExitStatus(std::string_view text, int* out) {
 // landing in the middle of one: without it every PS2 continuation row of a
 // multi-line command is a prompt start, and worse, `D`'s exit status attaches
 // to the LAST continuation row instead of the line the command began on.
+//
+// FAIL-OPEN on a kind letter we do not know. The spec rule is the same one OSC
+// 8's parameters follow — ignore unrecognised options — and ghostty maps an
+// unknown kind to null, i.e. unspecified, i.e. still a prompt. Testing
+// `!= "k=i"` instead was fail-CLOSED: `k=`, `k=x` and `k=initial` each dropped
+// the mark entirely, so the day a shell starts emitting a kind letter this
+// alphabet does not have, the user loses EVERY jump target rather than one
+// distinction. Only the three known non-navigable kinds suppress the mark.
 bool isSecondaryPrompt(std::string_view params) {
     while (!params.empty()) {
         std::string_view tail;
         const std::string_view field = upTo(params, ';', &tail);
         if (field.starts_with("k=")) {
-            return field != "k=i";
+            const std::string_view kind = field.substr(2);
+            return kind == "s" || kind == "r" || kind == "c";
         }
         params = tail;
     }

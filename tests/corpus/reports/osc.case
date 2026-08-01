@@ -35,9 +35,12 @@ EXPECT -
 # OscHandler: these cases would pass unchanged if parseProgress were deleted.
 # What they prove is the pair of things this file exists for — that the bytes
 # are consumed silently, and that the parser is left usable afterwards (the DA1
-# below is the proof of the second). The GRAMMAR is pinned by the unit tests,
-# `[core][osc]` in tests/unit/osc_test.cpp, which run a real Session and read
-# the OscAction back.
+# below is the proof of the second). Nothing more, and for a while nothing else
+# in the corpus pinned more: the GRAMMAR is pinned by corpus/shell/progress.case
+# (whose sink runs a real Session and reads the OscAction back through onOsc)
+# and by `[core][osc]` in tests/unit/osc_test.cpp. Verified by mutation rather
+# than assumed — neutering parseProgress fails 23 assertions there and none
+# here.
 IN \x1B]9;4;1;50\x1B\x5C
 EXPECT -
 IN \x1B]9;4;0\x1B\x5C

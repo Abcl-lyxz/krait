@@ -679,6 +679,20 @@ void SftpModel::probeNextRc() {
         resetInstall();
         return;
     }
+    // The flow was cancelled while a probe was still in flight.
+    // cancelShellIntegration() resets m_install, but it cannot un-issue a
+    // request already sitting on the worker — that reply still arrives, still
+    // matches an open id, and walks the chain on from here. Two things then go
+    // wrong at once: m_install.scratchDir is empty, so the next probe downloads
+    // to QDir("").filePath("probe") — a RELATIVE path, i.e. the server's file
+    // written into the process working directory — and when the chain runs out
+    // it raises a banner about a flow the user already cancelled.
+    //
+    // Guarded HERE rather than in handleFinished because this is the single
+    // place a probe request is issued, so one check covers both callers.
+    if (m_install.stage != QStringLiteral("probing")) {
+        return;
+    }
     const std::span<const ShellTarget> all = shellTargets();
     if (m_install.probeIndex >= all.size()) {
         finishProbe();
@@ -943,7 +957,16 @@ void SftpModel::flushEdits() {
     emit progressChanged();
 }
 
-void SftpModel::launchEditor(const QString& local, const QString& name) {
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
+void SftpModel::launchEditor(QString local, QString name) {
+    // BY VALUE, which is the whole point and what both this call's comment and
+    // the declaration have always claimed. The caller passes it->local and
+    // it->name — references into the Edit stored in m_edits — and the body
+    // reaches the OS: QDesktopServices::openUrl goes to ShellExecute, which
+    // runs a nested Win32 message loop, and errorRaised reaches QML. Either can
+    // deliver a queued sftpFinished that erases that entry, or a Stop watching
+    // that clears the whole hash, and the banner below would then format a
+    // destroyed QString. Copying at entry is what makes that unreachable.
     const QString command = m_settings == nullptr
                                 ? QString()
                                 : QString::fromStdString(m_settings->text("editor.command"));

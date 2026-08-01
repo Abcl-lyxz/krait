@@ -244,12 +244,15 @@ class Grid {
     // the prompt on the next resize instead of staying where it was put.
     void markPrompt(std::uint8_t bits);
 
-    // OSC 133 ; D ; <n>. Writes the status onto the nearest line at or above
-    // the cursor carrying kMarkPromptStart — the line the user typed the
-    // command on, which by now is usually in scrollback. A negative code, or a
-    // D with no prompt open, is a no-op — and the walk it does perform is
-    // bounded by where the prompt was opened, never by the size of history
-    // (see the comment on the implementation).
+    // OSC 133 ; D ; <n>. Writes the status onto the NEWEST line carrying
+    // kMarkPromptStart at or after the open prompt's floor — the line the user
+    // typed the command on, which by now is usually in scrollback. Deliberately
+    // not "at or above the cursor": a shell may move the cursor above its own
+    // prompt between `A` and `D` (zsh transient prompts do), and anchoring the
+    // walk there attributed the status to the previous command. A negative
+    // code, or a D with no prompt open, is a no-op — and the walk it does
+    // perform is bounded by where the prompt was opened, never by the size of
+    // history (see the comment on the implementation).
     void setCommandExit(int code);
 
     // Nearest kMarkPromptStart STRICTLY before / after `from`, in the index

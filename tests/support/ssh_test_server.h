@@ -72,6 +72,15 @@ class SshTestServer {
         // file that is quietly missing its tail.
         bool truncateReads = false;
 
+        // Wait this long before answering each SSH_FXP_READDIR. A slow server,
+        // on purpose: libssh bounds one sftp_readdir only by
+        // SSH_OPTIONS_TIMEOUT, so "the listing terminates" and "the listing
+        // terminates before the user gives up" are different claims, and the
+        // iteration cap only makes the first one. With floodRejectedNames this
+        // is a listing that is endless in TIME rather than in size — which is
+        // the one the cap does not save anybody from.
+        int readdirDelayMs = 0;
+
         // End the listing with an error status instead of SSH_FX_EOF. Both
         // reach the client as a NULL from sftp_readdir, and sftp_dir_eof is
         // the only thing that tells "finished" from "stopped" — a listing that

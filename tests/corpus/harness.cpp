@@ -419,6 +419,50 @@ std::vector<std::string> describeMarks(const krait::core::vt::Grid& grid) {
     return tokens;
 }
 
+// Runs a shell/ case through a real Session and describes everything the corpus
+// observes, in this order:
+//   mark:N:<letters> / exit:N:<status>  — per line, from describeMarks above
+//   progress:<state>:<percent>          — one per OSC 9;4 the stream carried,
+//                                         percent -1 when none was readable
+//
+// Progress is read off the ACTION rather than off the grid because the core
+// deliberately stores it nowhere — a taskbar is a platform surface and
+// src/core/ has no platform (CLAUDE.md rule 1) — so `onOsc` is the only place
+// the parsed state is ever visible. Until this existed, the only corpus cases
+// naming OSC 9;4 were in reports/, whose sink no-ops every OSC callback: they
+// pinned that the bytes are consumed silently and that the parser survives
+// them, and they would have passed unchanged with `parseProgress` deleted
+// outright. Coverage that cannot fail is counted but is not coverage.
+std::vector<std::string> runShell(const std::vector<std::uint8_t>& bytes, bool byteAtATime) {
+    namespace vt = krait::core::vt;
+    static constexpr std::array<const char*, 5> kStates{"remove", "set", "error", "indeterminate",
+                                                        "paused"};
+    static_assert(kStates.size() == static_cast<std::size_t>(vt::OscAction::Progress::Paused) + 1,
+                  "a new Progress state needs a name here, or this indexes past the end");
+
+    vt::Session session(24, 80);
+    std::vector<std::string> progress;
+    session.onOsc = [&progress](const vt::OscAction& action) {
+        if (action.kind == vt::OscAction::Kind::Progress) {
+            progress.push_back(std::format("progress:{}:{}",
+                                           kStates[static_cast<std::size_t>(action.progress)],
+                                           action.percent));
+        }
+    };
+
+    if (byteAtATime) {
+        for (const std::uint8_t b : bytes) {
+            session.feed({&b, 1});
+        }
+    } else {
+        session.feed(bytes);
+    }
+
+    std::vector<std::string> tokens = describeMarks(session.grid());
+    tokens.insert(tokens.end(), progress.begin(), progress.end());
+    return tokens;
+}
+
 }  // namespace
 
 TEST_CASE("corpus: utf8 decode", "[corpus][utf8]") {
@@ -484,27 +528,22 @@ TEST_CASE("corpus: reports (DA1/DSR) honest replies", "[corpus][reports]") {
     CHECK(!cases.empty());
 }
 
-TEST_CASE("corpus: OSC 133 shell integration marks", "[corpus][shell]") {
+TEST_CASE("corpus: OSC 133 marks and OSC 9;4 progress", "[corpus][shell]") {
     const auto cases = loadCases(std::filesystem::path(KRAIT_CORPUS_DIR) / "shell");
     for (const auto& c : cases) {
         CAPTURE(c.file, c.in);
         const auto bytes = parseBytes(c.in);
 
-        // Through a real Session, not a bespoke sink: OSC 133 is the first
-        // sequence whose whole effect is on the GRID rather than on a reply,
-        // and a corpus that routed it differently from the product would pin
-        // the harness instead of the terminal.
-        krait::core::vt::Session whole(24, 80);
-        whole.feed(bytes);
-        CHECK(describeMarks(whole.grid()) == parseTokens(c.expect));
+        // Through a real Session, not a bespoke sink: these are the sequences
+        // whose whole effect is on the GRID or on the app callback rather than
+        // on a reply, and a corpus that routed them differently from the
+        // product would pin the harness instead of the terminal.
+        const std::vector<std::string> whole = runShell(bytes, false);
+        CHECK(whole == parseTokens(c.expect));
 
         // Chunk boundaries must be invisible: an OSC split mid-payload by a
         // 4 KiB socket read is the normal case, not the exotic one.
-        krait::core::vt::Session split(24, 80);
-        for (std::uint8_t b : bytes) {
-            split.feed({&b, 1});
-        }
-        CHECK(describeMarks(split.grid()) == describeMarks(whole.grid()));
+        CHECK(runShell(bytes, true) == whole);
     }
     CHECK(!cases.empty());
 }

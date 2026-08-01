@@ -41,6 +41,48 @@ metadata:
   - Verbatim requirement: "the underline color must remain the same under reverse video, if it has a color, if not, it should follow the foreground color."
   - xterm does NOT implement 58/59 (no `case 58:` in charproc.c, no ctlseqs entry) — cite kitty, never xterm, for underline colour.
 
+## OSC 133 / shell integration (verified 2026-08-01)
+
+- **The canonical spec is UNREACHABLE.** `gitlab.freedesktop.org/Per_Bothner/
+  specifications/.../semantic-prompts.md` is behind Anubis on every path
+  including `-/raw` — WebFetch gets the challenge page, not the doc. Do not
+  burn a fetch on it again. Use the substitutes below.
+- **https://contour-terminal.org/vt-extensions/osc-133-shell-integration/** —
+  fetchable, verified 2026-08-01. A = prompt start (`OSC 133 ; A [; <Key>=
+  <Value>...] ST`), B = prompt end, C = command output start, D = command
+  finished `[; <ExitCode>]`. Says nothing about malformed options.
+- **ghostty `src/terminal/osc/parsers/semantic_prompt.zig`** (NEW path — the
+  old `src/terminal/osc.zig` no longer holds the 133 parser). Authoritative
+  letter table: `L` fresh_line, `A` fresh_line_new_prompt, `N` new_command,
+  `P` prompt_start, `B` end_prompt_start_input, `I` end_prompt_..._terminate_eol,
+  `C` end_input_start_output, `D` end_command. `PromptKind.init`: `i` initial,
+  `r` right, `c` continuation, `s` secondary — **any other value returns null,
+  i.e. "unspecified", NOT "secondary"**, and the file states the spec rule
+  verbatim: "Any errors in the raw string will return null since the OSC133
+  specification says to ignore unknown or malformed options." Exit code is
+  `parseInt(i32, full, 10)` on field 1 — **accepts negatives**.
+- **ghostty `src/terminal/osc/parsers/osc9.zig`** — OSC 9;4 states 0-4; percent
+  read only for set/error/pause (remove + indeterminate skip it), `parseUnsigned`
+  then `clamp(0,100)`. Also handles 9;1 sleep, 9;2 msgbox, 9;3 tab title,
+  9;10 xterm emulation, **9;12 = mark prompt start**.
+- Emitters, downloaded and read: kitty `shell-integration/{bash/kitty.bash,
+  zsh/kitty-integration,fish/vendor_conf.d/kitty-shell-integration.fish}` —
+  `\e]133;A\a`, `\e]133;A;k=s\a` (PS2), `\e]133;C;cmdline=%q\a`,
+  `\e]133;D;$?\a` immediately followed by `\e]133;A\a`, and a kitty-private
+  `\e]133;k;<name>\a`. wezterm `assets/shell-integration/wezterm.sh` (repo is
+  `wez/wezterm`) — `\e]133;P;k=i`, `\e]133;P;k=s`, `\e]133;A;cl=m;aid=%s`,
+  `\e]133;C;`, `\e]133;D;%s;aid=%s`. So **P and A must BOTH mean prompt start**.
+
+## xterm facts confirmed 2026-08-01 (util.c)
+
+- **`DeleteLine` DOES archive into scrollback.** `scroll_all_lines =
+  (scrollWidget && !whichBuf && cur_row == 0)`, and that branch calls
+  `ScrnDeleteLine(xw, screen->saveBuf_index, bot_marg + savelines, 0, n)` —
+  the saved-lines array, from index 0. So `CSI M` at row 0 on the normal
+  buffer pushes the top line into history. Krait's `capturesScrollback()`
+  (`scrollTop == 0 && !m_onAlt`) plus csi_scroll's temporary `scrollTop = row`
+  reproduces this. Not a bug; do not re-flag it.
+
 ## Reading reference implementations (cheaper + more decisive than prose)
 
 WebFetch summarizes and will not give verbatim spec text. For SGR-level

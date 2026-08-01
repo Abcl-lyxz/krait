@@ -1,0 +1,158 @@
+# OSC 9 ; 4 taskbar progress (T67), observed rather than merely consumed.
+#
+# EXPECT tokens are the harness's shell/ vocabulary (harness.cpp): mark:/exit:
+# describe the grid, and
+#   progress:<state>:<percent>   one per OSC 9;4 the stream carried
+#   -                            nothing at all, which every refused form gives
+# <state> is remove | set | error | indeterminate | paused, <percent> is -1 when
+# the string carried no readable one.
+#
+# WHY THIS FILE EXISTS. corpus/reports/osc.case already names OSC 9;4, but that
+# category's sink implements oscStart/oscPut/oscEnd as no-ops, so it never
+# builds an OscHandler: those cases pin that the bytes are consumed silently and
+# that the parser survives them, and they would pass with parseProgress deleted.
+# These run a real Session and read the OscAction back, so the GRAMMAR is
+# pinned here — a state misread or a percentage dropped fails a case.
+#
+# ST is written \x1B\x5C rather than \\: the case reader takes a backslash
+# literally, so a doubled one is two bytes.
+#
+# The spec, from BOTH primary sources: Microsoft documents
+# `ESC ] 9 ; 4 ; <state> ; <progress> BEL` for Windows Terminal and ConEmu,
+# which originated it, documents `ESC ] 9 ; 4 ; st ; pr ST`.
+
+# State 0 removes the bar. It carries no percentage and none is invented.
+IN \x1B]9;4;0\x1B\x5C
+EXPECT progress:remove:-1
+
+# State 1 is determinate and carries the figure.
+IN \x1B]9;4;1;50\x1B\x5C
+EXPECT progress:set:50
+
+# State 2 is the error bar. ConEmu says in as many words that `pr` is optional
+# here, and ABSENT stays distinct from 0 (-1, not 0) so the app can leave a bar
+# where it was rather than draw an empty one for a failure.
+IN \x1B]9;4;2\x1B\x5C
+EXPECT progress:error:-1
+IN \x1B]9;4;2;73\x1B\x5C
+EXPECT progress:error:73
+
+# State 3 is the marquee, and Microsoft says the consumer IGNORES the value.
+# The CORE still parses it — refusing to read a field is not the core's call,
+# and osc.h says so — so the token shows the figure that arrived. "Ignores" is
+# an app-layer decision about what to DRAW, and pinning it here would pin the
+# wrong layer.
+IN \x1B]9;4;3\x1B\x5C
+EXPECT progress:indeterminate:-1
+IN \x1B]9;4;3;77\x1B\x5C
+EXPECT progress:indeterminate:77
+
+# State 4: MS calls it "Warning", ConEmu "paused". Both set TBPF_PAUSED, so the
+# name follows the flag rather than picking a side.
+IN \x1B]9;4;4\x1B\x5C
+EXPECT progress:paused:-1
+IN \x1B]9;4;4;5\x1B\x5C
+EXPECT progress:paused:5
+
+# DEFAULT PARAMETER. An ABSENT or EMPTY state is REMOVE, not malformed — what
+# Windows Terminal's own AdaptDispatch does with a missing state — because of
+# the two available failures, a bar left asserting progress for a command that
+# has finished with nothing able to clear it is the worse one.
+IN \x1B]9;4\x1B\x5C
+EXPECT progress:remove:-1
+IN \x1B]9;4;\x1B\x5C
+EXPECT progress:remove:-1
+IN \x1B]9;4;;50\x1B\x5C
+EXPECT progress:remove:-1
+
+# Both ends of the documented 0-100 range are inclusive...
+IN \x1B]9;4;1;0\x1B\x5C
+EXPECT progress:set:0
+IN \x1B]9;4;1;100\x1B\x5C
+EXPECT progress:set:100
+
+# ...and OUT OF RANGE is CLAMPED, not refused. Neither source says what 250%
+# means; a bar pinned full is the only reading of it that is not a lie, and a
+# refusal would leave a stale bar asserting something else entirely.
+IN \x1B]9;4;1;101\x1B\x5C
+EXPECT progress:set:100
+IN \x1B]9;4;1;250\x1B\x5C
+EXPECT progress:set:100
+
+# A state with no percentage is legal; the figure simply is not there.
+IN \x1B]9;4;1\x1B\x5C
+EXPECT progress:set:-1
+
+# A percentage that is not a number is ABSENT rather than fatal: the state is
+# the part the sender got right, and dropping it would lose a real error bar.
+IN \x1B]9;4;2;oops\x1B\x5C
+EXPECT progress:error:-1
+
+# The percentage is POSITIONAL, first field only, exactly like OSC 133 ; D's
+# status. A later field that happens to look like a number is an option.
+IN \x1B]9;4;1;oops;50\x1B\x5C
+EXPECT progress:set:-1
+
+# An overlong percentage is refused as a PERCENTAGE, not as a state: "137"
+# truncated to "13" would be a different answer, not a rounded one.
+IN \x1B]9;4;1;99999999999999999999\x1B\x5C
+EXPECT progress:set:-1
+
+# MALFORMED, refused WHOLE. Each of these is a sender that does not mean what a
+# legal string means, and guessing the nearest legal state would put something
+# on the user's taskbar nobody asked for.
+IN \x1B]9;4;9;50\x1B\x5C
+EXPECT -
+IN \x1B]9;4;10;50\x1B\x5C
+EXPECT -
+IN \x1B]9;4;04;50\x1B\x5C
+EXPECT -
+IN \x1B]9;4;4x;1\x1B\x5C
+EXPECT -
+IN \x1B]9;4;-1;50\x1B\x5C
+EXPECT -
+
+# The SUBCOMMAND must be exactly "4". OSC 9 with anything else is ConEmu's
+# notification form or iTerm2's growl, neither of which Krait implements —
+# silence is the honest answer, not a taskbar poke.
+IN \x1B]9;5;1;50\x1B\x5C
+EXPECT -
+IN \x1B]9;4x;1;50\x1B\x5C
+EXPECT -
+IN \x1B]9;this is a notification\x1B\x5C
+EXPECT -
+IN \x1B]9\x1B\x5C
+EXPECT -
+IN \x1B]9;\x1B\x5C
+EXPECT -
+
+# BEL terminates it as well as ST does.
+IN \x1B]9;4;1;42\x07
+EXPECT progress:set:42
+
+# Aborted mid-string (CAN, SUB). xterm discards these and so do we, so no
+# action is reported at all.
+IN \x1B]9;4;1;50\x18
+EXPECT -
+IN \x1B]9;4;1;50\x1A
+EXPECT -
+
+# Interrupted by a new introducer rather than a terminator. ESC is the first
+# half of ST, so the Williams machine LEAVES the string on it and the action is
+# dispatched; the CSI that follows is then parsed normally.
+IN \x1B]9;4;1;50\x1B[c
+EXPECT progress:set:50
+
+# An OSC that never terminates reports nothing at all.
+IN \x1B]9;4;1;50
+EXPECT -
+
+# A run of them, which is what a build tool actually emits: each is reported in
+# order, and the last word wins at the app layer rather than in the core.
+IN \x1B]9;4;1;10\x1B\x5C\x1B]9;4;1;90\x1B\x5C\x1B]9;4;0\x1B\x5C
+EXPECT progress:set:10 progress:set:90 progress:remove:-1
+
+# Progress and shell integration share a stream in real life — a build tool
+# emits 9;4 between a shell's C and D — and neither disturbs the other.
+IN \x1B]133;A\x1B\x5C$ make\x0D\x0A\x1B]133;C\x1B\x5C\x1B]9;4;1;50\x1B\x5Cout\x0D\x0A\x1B]9;4;0\x1B\x5C\x1B]133;D;0\x1B\x5C
+EXPECT mark:1:A exit:1:0 mark:2:C mark:3:D progress:set:50 progress:remove:-1

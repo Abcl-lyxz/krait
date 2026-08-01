@@ -513,6 +513,48 @@ TEST_CASE("sftp: a flood of rejected names stops at the cap instead of spinning"
     CHECK(elapsed < std::chrono::seconds(10));
 }
 
+TEST_CASE("sftp: a listing the server drags out stops the moment the caller cancels",
+          "[net][ssh][sftp]") {
+    SshTestServer::Options options;
+    // Endless in TIME, which is the half the iteration cap does nothing about.
+    // 40 ms a reply is a polite server compared to the 15 s SSH_OPTIONS_TIMEOUT
+    // actually allows, and even at this pace reaching the cap takes 128 more
+    // replies than a user will sit through — on the one thread that owns the
+    // session, which stop() joins. rules/net.md: every wait needs a timeout AND
+    // a cancel path, and the cap is only the timeout.
+    options.floodRejectedNames = 70000;
+    options.readdirDelayMs = 40;
+    SftpFixture fixture("listcancel", options);
+    requireReady(fixture);
+
+    int calls = 0;
+    std::vector<SftpEntry> entries;
+    const auto started = std::chrono::steady_clock::now();
+    const bool ok = fixture.sftp().listDir("/", &entries, [&calls](std::uint64_t, std::uint64_t) {
+        // Not at the first call: stopping at zero would pass against a listDir
+        // that consulted the hook once and then looped anyway.
+        return ++calls < 3;
+    });
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    CHECK_FALSE(ok);
+    // A cancellation, not a failure. The two reach the user differently and
+    // only one of them is a banner.
+    CHECK(fixture.sftp().cancelled());
+    CHECK(calls == 3);
+    // Specifically NOT the cap: a listDir that ignored the hook would still
+    // return false here, having ground all the way to 65536 entries first.
+    UNSCOPED_INFO("error: " << fixture.sftp().lastError());
+    CHECK(fixture.sftp().lastError().find(std::to_string(Sftp::kMaxEntries)) == std::string::npos);
+    // The point of the case, bounded so a regression is a failing assertion
+    // rather than a ctest nobody waits for: cancelled this returns inside one
+    // reply, and ignoring the hook takes the 129 replies to the cap — five
+    // seconds at this delay, and an hour at what a real server may take.
+    UNSCOPED_INFO("listDir took " << elapsed.count() << " ms");
+    CHECK(elapsed < std::chrono::seconds(2));
+}
+
 TEST_CASE("sftp: a listing that stops early fails instead of returning a short one",
           "[net][ssh][sftp]") {
     SshTestServer::Options options;

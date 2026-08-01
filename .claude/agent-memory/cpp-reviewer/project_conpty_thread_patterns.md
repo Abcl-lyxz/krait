@@ -100,3 +100,22 @@ T61/T62 additions (2026-07-31):
     via `ssh_options_apply`; `ssh_pki_import_privkey_file` /
     `ssh_pki_import_cert_file` do not. Whenever a diff adds an importer that
     writes config paths into `Profile`, check which of the two consumes them.
+
+T64 SFTP-on-the-shell-worker added the starvation half (2026-08-01):
+
+18. **Anything new that runs to completion inside `pump()`'s loop starves
+    EVERYTHING else pump() does.** The T64 SFTP request is serviced at the end
+    of one pump iteration but can occupy the session for minutes. Its
+    `interleaveShell()` hook was written to keep the shell alive and only reads
+    `is_stderr=0` and drains `m_writeQueue` — it does NOT read stderr (which
+    pump() reads at :905 precisely because an unread stream fills the channel
+    window), does NOT call `m_forwards.service()` (which accepts AND pumps
+    tunnel bytes), and does NOT drain `m_resizePending`. Rule: when a diff adds
+    a long-running step to a poll loop, diff its interleave hook against the
+    loop body line by line — everything the loop does per iteration has to be in
+    the hook or it is starved for the duration.
+19. **A blocking libssh loop with a COUNT cap still needs a cancel path.**
+    `Sftp::listDir` caps iterations at 65536, which bounds memory but not TIME:
+    each iteration is a round trip bounded only by `SSH_OPTIONS_TIMEOUT`. A cap
+    is not a cancel. Every new blocking loop in src/net needs an `m_shutdown`
+    read, not just a bound (rules/net.md).

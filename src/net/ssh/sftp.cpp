@@ -190,6 +190,10 @@ bool Sftp::realpath(const std::string& path, std::string* out) {
         m_error = "SFTP is not open.";
         return false;
     }
+    // Cleared even though nothing here can set it: cancelled() is what the
+    // caller uses to decide between a banner and silence, and a leftover true
+    // from the transfer before this one would swallow a real error.
+    m_cancelled = false;
     char* resolved = sftp_canonicalize_path(m_sftp, path.c_str());
     if (resolved == nullptr) {
         failFromLibssh("Could not resolve that path.");
@@ -203,11 +207,12 @@ bool Sftp::realpath(const std::string& path, std::string* out) {
     return true;
 }
 
-bool Sftp::listDir(const std::string& path, std::vector<SftpEntry>* out) {
+bool Sftp::listDir(const std::string& path, std::vector<SftpEntry>* out, const Progress& progress) {
     if (m_sftp == nullptr) {
         m_error = "SFTP is not open.";
         return false;
     }
+    m_cancelled = false;
     sftp_dir dir = sftp_opendir(m_sftp, path.c_str());
     if (dir == nullptr) {
         failFromLibssh("Could not open that directory.");
@@ -238,6 +243,15 @@ bool Sftp::listDir(const std::string& path, std::vector<SftpEntry>* out) {
             entries.push_back(std::move(entry));
         }
         sftp_attributes_free(attr);
+        // After the free, so a cancel cannot leak the attributes it stopped on.
+        // This is the ONLY place a listing can be interrupted: sftp_readdir
+        // blocks, exactly like sftp_read does in get().
+        if (progress && !progress(seen, 0)) {
+            m_cancelled = true;
+            m_error = "Cancelled.";
+            sftp_closedir(dir);
+            return false;
+        }
     }
     // sftp_readdir returning NULL is both "done" and "failed", and the two have
     // to reach the user differently: a listing that stopped halfway because the
@@ -263,6 +277,7 @@ bool Sftp::stat(const std::string& path, SftpEntry* out) {
         m_error = "SFTP is not open.";
         return false;
     }
+    m_cancelled = false;  // see realpath
     sftp_attributes attr = sftp_stat(m_sftp, path.c_str());
     if (attr == nullptr) {
         failFromLibssh("Could not read that file's details.");

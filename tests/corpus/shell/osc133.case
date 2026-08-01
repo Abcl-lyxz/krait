@@ -104,6 +104,44 @@ EXPECT -
 IN \x1B]133;A;k=c\x1B\x5C
 EXPECT -
 
+# ...and s on its own, stated plainly rather than only inside the PS2 trace
+# above, so the fail-open cases below have a fail-CLOSED neighbour to be read
+# against.
+IN \x1B]133;A;k=s\x1B\x5C
+EXPECT -
+
+# An UNRECOGNISED kind letter FAILS OPEN — it marks the prompt, exactly as an
+# absent k= does. The alphabet a terminal knows is i / r / c / s; anything else
+# is an option this parser does not recognise, and the spec rule for those is
+# the one OSC 8's parameters already follow: ignore it. ghostty maps an unknown
+# kind to null, i.e. unspecified, i.e. still a prompt.
+#
+# The failure this pins is not exotic. Reading `k=` as "secondary unless it is
+# exactly i" means the day a shell starts emitting a kind letter this list does
+# not have, the user loses EVERY jump target and every exit status — a total
+# loss of the feature, to gain a distinction nobody asked for.
+IN \x1B]133;A;k=x\x1B\x5C
+EXPECT mark:1:A
+IN \x1B]133;A;k=initial\x1B\x5C
+EXPECT mark:1:A
+IN \x1B]133;P;k=x\x1B\x5C
+EXPECT mark:1:A
+
+# A MALFORMED k= with no value at all goes the same way. "The sender wrote
+# nothing" is not "the sender said secondary".
+IN \x1B]133;A;k=\x1B\x5C
+EXPECT mark:1:A
+
+# ...including when it arrives among options that ARE recognised, since the
+# scan stops at the first k= it meets.
+IN \x1B]133;A;aid=7;k=x;cl=m\x1B\x5C
+EXPECT mark:1:A
+
+# A known kind still wins when an unknown one is nowhere near it: k= is read
+# positionally-first, not merged.
+IN \x1B]133;A;k=s;aid=7\x1B\x5C
+EXPECT -
+
 # An unknown command letter marks NOTHING. Guessing which of A/B/C/D a shell
 # meant would put a prompt boundary somewhere the user cannot see one.
 IN \x1B]133;Z\x1B\x5C
@@ -160,3 +198,31 @@ EXPECT mark:1:A
 # difference between "aborted" and "terminated" here is one byte.
 IN \x1B]133;A\x1B[c
 EXPECT mark:1:A
+
+# THE CURSOR MOVED BETWEEN A AND D, which is ordinary shell behaviour and not a
+# hostile stream: zsh transient prompts and powerlevel10k repaint above the
+# prompt before precmd runs, and any full-screen redraw does the same. The
+# status belongs to the prompt the command was TYPED at, wherever the cursor
+# has since wandered to.
+#
+# Two commands, and `CSI H` puts the cursor on the FIRST one's line before the
+# second D arrives. Anchoring the backwards walk at the cursor made it start
+# below the open prompt, never reach it, and stamp 5 onto command one — which
+# already had a 0 — while command two got nothing. Line 1 reads AD because D's
+# own mark does land at the cursor; only the STATUS is written back.
+IN \x1B]133;A\x1B\x5C$ one\x0D\x0A\x1B]133;D;0\x1B\x5C\x0D\x0A\x1B]133;A\x1B\x5C$ two\x0D\x0A\x1B[H\x1B]133;D;5\x1B\x5C
+EXPECT mark:1:AD exit:1:0 mark:2:D mark:3:A exit:3:5
+
+# The same anchoring bug's other half: with no earlier prompt below the cursor
+# to land on wrongly, the walk simply found nothing and the status was DROPPED.
+# A user watching a command they typed at the bottom of a screenful of output
+# would see no exit status at all.
+IN out\x0D\x0Aout\x0D\x0A\x1B]133;A\x1B\x5C$ x\x0D\x0A\x1B[H\x1B]133;D;3\x1B\x5C
+EXPECT mark:1:D mark:3:A exit:3:3
+
+# ...and the walk still takes the NEWEST prompt rather than running past it
+# into an older one. Both commands' prompts are above the cursor now, so a walk
+# that went one line too far would re-stamp command one; it stops at command
+# two, and command one keeps the 7 it earned.
+IN \x1B]133;A\x1B\x5C$ one\x0D\x0A\x1B]133;D;7\x1B\x5C\x0D\x0A\x1B]133;A\x1B\x5C$ two\x0D\x0A\x1B[H\x1B]133;D;9\x1B\x5C
+EXPECT mark:1:AD exit:1:7 mark:2:D mark:3:A exit:3:9

@@ -336,7 +336,7 @@ class SftpModel : public QObject {
     // By value rather than by Edit&: this reaches the OS and can raise a
     // banner, and anything that runs an event loop can erase the entry a
     // reference would be pointing at.
-    void launchEditor(const QString& local, const QString& name);
+    void launchEditor(QString local, QString name);
     // Both watcher signals funnel here. `local` is the key into m_edits.
     void noteEditActivity(const QString& local);
     void flushEdits();

@@ -603,3 +603,49 @@ Verified CORRECT, do not re-flag:
   `seconds * 1000` in `restartIdleTimer` cannot overflow.
 - Notifier/TaskbarProgress cache their HWND lazily (first notify / per apply),
   AFTER quake's `setFlags()`, so no stale-HWND cross-feature bug.
+
+## M4 gate audit (branch t64-m4-power-tools, 8627724..HEAD) — 2026-08-01
+
+Open findings handed to the lead auditor (re-check before re-flagging):
+- `Sftp::listDir` (sftp.cpp:225) is the ONLY blocking libssh loop in the repo
+  with no `m_shutdown` read and no interleave hook. 65536 iterations x the
+  15 s `SSH_OPTIONS_TIMEOUT` = an unjoinable worker. `realpath`/`stat` are one
+  round trip so they are bounded; `get`/`put` cancel via the Progress callback.
+- `interleaveShell()` (ssh_backend.cpp:1116) reads only `is_stderr=0`; pump()
+  reads 1 as well at :905 with a comment saying why. Also skips
+  `m_forwards.service()` and the `m_resizePending` drain, so tunnels + pty
+  resize are starved for the whole transfer.
+- `SftpModel::cancelShellIntegration()` resets `m_install` but not `m_open`, so
+  an in-flight Probe resumes the chain with `scratchDir` empty and downloads to
+  a RELATIVE "probe" path in the process CWD. Cancel is reachable during
+  "probing" (FilePanel.qml:627 hides it only for "writing").
+- `launchEditor(const QString&, const QString&)` is called with `it->local,
+  it->name`; the header comment claims by-value. `QDesktopServices::openUrl` ->
+  ShellExecute pumps a nested loop that delivers queued `sftpFinished`.
+- Pre-existing: `~TerminalItem` (terminal_item.cpp:713) calls `backend->stop()`
+  (which joins) on the GUI thread; `resetSession()` offloads it to the pool.
+
+Verified CORRECT, do not re-flag:
+- SFTP handle lifetimes: every sftp_opendir/sftp_open is closed on EVERY exit
+  path; every sftp_attributes freed; sftp_limits_free, ssh_string_free_char
+  present. `open()` leaving `m_session` set after an `sftp_init` failure is
+  deliberate and safe.
+- The listDir cap counts ITERATIONS (`++seen` before the isSafeName filter),
+  not stored entries. Test at tests/unit/sftp_test.cpp:480.
+- Truncated-download detection (sftp.cpp:366) deletes the file and is distinct
+  from `cancelled()`. Test at sftp_test.cpp:538.
+- Teardown ordering: `m_sftp.close()` (sftp_free) runs FIRST in runOnce's
+  teardown lambda, before ssh_channel_free/ssh_disconnect/ssh_free, on both
+  exits; member order also destroys `m_sftp` before `m_impl`.
+- `queueSftp` closes the TOCTOU: the `m_connected` read and the push are under
+  the same mutex teardown clears them under. The `emit` inside that lock is
+  safe ONLY because every sftpFinished connection is explicit QueuedConnection
+  (sftp_model.cpp:219) — a Direct one would deadlock the non-recursive mutex.
+- Cancel epoch: bump+swap under one lock, snapshot under the same lock as the
+  pop; request ids are never reused and handleFinished drops unknown ids.
+- reflow's mark gather uses the same half-open [first,last) as joinLogicalLine;
+  `visualRowsOfLine` reproduces reflow's wrap arithmetic exactly; `prevPrompt`'s
+  `i-- > floor` is the correct inclusive form; `indexOfStable` + `clear()`
+  advancing `m_dropped` degrade a stale `m_openPrompt` to floor 0.
+- Notifier's `wcsncpy_s(..., _TRUNCATE)` sized by ARRAYSIZE bounds remote
+  command output into szInfo/szInfoTitle; no format string anywhere on it.
