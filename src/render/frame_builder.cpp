@@ -147,10 +147,21 @@ std::string selectionText(std::span<const core::vt::Line> viewport, const Select
             }
             any = true;
             const char32_t ch = line.cells[static_cast<std::size_t>(col)].ch;
+            if (core::vt::isWideTrailing(ch)) {
+                // The right-hand cell of a two-column cluster. It owns no text
+                // — the cluster lives in the cell to its LEFT and was already
+                // emitted — so it contributes nothing at all, not even a space.
+                //
+                // It must be skipped BEFORE the lookup below: kWideTrailing is
+                // not a cluster ref, so lookup() returns an empty span and the
+                // literal-codepoint arm would encode 0x80000000 as UTF-8. That
+                // put four garbage bytes into the clipboard after every CJK or
+                // emoji character a mouse drag crossed.
+                continue;
+            }
             if (ch == 0) {
-                // An unwritten cell, and the continuation half of a wide glyph
-                // (which stores 0 in the second cell). Both are one space here;
-                // trailing runs of them are trimmed below.
+                // An unwritten cell. One space here; trailing runs of them are
+                // trimmed below.
                 rowText += ' ';
                 continue;
             }

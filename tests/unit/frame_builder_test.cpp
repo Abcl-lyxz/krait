@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 using krait::core::vt::Attr;
@@ -311,6 +312,27 @@ TEST_CASE("each cursor style emits its own geometry", "[frame]") {
         builder.build(viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
         CHECK(builder.solids().empty());
     }
+}
+
+TEST_CASE("copying a wide cluster does not emit its trailing half", "[frame][width]") {
+    // REGRESSION. A double-width cluster stores kWideTrailing (0x80000000) in
+    // its right-hand cell. That value is not a cluster ref, so lookup() returns
+    // an empty span, and the literal-codepoint arm used to encode 0x80000000 as
+    // UTF-8 — four garbage bytes on the clipboard after every CJK or emoji
+    // character a selection crossed. It has to contribute nothing at all: not a
+    // codepoint, and not a space either, or "日本" would paste as "日 本 ".
+    krait::core::vt::ClusterPool pool;
+    Line line(6);
+    line.cells[0].ch = U'日';  // 日, two columns
+    line.cells[1].ch = krait::core::vt::kWideTrailing;
+    line.cells[2].ch = U'本';  // 本, two columns
+    line.cells[3].ch = krait::core::vt::kWideTrailing;
+    const std::array<Line, 1> viewport{line};
+
+    const Selection all{
+        .active = true, .anchorRow = 0, .anchorCol = 0, .cursorRow = 0, .cursorCol = 5};
+    CHECK(krait::render::selectionText(viewport, all, pool) ==
+          std::string("\xe6\x97\xa5\xe6\x9c\xac"));
 }
 
 TEST_CASE("selection emits one rect per contiguous span, not per cell", "[frame]") {

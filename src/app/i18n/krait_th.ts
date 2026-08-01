@@ -149,14 +149,6 @@
         <translation>เซสชันนั้นไม่ได้ถูกบันทึกไว้แล้ว</translation>
     </message>
     <message>
-        <source>Logging this session to %1</source>
-        <translation>กำลังบันทึกเซสชันนี้ไปที่ %1</translation>
-    </message>
-    <message>
-        <source>Stopped logging this session.</source>
-        <translation>หยุดบันทึกเซสชันนี้แล้ว</translation>
-    </message>
-    <message>
         <source>Not wired up yet: %1</source>
         <translation>ยังไม่ได้เชื่อมต่อคำสั่งนี้: %1</translation>
     </message>
@@ -206,6 +198,14 @@
         <translation>การโอนไฟล์ต้องใช้เซสชัน SSH แต่แท็บนี้ไม่ใช่</translation>
     </message>
     <message>
+        <source>Logging this session to %1</source>
+        <translation>กำลังบันทึกเซสชันนี้ไปที่ %1</translation>
+    </message>
+    <message>
+        <source>Stopped logging this session.</source>
+        <translation>หยุดบันทึกเซสชันนี้แล้ว</translation>
+    </message>
+    <message>
         <source>No earlier prompt in this session.</source>
         <translation>ไม่มีพรอมต์ก่อนหน้านี้ในเซสชันนี้</translation>
     </message>
@@ -220,6 +220,14 @@
     <message>
         <source>%1 open, %2 total</source>
         <translation>เปิดอยู่ %1 ทั้งหมด %2</translation>
+    </message>
+    <message>
+        <source>COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave</source>
+        <translation>โหมดคัดลอก — hjkl เลื่อน, w/b/e คำ, v เลือก, y คัดลอก, Esc ออก</translation>
+    </message>
+    <message>
+        <source>● Logging to %1</source>
+        <translation>● กำลังบันทึกไปที่ %1</translation>
     </message>
     <message>
         <source>Trust this server</source>
@@ -325,6 +333,10 @@
     <message>
         <source>Start or stop logging this session</source>
         <translation>เริ่มหรือหยุดบันทึกเซสชันนี้</translation>
+    </message>
+    <message>
+        <source>Copy mode (vim keys)</source>
+        <translation>โหมดคัดลอก (ปุ่มแบบ vim)</translation>
     </message>
     <message>
         <source>Show port forwards</source>
@@ -530,6 +542,10 @@
     <message>
         <source>A trigger matched: %1</source>
         <translation>ทริกเกอร์ตรงกับ: %1</translation>
+    </message>
+    <message>
+        <source>Logging stopped.</source>
+        <translation>หยุดบันทึกแล้ว</translation>
     </message>
     <message>
         <source>A command failed after %1 s (exit status %2).</source>

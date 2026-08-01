@@ -5,6 +5,7 @@
 #include "../net/vault/vault.h"
 #include "capture.h"
 #include "core/terminal/session.h"
+#include "input/copy_mode.h"
 #include "input/ime.h"
 #include "input/mouse.h"
 #include "input/paste.h"
@@ -71,6 +72,14 @@ class TerminalItem : public QQuickRhiItem {
     // {name, preview}. Empty for a profile that defines none, which is what
     // keeps the strip from appearing on tabs it has nothing to say about.
     Q_PROPERTY(QVariantList snippets READ snippets NOTIFY sessionChanged)
+    // T70. Properties rather than the Q_INVOKABLE getters they replace: the
+    // status strip BINDS to these, and a logging session that stopped without
+    // the strip noticing is exactly the failure this task exists to prevent.
+    Q_PROPERTY(bool logging READ loggingEnabled NOTIFY loggingChanged)
+    Q_PROPERTY(QString logPath READ logPath NOTIFY loggingChanged)
+    // T71. Whether keys are going to copy mode instead of the shell. The user
+    // needs to know why their typing stopped reaching the far end.
+    Q_PROPERTY(bool copyMode READ copyModeActive NOTIFY copyModeChanged)
 
   public:
     TerminalItem();
@@ -194,12 +203,22 @@ class TerminalItem : public QQuickRhiItem {
 
     Q_INVOKABLE bool hexdumpEnabled() const { return m_hexdump; }
 
-    // Starts or stops capturing the session to a timestamped file. Returns the
-    // path, or empty when stopping or on failure — the caller puts it in a
-    // banner, because a log nobody can find is a log nobody trusts.
+    // Starts or stops capturing the session to a file named by the
+    // `logging.pathTemplate` setting. Returns the path, or empty when stopping
+    // or on failure — the caller puts it in a banner, because a log nobody can
+    // find is a log nobody trusts.
     Q_INVOKABLE QString toggleLogging();
 
-    Q_INVOKABLE bool loggingEnabled() const { return m_log.isOpen(); }
+    bool loggingEnabled() const { return m_log.isOpen(); }
+
+    const QString& logPath() const { return m_logPath; }
+
+    // T71. Enters or leaves copy mode. While it is on, keys drive the cursor
+    // over the scrollback instead of reaching the shell, and the viewport stops
+    // being snapped back to the live screen by every keypress.
+    Q_INVOKABLE void setCopyMode(bool on);
+
+    bool copyModeActive() const { return m_copyMode; }
 
     // T67, jump-to-prompt. `direction` is -1 for the previous OSC 133 prompt
     // mark and +1 for the next one, counted from the row at the top of the
@@ -259,6 +278,12 @@ class TerminalItem : public QQuickRhiItem {
     // dialog — rules/ui.md bans app-modal surfaces in session flows, and this
     // one arrives precisely when the user is doing something else.
     void commandFinished(const QString& message, const QString& detail);
+
+    // T70/T71. State the tab strip shows for as long as it lasts. A log running
+    // unnoticed is how a secret ends up on disk, and a mode that has swallowed
+    // the keyboard without saying so reads as a hung terminal.
+    void loggingChanged();
+    void copyModeChanged();
 
     // T68. A trigger matched. Its own signal rather than reusing the one above:
     // the two arrive for different reasons and a handler that wanted to treat
@@ -336,6 +361,12 @@ class TerminalItem : public QQuickRhiItem {
                      int wheelSteps);
     // Puts the current selection on the clipboard. No-op without one.
     void copySelection();
+    // T71. Runs one key through copy mode. False means copy mode does not claim
+    // the key, so the caller must leave the event unaccepted and let the QML
+    // chrome see it — a mode that ate Ctrl+Shift+P would be a trap.
+    bool handleCopyKey(QKeyEvent* event);
+    // What copy mode's cursor and anchor currently select.
+    render::Selection copySelectionRange() const;
     // Sends already-sanitised paste bytes and snaps the viewport back.
     void sendPaste(const QByteArray& bytes);
     // Appends the in-flight composition to the frame. A preedit is not grid
@@ -394,6 +425,17 @@ class TerminalItem : public QQuickRhiItem {
     bool m_hexdump = false;
     std::uint64_t m_hexdumpOffset = 0;
     SessionLog m_log;
+    // Remembered separately from m_log: the strip keeps naming the file after a
+    // write failure closed the stream, which is the moment the user most needs
+    // to know which file stopped.
+    QString m_logPath;
+    // `logging.includeInput`, pulled in applySettings(). Cached rather than read
+    // per keypress, and re-read on hot reload like every other wired setting.
+    bool m_logInput = false;
+
+    // T71. Copy mode: the cursor, the anchor, and whether keys are ours.
+    bool m_copyMode = false;
+    input::CopyCursor m_copyCursor;
 
     render::RasterFn m_raster;
     std::string m_family;            // what ensureFont() actually resolved

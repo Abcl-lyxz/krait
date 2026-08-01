@@ -31,6 +31,7 @@ constexpr const char* const kActionLabels[] = {
     QT_TR_NOOP("Close pane"),
     QT_TR_NOOP("Toggle hexdump"),
     QT_TR_NOOP("Start or stop logging this session"),
+    QT_TR_NOOP("Copy mode (vim keys)"),
     QT_TR_NOOP("Show port forwards"),
     QT_TR_NOOP("Show the file transfer panel"),
     QT_TR_NOOP("Show the snippet bar"),

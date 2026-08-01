@@ -50,6 +50,24 @@ namespace {
 constexpr std::array<std::string_view, 5> kFontCandidates{
     "Cascadia Mono", "Cascadia Code", "Consolas", "Lucida Console", "Courier New"};
 
+// T70. The three logging settings, named once so a typo is a link error rather
+// than a silently-defaulted read.
+constexpr std::string_view kLogTemplate = "logging.pathTemplate";
+constexpr std::string_view kLogFormat = "logging.format";
+constexpr std::string_view kLogIncludeInput = "logging.includeInput";
+
+// The schema constrains this to the three choices, so anything else is a file
+// written by a newer build — and Escaped, the default, is the safe read.
+LogFormat logFormatFromName(const QString& name) {
+    if (name == QStringLiteral("raw")) {
+        return LogFormat::Raw;
+    }
+    if (name == QStringLiteral("text")) {
+        return LogFormat::Text;
+    }
+    return LogFormat::Escaped;
+}
+
 QShader loadShader(const QString& path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -278,7 +296,13 @@ void TerminalItem::sendInput(const QByteArray& bytes) {
     if (m_backend == nullptr || bytes.isEmpty()) {
         return;
     }
-    m_log.writeInput(bytes);
+    // Opt-in, and off by default (rules/net.md: never in logs). This is the
+    // stream a password typed at an echo-off prompt travels in, and it is the
+    // only one where turning logging on can capture a secret the far end never
+    // echoed back. See SessionLog for what output-only does and does not buy.
+    if (m_logInput) {
+        m_log.writeInput(bytes);
+    }
     m_backend->writeInput(bytes);
 }
 
@@ -397,17 +421,130 @@ void TerminalItem::setHexdump(bool on) {
 QString TerminalItem::toggleLogging() {
     if (m_log.isOpen()) {
         m_log.close();
+        m_logPath.clear();
+        emit loggingChanged();
         return {};
     }
     namespace ks = settings;
     const ks::Resolution dir = ks::resolveConfigDir(
         ks::systemPathInputs(), [](const QString& path) { return QFile::exists(path); });
-    const QString path = sessionLogPath(dir.dir, sessionTitle());
-    if (!m_log.open(path)) {
+    const QString tmpl =
+        m_settings == nullptr ? QString() : QString::fromStdString(m_settings->text(kLogTemplate));
+    const QString format =
+        m_settings == nullptr ? QString() : QString::fromStdString(m_settings->text(kLogFormat));
+    const LogFields fields{.session = sessionTitle(),
+                           .host = QString::fromStdString(m_profile.host)};
+    const QString path = expandLogPath(dir.dir, tmpl, fields, QDateTime::currentDateTime());
+    if (!m_log.open(path, logFormatFromName(format))) {
         emit errorRaised(tr("Could not start logging."), m_log.error());
         return {};
     }
+    m_logPath = path;
+    emit loggingChanged();
     return path;
+}
+
+void TerminalItem::setCopyMode(bool on) {
+    if (m_copyMode == on || !m_session) {
+        return;
+    }
+    m_copyMode = on;
+    if (on) {
+        // OUTPUT KEEPS ARRIVING, and the view does not freeze. Grid already
+        // solves the case that matters: pushToScrollback() bumps m_viewOffset
+        // whenever the viewport is scrolled up, so once the user is reading
+        // history the rows under them do not move however much the far end
+        // prints. Sitting at the live bottom, the screen scrolls exactly as it
+        // does outside copy mode — which is what staying at the bottom asks for
+        // — and the first `k` moves into history and pins it.
+        //
+        // The alternative, freezing the viewport on entry, was rejected: it
+        // needs the cursor tracked in absolute-line space while the yank needs
+        // it in the viewport space render::Selection uses, and two coordinate
+        // systems for one cursor is how a selection ends up describing text the
+        // user is not looking at.
+        //
+        // Starts where the shell's cursor is when the view is live, and at the
+        // bottom of what is on screen when it is not — in both cases on a row
+        // the user is already looking at.
+        const core::vt::Grid& grid = m_session->grid();
+        m_copyCursor = {};
+        m_copyCursor.row = grid.viewOffset() == 0 ? grid.row : std::max(0, m_rows - 1);
+        m_copyCursor.col = grid.viewOffset() == 0 ? grid.col : 0;
+        m_copyCursor.anchorRow = m_copyCursor.row;
+        m_copyCursor.anchorCol = m_copyCursor.col;
+    } else {
+        // Leaving snaps back to the live screen, the same thing a keypress does
+        // outside copy mode. A mode you left that silently left you reading
+        // history is a mode people think is still on.
+        m_session->grid().scrollViewToBottom();
+        m_selection.active = false;
+    }
+    emit copyModeChanged();
+    rebuildFrame();
+    update();
+}
+
+// The selection copy mode is currently describing, in the viewport coordinates
+// render::Selection uses. Line mode widens to whole rows at read time rather
+// than moving the anchor, so a `V` then `v` gives back the character selection
+// the user had rather than a row-wide one.
+render::Selection TerminalItem::copySelectionRange() const {
+    render::Selection sel{.active = m_copyCursor.select != input::Selecting::Off,
+                          .anchorRow = m_copyCursor.anchorRow,
+                          .anchorCol = m_copyCursor.anchorCol,
+                          .cursorRow = m_copyCursor.row,
+                          .cursorCol = m_copyCursor.col};
+    if (m_copyCursor.select == input::Selecting::Line) {
+        const bool forward = sel.cursorRow >= sel.anchorRow;
+        sel.anchorCol = forward ? 0 : std::max(0, m_cols - 1);
+        sel.cursorCol = forward ? std::max(0, m_cols - 1) : 0;
+    }
+    return sel;
+}
+
+bool TerminalItem::handleCopyKey(QKeyEvent* event) {
+    const input::Command command = input::translateCopyKey(event->key(), event->modifiers());
+    if (command.kind == input::Command::Kind::None) {
+        return false;  // not ours: the chrome still gets its shortcuts
+    }
+    core::vt::Grid& grid = m_session->grid();
+    switch (command.kind) {
+    case input::Command::Kind::Leave:
+        setCopyMode(false);
+        return true;
+    case input::Command::Kind::Yank:
+        // Through copySelection(), not a second extractor: wrap joining and
+        // trailing-space trimming have to match what a mouse drag produces.
+        m_selection = copySelectionRange();
+        copySelection();
+        setCopyMode(false);
+        return true;
+    case input::Command::Kind::Select:
+        // Pressing the same one again turns it off, which is what vim does and
+        // what anyone who pressed `v` by accident will try.
+        m_copyCursor.select =
+            m_copyCursor.select == command.select ? input::Selecting::Off : command.select;
+        if (m_copyCursor.select == input::Selecting::Off) {
+            m_copyCursor.anchorRow = m_copyCursor.row;
+            m_copyCursor.anchorCol = m_copyCursor.col;
+        }
+        break;
+    case input::Command::Kind::Move: {
+        const int scroll =
+            input::applyMotion(m_copyCursor, command.motion, m_viewport, grid.clusters());
+        if (scroll != 0) {
+            grid.scrollView(scroll);
+        }
+        break;
+    }
+    case input::Command::Kind::None:
+        return false;
+    }
+    m_selection = copySelectionRange();
+    rebuildFrame();
+    update();
+    return true;
 }
 
 void TerminalItem::raiseError(const QString& message, const QString& hint) {
@@ -739,6 +876,11 @@ void TerminalItem::applySettings() {
                                ? core::unicode::Ambiguous::Wide
                                : core::unicode::Ambiguous::Narrow;
     const auto scrollback = static_cast<int>(m_settings->integer("scrollback.lines"));
+    // T70. Read here so a hot reload reaches a tab that is already logging. It
+    // takes effect on the NEXT keypress rather than reopening the file: turning
+    // it off mid-session must stop recording input immediately, and turning it
+    // on must not silently rewrite what is already on disk.
+    m_logInput = m_settings->boolean(kLogIncludeInput);
 
     // The east-asian-ambiguous setting changes how many CELLS existing text
     // occupies, so it is a reflow, not a repaint. Applied to the live grid
@@ -875,6 +1017,14 @@ void TerminalItem::handleOutput(const QByteArray& bytes) {
         return;
     }
     m_log.writeOutput(bytes);
+    if (m_log.takeFailure()) {
+        // The disk filled or the share went away. A per-tab banner, never a
+        // dialog, and never the silent stop that is the whole reason this class
+        // latches a failure at all — the path stays on the strip so the user can
+        // see WHICH file died.
+        emit errorRaised(tr("Logging stopped."), m_log.error());
+        emit loggingChanged();
+    }
     if (m_hexdump) {
         // The DUMP is fed to the parser, not the bytes. Feeding both would put
         // the escape sequences on screen twice — once as hex and once as their
@@ -1093,6 +1243,15 @@ void TerminalItem::rebuildFrame() {
     params.cursor.row = grid.row;
     params.cursor.col = grid.col;
     params.cursor.style = render::CursorStyle::Block;
+    if (m_copyMode) {
+        // Copy mode's cursor REPLACES the shell's: two blocks on screen with
+        // only one of them answering the keyboard is the ambiguity the mode
+        // indicator exists to remove, and the shell's is hidden anyway the
+        // moment the viewport scrolls back.
+        params.cursor.visible = true;
+        params.cursor.row = m_copyCursor.row;
+        params.cursor.col = m_copyCursor.col;
+    }
 
     // ONE shaping batch for the whole frame, not one per row. FrameBuilder's
     // callback is per row, so shaping inside it would mean a separate blocking
@@ -1386,6 +1545,18 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
          event->modifiers().testFlag(Qt::ShiftModifier) && event->key() == Qt::Key_C)) {
         copySelection();
         event->accept();
+        return;
+    }
+    // T71. AFTER copy/paste and BEFORE translateKey: copy mode owns bare
+    // letters, so it has to come before translation, and it must come before
+    // the scrollViewToBottom() below — snapping to the live screen on every
+    // keypress is exactly what a mode for reading history must not do.
+    if (m_copyMode) {
+        if (handleCopyKey(event)) {
+            event->accept();
+        } else {
+            QQuickRhiItem::keyPressEvent(event);
+        }
         return;
     }
 

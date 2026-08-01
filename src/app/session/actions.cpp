@@ -26,7 +26,15 @@ constexpr std::array kActions = {
     // something you turn on for the device that is misbehaving, not a
     // preference — which is why they live here and not in the registry.
     Action{"view.hexdump", "Toggle hexdump", "Ctrl+Shift+H", "hex bytes raw debug dump"},
-    Action{"session.log", "Start or stop logging this session", "", "record capture file"},
+    // T70. Ctrl+Shift+L is free (the letters already taken are T W D E U B S H
+    // P O C V F), and L is what every other terminal uses for logging.
+    Action{"session.log", "Start or stop logging this session", "Ctrl+Shift+L",
+           "record capture file log transcript save"},
+    // T71. Keyboard scrollback navigation. Ctrl+Shift+K rather than tmux's
+    // prefix-[ because there is no prefix key here; K is "keyboard" and the
+    // only free letter next to the navigation ones.
+    Action{"view.copyMode", "Copy mode (vim keys)", "Ctrl+Shift+K",
+           "copy mode vim keyboard scrollback select yank navigate history"},
     Action{"view.tunnels", "Show port forwards", "Ctrl+Shift+U", "tunnel forward port socks"},
     // T65. "Browse" earns the B; every other file word people reach for is in
     // the keywords, because nobody guesses what a panel is called.

@@ -55,6 +55,7 @@ add_executable(krait-qt-tests
     gpu_resources_test.cpp
     hostkey_art_test.cpp
     i18n_test.cpp
+    copy_mode_test.cpp
     ime_test.cpp
     keymap_test.cpp
     kitty_keys_test.cpp

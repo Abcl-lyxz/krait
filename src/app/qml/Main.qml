@@ -110,6 +110,8 @@ Window {
     Shortcut { sequence: "Ctrl+Shift+U"; onActivated: { const p = root.currentPane(); if (p) p.toggleTunnels() } }
     Shortcut { sequence: "Ctrl+Shift+B"; onActivated: { const p = root.currentPane(); if (p) p.toggleFiles() } }
     Shortcut { sequence: "Ctrl+Shift+S"; onActivated: { const p = root.currentPane(); if (p) p.toggleSnippets() } }
+    Shortcut { sequence: "Ctrl+Shift+K"; onActivated: { const p = root.currentPane(); if (p) p.toggleCopyMode() } }
+    Shortcut { sequence: "Ctrl+Shift+L"; onActivated: { const p = root.currentPane(); if (p) p.toggleLogging() } }
     Shortcut { sequence: "Ctrl+Shift+E"; onActivated: root.splitCurrent(true) }
     Shortcut { sequence: "Ctrl+Shift+Up"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(-1) } }
     Shortcut { sequence: "Ctrl+Shift+Down"; onActivated: { const p = root.currentPane(); if (p) p.jumpPrompt(1) } }
@@ -258,14 +260,12 @@ Window {
             }
             case "session.log": {
                 const pane = root.currentPane()
-                if (!pane || !pane.terminal) return
-                const path = pane.terminal.toggleLogging()
-                // Where the file went, said out loud. A log nobody can find is
-                // a log nobody trusts — and one running unnoticed is how a
-                // password ends up on disk.
-                pane.raiseSessionError(
-                    path.length > 0 ? qsTr("Logging this session to %1").arg(path)
-                                    : qsTr("Stopped logging this session."), "")
+                if (pane) pane.toggleLogging()
+                return
+            }
+            case "view.copyMode": {
+                const pane = root.currentPane()
+                if (pane) pane.toggleCopyMode()
                 return
             }
             case "view.closePane": {

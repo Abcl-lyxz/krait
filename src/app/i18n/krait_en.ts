@@ -149,14 +149,6 @@
         <translation>That session is no longer saved.</translation>
     </message>
     <message>
-        <source>Logging this session to %1</source>
-        <translation>Logging this session to %1</translation>
-    </message>
-    <message>
-        <source>Stopped logging this session.</source>
-        <translation>Stopped logging this session.</translation>
-    </message>
-    <message>
         <source>Not wired up yet: %1</source>
         <translation>Not wired up yet: %1</translation>
     </message>
@@ -206,6 +198,14 @@
         <translation>File transfer needs an SSH session, and this tab is not one.</translation>
     </message>
     <message>
+        <source>Logging this session to %1</source>
+        <translation>Logging this session to %1</translation>
+    </message>
+    <message>
+        <source>Stopped logging this session.</source>
+        <translation>Stopped logging this session.</translation>
+    </message>
+    <message>
         <source>No earlier prompt in this session.</source>
         <translation>No earlier prompt in this session.</translation>
     </message>
@@ -220,6 +220,14 @@
     <message>
         <source>%1 open, %2 total</source>
         <translation>%1 open, %2 total</translation>
+    </message>
+    <message>
+        <source>COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave</source>
+        <translation>COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave</translation>
+    </message>
+    <message>
+        <source>● Logging to %1</source>
+        <translation>● Logging to %1</translation>
     </message>
     <message>
         <source>Trust this server</source>
@@ -325,6 +333,10 @@
     <message>
         <source>Start or stop logging this session</source>
         <translation>Start or stop logging this session</translation>
+    </message>
+    <message>
+        <source>Copy mode (vim keys)</source>
+        <translation>Copy mode (vim keys)</translation>
     </message>
     <message>
         <source>Show port forwards</source>
@@ -530,6 +542,10 @@
     <message>
         <source>A trigger matched: %1</source>
         <translation>A trigger matched: %1</translation>
+    </message>
+    <message>
+        <source>Logging stopped.</source>
+        <translation>Logging stopped.</translation>
     </message>
     <message>
         <source>A command failed after %1 s (exit status %2).</source>

@@ -146,6 +146,73 @@ the session logs. The matched text is stripped of control characters and
 truncated before it is written — a log line that can move your cursor is not a
 log line.
 
+### `logging.pathTemplate`, `logging.format`, `logging.includeInput`
+
+Session logging is per tab and starts from the command palette ("Start or stop
+logging this session") or **Ctrl+Shift+L**. While it runs, the tab shows a red
+`● Logging to …` strip naming the file. That strip is not decoration: it is
+bound to the log's real state, so if the disk fills and the log stops, the strip
+goes away and a banner says which file died. A log that stopped without telling
+you is worse than one you never started.
+
+**`pathTemplate`** is where the file goes, relative to the config directory.
+Empty means `logs/{session}-{date}-{time}.log`, which is exactly what earlier
+builds wrote — so this key existing changes nothing until you edit it.
+
+| Placeholder | Becomes |
+|---|---|
+| `{session}` | the session name, or `Shell` for an unnamed local one |
+| `{host}` | the profile's host, or `none` when there is not one |
+| `{date}` | `YYYYMMDD` |
+| `{time}` | `HHMMSS` |
+
+Directory separators in the *template* are yours to use — `logs/{host}/{date}.log`
+gives you one folder per host. The *substituted values* are not trusted: a
+profile name usually came out of an importer and a host name is influenced by
+the far end, so each one is reduced to `[a-z0-9-]` before it is inserted. A
+session called `../../evil` becomes `evil`; `web1.prod` becomes `web1-prod`; a
+name that is nothing but Thai or CJK becomes `session`. Windows device names are
+caught too — a host called `con` writes to `con-log`, not to the console driver.
+A placeholder Krait does not know is left in the name where you can see it, so a
+typo shows up as `{hostname}.log` rather than as a silent gap.
+
+**`format`** is one of:
+
+| Value | What lands in the file |
+|---|---|
+| `raw` | output bytes exactly as they arrived — no header, no timestamps. Replays: `type` it into a terminal and the session repaints. |
+| `escaped` | *(default)* timestamped, marked `<` for output and `>` for input, control bytes written as `\x1b`. Answers "what did it send, and when". |
+| `text` | escape sequences removed, then timestamped and marked. The one to paste into a bug report. |
+
+**`includeInput` is off, and like `triggers.allowSend` that default is not about
+taste.** Input is the stream a password typed at an echo-off prompt travels in —
+the one place logging can capture a secret the far end never sent back. `raw`
+ignores this key entirely: a byte-exact stream has no lane to put a direction
+marker in, so mixing input into it would produce a file that is neither
+replayable nor readable.
+
+#### What a log file can contain
+
+Read this before you attach one to a bug report or a ticket.
+
+A session log is a transcript. Krait does not filter it, and could not: a
+transcript that dropped the interesting line would be a transcript nobody could
+trust. So:
+
+- **With `includeInput` on, everything you typed is in the file.** Including the
+  password at the `sudo` prompt. That is why it is off.
+- **Turning input off does not make a log safe.** A normal shell *echoes* what
+  you type, so at an ordinary prompt your keystrokes are in the output stream
+  anyway. Echo stops only where the far end turns it off — which is exactly the
+  password prompt. Output-only buys you that case, and nothing beyond it.
+- **The far end chooses what it sends.** `env`, a token inside a `git remote -v`
+  URL, a key printed by a careless script, an MOTD naming internal hosts — all
+  of it lands verbatim.
+
+The protections are procedural rather than technical, and all three matter: it
+is off until a person turns it on, it is per session rather than global, and the
+tab says so on screen for as long as it runs.
+
 ### `unicode.eastAsianAmbiguous`
 
 The East-Asian-Ambiguous character class has no correct default, only a correct

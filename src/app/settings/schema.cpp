@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 14> kDefs{{
+constexpr std::array<Def, 17> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -182,6 +182,48 @@ constexpr std::array<Def, 14> kDefs{{
         .doc = "settings.triggers.logFile",
         .searchEn = "trigger log file path record match history",
         .searchTh = "ทริกเกอร์ บันทึก ไฟล์ ที่อยู่ไฟล์ ประวัติ",
+    },
+    {
+        .id = "logging.pathTemplate",
+        .type = Type::String,
+        // Empty means kDefaultLogTemplate, which is byte-for-byte what T57
+        // wrote — so this setting existing changes nothing until it is edited.
+        // Placeholders: {session} {host} {date} {time}. Separators in the
+        // TEMPLATE are the point ("logs/{host}/{date}.log"); the substituted
+        // values are sanitised, because a profile name comes from an importer
+        // and a host name is remote-influenced. See app/capture.h.
+        .fallback = std::string_view{},
+        .choices = "",
+        .doc = "settings.logging.pathTemplate",
+        .searchEn = "log logging path template file name folder session record capture",
+        .searchTh = "บันทึก ล็อก ที่อยู่ไฟล์ รูปแบบ ชื่อไฟล์ โฟลเดอร์ เซสชัน",
+    },
+    {
+        .id = "logging.format",
+        .type = Type::String,
+        // "escaped" is what T57 wrote, so an existing user's files keep their
+        // shape. "raw" replays; "text" is the one to paste into a bug report.
+        .fallback = std::string_view{"escaped"},
+        .choices = "raw escaped text",
+        .doc = "settings.logging.format",
+        .searchEn = "log format raw escaped plain text stripped escape sequences replay",
+        .searchTh = "บันทึก รูปแบบ ดิบ ข้อความ ล้วน ลำดับหนี",
+    },
+    {
+        .id = "logging.includeInput",
+        .type = Type::Bool,
+        // OFF, and like triggers.allowSend this default is not about taste.
+        // Input is the stream a password typed at an echo-off prompt travels
+        // in — the one place logging can capture a secret the far end never
+        // echoed back. Output-only does NOT make a log safe (a normal shell
+        // echoes what you type, so it is in the output anyway); what it buys is
+        // exactly the prompt where echo is off, which is the password prompt.
+        // Ignored by the "raw" format, which has no second lane to put it in.
+        .fallback = false,
+        .choices = "",
+        .doc = "settings.logging.includeInput",
+        .searchEn = "log input keystrokes typed password secret record include",
+        .searchTh = "บันทึก สิ่งที่พิมพ์ การกดแป้น รหัสผ่าน ความลับ",
     },
     {
         .id = "ui.language",
