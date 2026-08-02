@@ -1,10 +1,31 @@
 #include "core/parser/csi_mode.h"
 
+#include <string>
+
 namespace krait::core::vt {
 
 namespace {
 
-void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
+// Mode 2048's report: CSI 48 ; rows ; cols ; height_px ; width_px t.
+//
+// Rows and columns come FIRST, then pixels, and both pairs are
+// height-before-width — the opposite order to how a window size is usually
+// written. Getting it backwards produces a report every consumer accepts and
+// every consumer misreads, so the order is spelled out here rather than left
+// to the reader of the format string.
+//
+// The pixel figures are the TEXT AREA, not the window: the spec excludes any
+// padding the terminal applies, which is why they are computed from the cell
+// size rather than taken from the widget.
+std::string resizeReport(const Grid& grid) {
+    const int rows = grid.rows;
+    const int cols = grid.cols;
+    return "\x1b[48;" + std::to_string(rows) + ";" + std::to_string(cols) + ";" +
+           std::to_string(rows * grid.cellHeightPx) + ";" + std::to_string(cols * grid.cellWidthPx) +
+           "t";
+}
+
+void applyMode(Grid& grid, std::uint16_t mode, bool on, std::string* reply) noexcept {
     switch (mode) {
     case 6:  // DECOM
         grid.originMode = on;
@@ -62,6 +83,29 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
         }
         break;
 
+    case 2031:
+        // Colour-palette update notification (T83). A switch and nothing more:
+        // the notification says whether the theme reads light or dark, and
+        // src/core/ has no theme — the app raises it. Turning it ON sends
+        // nothing, unlike 2048 below: the sequence for "tell me now" is a
+        // separate DSR this does not answer, so inventing a reply here would be
+        // a sequence no application is listening for.
+        grid.paletteUpdates = on;
+        break;
+
+    case 2048:
+        // In-band resize notification (T82). Enabling it MUST report the
+        // current size immediately — the spec says so in as many words, and it
+        // is the whole point: an application enables this to stop guessing at
+        // the size, and making it wait for the next resize means guessing once
+        // more. So unlike every other mode here this one has a reply, which is
+        // why applyMode gained an out-parameter.
+        grid.inBandResize = on;
+        if (on && reply != nullptr) {
+            *reply = resizeReport(grid);
+        }
+        break;
+
     case 1049:
         // NOT idempotent, and deliberately so. xterm's whichBuf guard lives
         // INSIDE ToAlternate/FromAlternate — CursorSave, ClearScreen and
@@ -106,7 +150,7 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on) noexcept {
 }  // namespace
 
 bool handleMode(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
-                std::uint8_t final) noexcept {
+                std::uint8_t final, std::string* reply) noexcept {
     if (final != 'h' && final != 'l') {
         return false;
     }
@@ -123,7 +167,7 @@ bool handleMode(Grid& grid, const Params& params, std::span<const std::uint8_t> 
     // of 0 (or `CSI ? h` with no parameters at all) names no mode.
     const bool on = final == 'h';
     for (std::size_t i = 0; i < params.count; ++i) {
-        applyMode(grid, params.values[i], on);
+        applyMode(grid, params.values[i], on, reply);
     }
     return true;
 }

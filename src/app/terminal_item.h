@@ -334,6 +334,18 @@ class TerminalItem : public QQuickRhiItem {
     // a full rebuild. Connected to ThemeStore::changed, so it runs for a theme
     // switch, a live-editor keystroke and a theme file edited on disk alike.
     void applyTheme();
+    // T82. Sends `CSI 48 ; rows ; cols ; hpx ; wpx t` when mode 2048 is on, and
+    // nothing otherwise. Called after the pty resize, never before: the spec
+    // says not to report until the internal resize is complete, and an
+    // application reading it before SIGWINCH would size against a stale pty.
+    void reportResize();
+    // T83. Sends `CSI ? 997 ; 1|2 n` when mode 2031 is on. Light or dark comes
+    // from the background's luminance, not from anything a theme file claims.
+    void reportColorScheme();
+    // T83. OSC 4/10/11/12 and their resets. Session-local by construction: a
+    // remote host must not rewrite the user's theme file, and the next tab must
+    // not inherit what this one was told.
+    void handleColorOsc(const core::vt::OscAction& action);
     void handleOutput(const QByteArray& bytes);
     // T68. Runs the profile's triggers over one chunk of output and carries out
     // whatever fired. Called from handleOutput, after the parser has seen the

@@ -123,8 +123,11 @@ TEST_CASE("an aborted or unknown OSC does nothing", "[core][osc]") {
 
     // CAN aborts the string. xterm discards those and so do we.
     CHECK(run(session, "\x1b]52;c;aGVsbG8=\x18").empty());
-    // Codes we do not implement stay silent rather than half-handled.
-    CHECK(run(session, "\x1b]4;1;rgb:00/00/00\x1b\\").empty());
+    // Codes we do not implement stay silent rather than half-handled. OSC 7
+    // (cwd) stands in for the family here; this line used to be OSC 4, which
+    // T83 implemented — leaving it would have asserted the opposite of what the
+    // terminal now does, and it is the suite noticing that which is the point.
+    CHECK(run(session, "\x1b]7;file://host/tmp\x1b\\").empty());
     // An OSC 133 with a letter nobody implements marks nothing and reports
     // nothing — the same honest silence as OSC 4 above. (A is a different
     // story: it marks the grid AND reports, which the shell-integration case
@@ -551,4 +554,186 @@ TEST_CASE("OSC 133 refuses a status it cannot trust", "[core][osc][shell]") {
     Session session(3, 20);
     feed(session, "\x1b]133;A\x1b\\$\r\n\x1b]133;D;2147483647\x1b\\");
     CHECK(session.grid().absoluteLineAt(0).exitCode == 2147483647);
+}
+
+// ---------------------------------------------------------------------------
+// OSC 4/10/11/12 and 104/110/111/112 — colour set, query and reset (M5 T83).
+//
+// The core deliberately does NOT parse the colour spec. It owns no palette, so
+// a parser here would be a second XParseColor reader that could disagree with
+// the one reading theme files, about a value the core cannot use. What it does
+// own is deciding WHICH colour was named and WHETHER the sender was asking or
+// telling — and that is what these assert.
+
+TEST_CASE("OSC 10/11/12 set the dynamic colours", "[core][osc][color]") {
+    Session session(4, 10);
+
+    for (const auto& [code, slot] : {std::pair{"10", OscAction::ColorSlot::Foreground},
+                                     std::pair{"11", OscAction::ColorSlot::Background},
+                                     std::pair{"12", OscAction::ColorSlot::Cursor}}) {
+        const auto actions = run(session, "\x1b]" + std::string(code) + ";#ff8800\x1b\\");
+        REQUIRE(actions.size() == 1);
+        CHECK(actions[0].kind == OscAction::Kind::ColorSet);
+        CHECK(actions[0].slot == slot);
+        // Verbatim, not normalised: the app parses it, and normalising here
+        // would mean two readers that can disagree about the same bytes.
+        CHECK(actions[0].text == "#ff8800");
+    }
+
+    // XParseColor's form reaches the app untouched too.
+    const auto xparse = run(session, "\x1b]11;rgb:1e/1e/2e\x1b\\");
+    REQUIRE(xparse.size() == 1);
+    CHECK(xparse[0].text == "rgb:1e/1e/2e");
+}
+
+TEST_CASE("OSC 10/11/12 with '?' are questions, not settings", "[core][osc][color]") {
+    Session session(4, 10);
+    const auto actions = run(session, "\x1b]11;?\x1b\\");
+    REQUIRE(actions.size() == 1);
+    CHECK(actions[0].kind == OscAction::Kind::ColorQuery);
+    CHECK(actions[0].slot == OscAction::ColorSlot::Background);
+    // A query carries no value. Reporting one would invite the app to apply it.
+    CHECK(actions[0].text.empty());
+}
+
+TEST_CASE("OSC 4 names one palette entry", "[core][osc][color]") {
+    Session session(4, 10);
+
+    const auto set = run(session, "\x1b]4;12;#89b4fa\x1b\\");
+    REQUIRE(set.size() == 1);
+    CHECK(set[0].kind == OscAction::Kind::ColorSet);
+    CHECK(set[0].slot == OscAction::ColorSlot::Palette);
+    CHECK(set[0].colorIndex == 12);
+    CHECK(set[0].text == "#89b4fa");
+
+    const auto query = run(session, "\x1b]4;0;?\x1b\\");
+    REQUIRE(query.size() == 1);
+    CHECK(query[0].kind == OscAction::Kind::ColorQuery);
+    CHECK(query[0].colorIndex == 0);
+
+    // 255 is the last legal entry; 256 is not an entry at all.
+    const auto last = run(session, "\x1b]4;255;#000000\x1b\\");
+    REQUIRE(last.size() == 1);
+    CHECK(last[0].colorIndex == 255);
+    CHECK(run(session, "\x1b]4;256;#000000\x1b\\").empty());
+    CHECK(run(session, "\x1b]4;-1;#000000\x1b\\").empty());
+    // Digits only. "12x" must not be read as 12 — a colour applied to the
+    // wrong entry because a parser stopped early is worse than one not applied.
+    CHECK(run(session, "\x1b]4;12x;#000000\x1b\\").empty());
+    CHECK(run(session, "\x1b]4;;#000000\x1b\\").empty());
+    // An index with no spec at all names nothing to do.
+    CHECK(run(session, "\x1b]4;12\x1b\\").empty());
+    CHECK(run(session, "\x1b]4;12;\x1b\\").empty());
+}
+
+TEST_CASE("a colour list reports its first pair and drops the rest", "[core][osc][color]") {
+    Session session(4, 10);
+    // xterm honours `OSC 4;1;red;2;green` in full. One OscAction carries one
+    // action, so the remainder is DROPPED rather than misapplied — the safe
+    // direction for a colour, and nothing in the wild sends more than a pair.
+    const auto actions = run(session, "\x1b]4;1;#ff0000;2;#00ff00\x1b\\");
+    REQUIRE(actions.size() == 1);
+    CHECK(actions[0].colorIndex == 1);
+    CHECK(actions[0].text == "#ff0000");
+
+    const auto dynamic = run(session, "\x1b]10;#ffffff;#000000\x1b\\");
+    REQUIRE(dynamic.size() == 1);
+    CHECK(dynamic[0].slot == OscAction::ColorSlot::Foreground);
+    CHECK(dynamic[0].text == "#ffffff");
+}
+
+TEST_CASE("OSC 104/110/111/112 reset colours", "[core][osc][color]") {
+    Session session(4, 10);
+
+    // A BARE 104 resets the whole palette; -1 is what says so, and it is
+    // distinct from 0, which is one entry. The distinction IS the sequence.
+    const auto all = run(session, "\x1b]104\x1b\\");
+    REQUIRE(all.size() == 1);
+    CHECK(all[0].kind == OscAction::Kind::ColorReset);
+    CHECK(all[0].slot == OscAction::ColorSlot::Palette);
+    CHECK(all[0].colorIndex == -1);
+
+    const auto one = run(session, "\x1b]104;7\x1b\\");
+    REQUIRE(one.size() == 1);
+    CHECK(one[0].kind == OscAction::Kind::ColorReset);
+    CHECK(one[0].colorIndex == 7);
+
+    // A bad index resets NOTHING rather than everything. Reading
+    // "OSC 104 ; garbage" as the bare form would wipe a palette the sender was
+    // trying to touch one entry of.
+    CHECK(run(session, "\x1b]104;nope\x1b\\").empty());
+
+    for (const auto& [code, slot] : {std::pair{"110", OscAction::ColorSlot::Foreground},
+                                     std::pair{"111", OscAction::ColorSlot::Background},
+                                     std::pair{"112", OscAction::ColorSlot::Cursor}}) {
+        const auto actions = run(session, "\x1b]" + std::string(code) + "\x1b\\");
+        REQUIRE(actions.size() == 1);
+        CHECK(actions[0].kind == OscAction::Kind::ColorReset);
+        CHECK(actions[0].slot == slot);
+    }
+}
+
+TEST_CASE("colour sequences never make the core answer", "[core][osc][color]") {
+    Session session(4, 10);
+    // The reply to a query is the APP's — it is the only layer that knows the
+    // palette. If the core ever answered, the two would eventually disagree,
+    // and a terminal reporting a colour it is not drawing is worse than one
+    // that says nothing.
+    std::string replies;
+    session.onReply = [&replies](const std::string& text) { replies += text; };
+    run(session, "\x1b]11;?\x1b\\x1b]4;0;?\x1b\\x1b]10;#fff\x1b\\x1b]104\x1b\\");
+    CHECK(replies.empty());
+}
+
+TEST_CASE("malformed and interrupted colour sequences produce nothing", "[core][osc][color]") {
+    Session session(4, 10);
+    // Aborted mid-string: xterm discards these and so do we.
+    CHECK(run(session, "\x1b]11;#ff0000\x18").empty());
+    CHECK(run(session, "\x1b]4;1;#ff0000\x1a").empty());
+    // Empty payloads.
+    CHECK(run(session, "\x1b]11\x1b\\").empty());
+    CHECK(run(session, "\x1b]11;\x1b\\").empty());
+    CHECK(run(session, "\x1b]4\x1b\\").empty());
+    // Codes that merely start with ours are NOT ours: 1000 is not 10, and 41
+    // is not 4. A prefix match here would let an unimplemented sequence repaint
+    // the window.
+    CHECK(run(session, "\x1b]1000;#ff0000\x1b\\").empty());
+    CHECK(run(session, "\x1b]41;1;#ff0000\x1b\\").empty());
+    CHECK(run(session, "\x1b]113;#ff0000\x1b\\").empty());
+
+    // Over the payload cap: refused outright rather than acted on in part.
+    std::string huge = "\x1b]11;#";
+    huge.append(OscHandler::kMaxPayload + 16, 'a');
+    huge += "\x1b\\";
+    CHECK(run(session, huge).empty());
+}
+
+TEST_CASE("a colour sequence may end with BEL as well as ST", "[core][osc][color]") {
+    Session session(4, 10);
+    const auto bel = run(session, "\x1b]11;#123456\x07");
+    REQUIRE(bel.size() == 1);
+    CHECK(bel[0].kind == OscAction::Kind::ColorSet);
+    CHECK(bel[0].text == "#123456");
+}
+
+TEST_CASE("a truncated colour sequence stays open until the next ESC", "[core][osc][color]") {
+    // Not a curiosity — it is how the parser is specified, and getting it wrong
+    // is how a test "proves" a malformed sequence was ignored while the real
+    // terminal applies it one chunk later. In the DEC state machine an ESC
+    // arriving inside an OSC string ENDS that string (it is assumed to begin
+    // ST), so an unterminated payload is delivered when the next sequence
+    // starts rather than discarded.
+    Session session(4, 10);
+
+    // Nothing yet: the string has not ended.
+    CHECK(run(session, "\x1b]11;#ff0000").empty());
+
+    // The ESC that opens the NEXT sequence closes the previous one, so this
+    // feed yields two actions — the deferred one first.
+    const auto actions = run(session, "\x1b]10;#00ff00\x1b\\");
+    REQUIRE(actions.size() == 2);
+    CHECK(actions[0].slot == OscAction::ColorSlot::Background);
+    CHECK(actions[0].text == "#ff0000");
+    CHECK(actions[1].slot == OscAction::ColorSlot::Foreground);
+    CHECK(actions[1].text == "#00ff00");
 }

@@ -36,7 +36,16 @@ void Session::csiDispatch(const Params& params, std::span<const std::uint8_t> in
     } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
         handleScroll(m_grid, params, intermediates, final);
     } else if (final == 'h' || final == 'l') {
-        handleMode(m_grid, params, intermediates, final);
+        // Mode 2048 answers with the current size the moment it is enabled, and
+        // it is the ONLY mode here that answers at all. Not rate-limited: it is
+        // one reply per DECSET, the application asked for it by name, and a
+        // dropped one leaves that application believing a size nobody told it —
+        // which is the exact failure the mode exists to end.
+        std::string reply;
+        handleMode(m_grid, params, intermediates, final, &reply);
+        if (!reply.empty() && onReply) {
+            onReply(reply);
+        }
     } else if (final == 'c' || final == 'n') {
         std::string reply;
         handleReport(m_grid, m_caps, params, intermediates, final, m_limiter, reply);

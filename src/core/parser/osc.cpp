@@ -17,6 +17,25 @@ int base64Value(char ch) {
 // Splits at the first `sep`, handing the remainder back through `rest`. OSC
 // parameter strings are positional, and a URI legitimately contains characters
 // that look like separators, so only the leading fields are split this way.
+// A palette index, 0-255. -1 for anything else — including an empty field, a
+// negative sign, and 256. Hand-rolled rather than from_chars because the whole
+// rule is "digits only, and in range": from_chars would accept "12x" by
+// stopping at the x, and a colour applied to entry 12 because the sender meant
+// something else is worse than one not applied at all.
+int parseIndex(std::string_view text) {
+    if (text.empty() || text.size() > 3) {
+        return -1;
+    }
+    int value = 0;
+    for (const char ch : text) {
+        if (ch < '0' || ch > '9') {
+            return -1;
+        }
+        value = value * 10 + (ch - '0');
+    }
+    return value <= 255 ? value : -1;
+}
+
 std::string_view upTo(std::string_view text, char sep, std::string_view* rest) {
     const std::size_t at = text.find(sep);
     if (at == std::string_view::npos) {
@@ -88,6 +107,79 @@ bool isSecondaryPrompt(std::string_view params) {
 // that adds an extension, and losing a prompt boundary the user can see because
 // a shell learned a new key is the worse failure. `k=` is NOT in that category
 // and is read above; it changes what the command means.
+// OSC 4 ; index ; spec  and  OSC 104 [; index ...]  (T83).
+//
+// The wire form takes a LIST of index/spec pairs — `OSC 4;1;red;2;green` is
+// legal and xterm honours all of it. This reports only the FIRST pair, because
+// OscAction carries one action and growing it into a list would cost every
+// other OSC a vector it never fills. Nothing in the wild sends more than one
+// pair per sequence; if something does, the rest is dropped rather than
+// misapplied, which is the safe direction for a colour.
+OscAction parsePaletteColor(std::string_view rest, bool reset) {
+    OscAction action;
+    action.slot = OscAction::ColorSlot::Palette;
+
+    if (reset) {
+        action.kind = OscAction::Kind::ColorReset;
+        // A BARE OSC 104 resets the whole palette; with an index it resets one.
+        // -1 already means "all", so an empty payload needs nothing done to it.
+        if (!rest.empty()) {
+            std::string_view tail;
+            const std::string_view first = upTo(rest, ';', &tail);
+            const int index = parseIndex(first);
+            if (index < 0) {
+                return {};  // "OSC 104 ; garbage" names nothing; do nothing
+            }
+            action.colorIndex = index;
+        }
+        return action;
+    }
+
+    std::string_view spec;
+    const std::string_view indexText = upTo(rest, ';', &spec);
+    const int index = parseIndex(indexText);
+    if (index < 0) {
+        return {};
+    }
+    action.colorIndex = index;
+    // A second `;` would begin the next pair, which is dropped — see above.
+    std::string_view ignored;
+    spec = upTo(spec, ';', &ignored);
+    if (spec == "?") {
+        action.kind = OscAction::Kind::ColorQuery;
+        return action;
+    }
+    if (spec.empty()) {
+        return {};
+    }
+    action.kind = OscAction::Kind::ColorSet;
+    action.text = std::string(spec);
+    return action;
+}
+
+// OSC 10/11/12 ; spec — the foreground, background and cursor colours.
+//
+// xterm reads these as a LIST too, where a second value means the NEXT dynamic
+// colour (so `OSC 10;fg;bg` sets both). Same call as above: one action per
+// sequence, remainder dropped rather than half-applied.
+OscAction parseDynamicColor(OscAction::ColorSlot slot, std::string_view rest) {
+    std::string_view ignored;
+    const std::string_view spec = upTo(rest, ';', &ignored);
+
+    OscAction action;
+    action.slot = slot;
+    if (spec == "?") {
+        action.kind = OscAction::Kind::ColorQuery;
+        return action;
+    }
+    if (spec.empty()) {
+        return {};
+    }
+    action.kind = OscAction::Kind::ColorSet;
+    action.text = std::string(spec);
+    return action;
+}
+
 OscAction parseShellIntegration(std::string_view rest) {
     std::string_view params;
     const std::string_view command = upTo(rest, ';', &params);
@@ -272,9 +364,26 @@ OscAction OscHandler::end(bool aborted) {
         return parseProgress(rest);
     }
 
-    // Everything else is honest silence. OSC 4 (palette), 10/11 (fg/bg) and 7
-    // (cwd) are later milestones, and acting on them now would claim behavior
-    // that does not exist.
+    if (code == "4" || code == "104") {
+        return parsePaletteColor(rest, code == "104");
+    }
+    if (code == "10" || code == "11" || code == "12") {
+        const auto slot = code == "10"   ? OscAction::ColorSlot::Foreground
+                          : code == "11" ? OscAction::ColorSlot::Background
+                                         : OscAction::ColorSlot::Cursor;
+        return parseDynamicColor(slot, rest);
+    }
+    if (code == "110" || code == "111" || code == "112") {
+        OscAction action;
+        action.kind = OscAction::Kind::ColorReset;
+        action.slot = code == "110"   ? OscAction::ColorSlot::Foreground
+                      : code == "111" ? OscAction::ColorSlot::Background
+                                      : OscAction::ColorSlot::Cursor;
+        return action;
+    }
+
+    // Everything else is honest silence. OSC 7 (cwd) is a later milestone, and
+    // acting on it now would claim behavior that does not exist.
     return {};
 }
 

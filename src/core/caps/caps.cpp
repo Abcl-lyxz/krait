@@ -131,6 +131,17 @@ ModeReport decrqmState(const Grid& grid, const Capabilities& caps, std::uint16_t
         // SyncOutput::requested().
         return grid.sync.requested() ? ModeReport::Set : ModeReport::Reset;
 
+    case 2031:
+        // Colour-palette update notification (T83). A real toggle with a real
+        // notification behind it, so 1/2 rather than 3/4.
+        return grid.paletteUpdates ? ModeReport::Set : ModeReport::Reset;
+
+    case 2048:
+        // In-band resize notification (T82). Same: a real toggle, and the
+        // report it produces is generated from the live grid, so DECRQM saying
+        // "set" and the application receiving reports cannot come apart.
+        return grid.inBandResize ? ModeReport::Set : ModeReport::Reset;
+
     case 2027:
         // Grapheme clustering. Always on by construction (T19/ADR-0003), so 3
         // and never 1. This is the reply Capabilities::graphemeClusteringAlwaysOn

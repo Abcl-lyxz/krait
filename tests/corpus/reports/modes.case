@@ -1,0 +1,87 @@
+# DEC private modes 2031 and 2048 (M5 T82/T83), on the 24x80 stub grid.
+#
+# The stub grid's cellWidthPx/cellHeightPx are both 0, which is exactly the
+# state the spec covers with "or 0 if not supported" — so the pixel fields here
+# report 0. That is deliberate: the corpus runs in src/core, which has no font
+# and no window, and a corpus that invented a cell size would be asserting the
+# renderer's arithmetic rather than the parser's.
+#
+# EXPECT tokens: reply:<escaped bytes>, or "-" for the silence that every other
+# mode must produce.
+
+# ---------------------------------------------------------------- mode 2048 --
+
+# Enabling MUST report the current size immediately. The spec says so in as
+# many words, and it is the point of the mode: an application turns it on so it
+# can stop guessing, and waiting for the next resize means guessing once more.
+# Order is rows, cols, height_px, width_px — height before width in BOTH pairs,
+# which is the opposite of how a window size is usually written.
+IN \x1B[?2048h
+EXPECT reply:\x1B[48;24;80;0;0t
+
+# Disabling is silent. A report on the way out would arrive after the
+# application stopped listening for one.
+IN \x1B[?2048l
+EXPECT -
+
+# Enabling twice reports twice. Not deduplicated: the reply answers a question
+# that was asked twice, and an application re-enabling the mode after a shell
+# handoff is asking precisely because it does not trust what it has.
+IN \x1B[?2048h\x1B[?2048h
+EXPECT reply:\x1B[48;24;80;0;0t reply:\x1B[48;24;80;0;0t
+
+# In a LIST, only 2048 answers. `CSI ? 6 ; 2048 h` sets origin mode and the
+# resize mode, and one reply comes back rather than one per parameter.
+IN \x1B[?6;2048h
+EXPECT reply:\x1B[48;24;80;0;0t
+
+# DECRQM reports it from the live flag, so "set" and "sending reports" cannot
+# come apart: 1 = set, 2 = reset.
+IN \x1B[?2048h\x1B[?2048$p
+EXPECT reply:\x1B[48;24;80;0;0t reply:\x1B[?2048;1$y
+IN \x1B[?2048$p
+EXPECT reply:\x1B[?2048;2$y
+
+# ---------------------------------------------------------------- mode 2031 --
+
+# Setting it is SILENT. The notification says whether the theme reads light or
+# dark, and src/core has no theme — the app raises it. Inventing a reply here
+# would emit a sequence no application is listening for.
+IN \x1B[?2031h
+EXPECT -
+IN \x1B[?2031l
+EXPECT -
+
+# But DECRQM still answers honestly from the flag.
+IN \x1B[?2031h\x1B[?2031$p
+EXPECT reply:\x1B[?2031;1$y
+IN \x1B[?2031$p
+EXPECT reply:\x1B[?2031;2$y
+
+# ------------------------------------------------------------------ hostile --
+
+# No private marker: `CSI 2048 h` is the ANSI mode 2048, which is not ours.
+# Unhandled, and above all unanswered — replying would claim an ANSI mode.
+IN \x1B[2048h
+EXPECT -
+
+# Subparameters are SGR-only. `CSI ? 2048:1 h` is rejected whole rather than
+# read as 2048, because a sender using them means something we do not implement.
+IN \x1B[?2048:1h
+EXPECT -
+
+# Clamped at the parser's 14-bit ceiling (16383), so no run of digits can reach
+# 2048 by overflowing into it.
+IN \x1B[?99999999h
+EXPECT -
+
+# Interrupted mid-sequence: CAN abandons it, and the bytes after are ground
+# text rather than a mode.
+IN \x1B[?2048\x18h
+EXPECT -
+
+# A parameter of 0 names no mode.
+IN \x1B[?0h
+EXPECT -
+IN \x1B[?h
+EXPECT -
