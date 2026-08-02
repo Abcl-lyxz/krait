@@ -19,9 +19,11 @@
 #include "core/parser/kitty_keys.h"
 #include "core/parser/machine.h"
 #include "core/parser/sgr.h"
+#include "core/terminal/session.h"
 #include "core/unicode/utf8.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -387,6 +389,80 @@ class CursorSink final : public krait::core::vt::ParserEvents {
     }
 };
 
+// shell/ case tokens: mark:N:<letters> and exit:N:<status> for every line
+// carrying an OSC 133 mark, N being 1-based in Grid's absolute index space
+// (scrollback logical lines, then screen rows).
+std::vector<std::string> describeMarks(const krait::core::vt::Grid& grid) {
+    namespace vt = krait::core::vt;
+    static constexpr std::array<std::pair<std::uint8_t, char>, 4> kLetters{
+        {{vt::kMarkPromptStart, 'A'},
+         {vt::kMarkInputStart, 'B'},
+         {vt::kMarkOutputStart, 'C'},
+         {vt::kMarkCommandEnd, 'D'}}};
+
+    std::vector<std::string> tokens;
+    for (std::size_t i = 0; i < grid.absoluteLineCount(); ++i) {
+        const vt::Line& line = grid.absoluteLineAt(i);
+        if (line.marks != 0) {
+            std::string letters;
+            for (const auto& [bit, letter] : kLetters) {
+                if ((line.marks & bit) != 0) {
+                    letters += letter;
+                }
+            }
+            tokens.push_back(std::format("mark:{}:{}", i + 1, letters));
+        }
+        if (line.exitCode >= 0) {
+            tokens.push_back(std::format("exit:{}:{}", i + 1, line.exitCode));
+        }
+    }
+    return tokens;
+}
+
+// Runs a shell/ case through a real Session and describes everything the corpus
+// observes, in this order:
+//   mark:N:<letters> / exit:N:<status>  — per line, from describeMarks above
+//   progress:<state>:<percent>          — one per OSC 9;4 the stream carried,
+//                                         percent -1 when none was readable
+//
+// Progress is read off the ACTION rather than off the grid because the core
+// deliberately stores it nowhere — a taskbar is a platform surface and
+// src/core/ has no platform (CLAUDE.md rule 1) — so `onOsc` is the only place
+// the parsed state is ever visible. Until this existed, the only corpus cases
+// naming OSC 9;4 were in reports/, whose sink no-ops every OSC callback: they
+// pinned that the bytes are consumed silently and that the parser survives
+// them, and they would have passed unchanged with `parseProgress` deleted
+// outright. Coverage that cannot fail is counted but is not coverage.
+std::vector<std::string> runShell(const std::vector<std::uint8_t>& bytes, bool byteAtATime) {
+    namespace vt = krait::core::vt;
+    static constexpr std::array<const char*, 5> kStates{"remove", "set", "error", "indeterminate",
+                                                        "paused"};
+    static_assert(kStates.size() == static_cast<std::size_t>(vt::OscAction::Progress::Paused) + 1,
+                  "a new Progress state needs a name here, or this indexes past the end");
+
+    vt::Session session(24, 80);
+    std::vector<std::string> progress;
+    session.onOsc = [&progress](const vt::OscAction& action) {
+        if (action.kind == vt::OscAction::Kind::Progress) {
+            progress.push_back(std::format("progress:{}:{}",
+                                           kStates[static_cast<std::size_t>(action.progress)],
+                                           action.percent));
+        }
+    };
+
+    if (byteAtATime) {
+        for (const std::uint8_t b : bytes) {
+            session.feed({&b, 1});
+        }
+    } else {
+        session.feed(bytes);
+    }
+
+    std::vector<std::string> tokens = describeMarks(session.grid());
+    tokens.insert(tokens.end(), progress.begin(), progress.end());
+    return tokens;
+}
+
 }  // namespace
 
 TEST_CASE("corpus: utf8 decode", "[corpus][utf8]") {
@@ -448,6 +524,26 @@ TEST_CASE("corpus: reports (DA1/DSR) honest replies", "[corpus][reports]") {
             parser.feed(std::span(bytes).subspan(off, n));
         }
         CHECK(sink.replyTokens == parseTokens(c.expect));
+    }
+    CHECK(!cases.empty());
+}
+
+TEST_CASE("corpus: OSC 133 marks and OSC 9;4 progress", "[corpus][shell]") {
+    const auto cases = loadCases(std::filesystem::path(KRAIT_CORPUS_DIR) / "shell");
+    for (const auto& c : cases) {
+        CAPTURE(c.file, c.in);
+        const auto bytes = parseBytes(c.in);
+
+        // Through a real Session, not a bespoke sink: these are the sequences
+        // whose whole effect is on the GRID or on the app callback rather than
+        // on a reply, and a corpus that routed them differently from the
+        // product would pin the harness instead of the terminal.
+        const std::vector<std::string> whole = runShell(bytes, false);
+        CHECK(whole == parseTokens(c.expect));
+
+        // Chunk boundaries must be invisible: an OSC split mid-payload by a
+        // 4 KiB socket read is the normal case, not the exotic one.
+        CHECK(runShell(bytes, true) == whole);
     }
     CHECK(!cases.empty());
 }

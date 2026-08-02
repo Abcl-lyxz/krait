@@ -23,6 +23,7 @@ add_executable(krait-core-tests
     session_test.cpp
     shaper_test.cpp
     smoke_test.cpp
+    triggers_test.cpp
     width_test.cpp
 )
 # krait-shaper brings krait-core with it (PUBLIC), and stays Qt-free so real
@@ -41,6 +42,9 @@ add_executable(krait-qt-tests
     action_labels_test.cpp
     agent_bridge_test.cpp
     ../../src/app/session_model.cpp
+    ../../src/app/sftp_model.cpp
+    ../../src/app/shell_integration.cpp
+    sftp_panel_test.cpp
     ../../src/app/backend_factory.cpp
     ../../src/app/mremoteng_import.cpp
     mremoteng_import_test.cpp
@@ -52,6 +56,7 @@ add_executable(krait-qt-tests
     gpu_resources_test.cpp
     hostkey_art_test.cpp
     i18n_test.cpp
+    copy_mode_test.cpp
     ime_test.cpp
     keymap_test.cpp
     kitty_keys_test.cpp
@@ -59,10 +64,21 @@ add_executable(krait-qt-tests
     reconnect_test.cpp
     remote_text_test.cpp
     settings_test.cpp
+    ../../src/app/taskbar_progress.cpp
+    taskbar_progress_test.cpp
+    # T74. Compiled straight in for the same reason taskbar_progress.cpp is:
+    # both live in krait-app, which is an executable, and the decision halves —
+    # the broadcast interlock, the hotkey parser, the screen arithmetic — are
+    # exactly what has to be tested without a window.
+    ../../src/app/broadcast.cpp
+    broadcast_test.cpp
+    ../../src/app/quake.cpp
+    quake_test.cpp
     forwards_test.cpp
     socks5_test.cpp
     raw_contract_test.cpp
     serial_test.cpp
+    sftp_test.cpp
     ssh_contract_test.cpp
     telnet_contract_test.cpp
     telnet_test.cpp
@@ -82,7 +98,9 @@ target_include_directories(krait-qt-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../support
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/app)
 # ws2_32 for the test server's wake-the-accept self-connect (see wakeAccept).
-target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32)
+# ole32 for CoCreateInstance(CLSID_TaskbarList): taskbar_progress.cpp is
+# compiled in for the aggregation test the same way session_model.cpp is.
+target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32 ole32)
 target_link_libraries(krait-qt-tests
     PRIVATE krait-render krait-input krait-settings krait-session krait-net Qt6::Test Qt6::Qml Qt6::Xml
             Catch2::Catch2WithMain)
@@ -114,7 +132,11 @@ qt_add_shaders(krait-qt-tests "krait-qt-test-shaders"
 # The i18n gate reads the .ts files from the SOURCE tree, the same way the
 # corpus harness reads its .case files: the rule is about what is committed,
 # not about what a build happened to generate.
+# KRAIT_ASSETS_DIR points at the SOURCE tree for the same reason: the shell
+# integration gate is about what is committed, not about what a POST_BUILD copy
+# happened to place beside an exe.
 target_compile_definitions(krait-qt-tests
-    PRIVATE KRAIT_I18N_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../src/app/i18n")
+    PRIVATE KRAIT_I18N_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../src/app/i18n"
+            KRAIT_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../assets")
 
 catch_discover_tests(krait-qt-tests DL_PATHS "$<TARGET_FILE_DIR:Qt6::Gui>")

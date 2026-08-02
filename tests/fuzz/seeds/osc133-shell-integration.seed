@@ -1,0 +1,4 @@
+]133;A;aid=7;cl=m;k=s\user@host:~$ ]133;B\grep -r needle /usr/share/doc
+]133;C;cmdline_url=grep%20-r\a match
+another match
+]133;D;1\]133;A\$ ]133;B]133;D;99999999999999999999\]133;D;-1\]133;Z\]133;P;k=i\]133\]133;A]133;C\tail

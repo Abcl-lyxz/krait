@@ -5,6 +5,7 @@
 #include "../net/vault/vault.h"
 #include "capture.h"
 #include "core/terminal/session.h"
+#include "input/copy_mode.h"
 #include "input/ime.h"
 #include "input/mouse.h"
 #include "input/paste.h"
@@ -15,7 +16,10 @@
 #include "render/shaper/fontdb.h"
 #include "render/shaper/shape_pool.h"
 #include "session/profile.h"
+#include "session/triggers.h"
 #include "settings/registry.h"
+#include "sftp_model.h"
+#include "taskbar_progress.h"
 #include <rhi/qrhi.h>
 
 #include <QElapsedTimer>
@@ -24,12 +28,18 @@
 #include <QtQml/qqmlregistration.h>
 
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace krait::app {
+
+// Forward-declared rather than included: only a pointer crosses this header,
+// and notifier.h drags in nothing this file wants (cpp.md: forward-declare in
+// headers where possible).
+class Notifier;
 
 // The real terminal view (plan T25): ConPTY -> core Session -> run splitting ->
 // the HarfBuzz shaper pool -> the glyph atlas -> two instanced QRhi draws.
@@ -54,6 +64,22 @@ class TerminalItem : public QQuickRhiItem {
     // state. Empty for every backend that has no tunnels, which is all of them
     // except SSH.
     Q_PROPERTY(QVariantList tunnels READ tunnels NOTIFY tunnelsChanged)
+    // T65. The SFTP panel's view-model. Never null — it exists for every
+    // backend and reports available == false for the ones that cannot transfer
+    // files, so QML has one thing to ask rather than a null check plus a check.
+    Q_PROPERTY(krait::app::SftpModel* files READ files CONSTANT)
+    // T69. The snippet bar's model: one row per snippet this profile defines,
+    // {name, preview}. Empty for a profile that defines none, which is what
+    // keeps the strip from appearing on tabs it has nothing to say about.
+    Q_PROPERTY(QVariantList snippets READ snippets NOTIFY sessionChanged)
+    // T70. Properties rather than the Q_INVOKABLE getters they replace: the
+    // status strip BINDS to these, and a logging session that stopped without
+    // the strip noticing is exactly the failure this task exists to prevent.
+    Q_PROPERTY(bool logging READ loggingEnabled NOTIFY loggingChanged)
+    Q_PROPERTY(QString logPath READ logPath NOTIFY loggingChanged)
+    // T71. Whether keys are going to copy mode instead of the shell. The user
+    // needs to know why their typing stopped reaching the far end.
+    Q_PROPERTY(bool copyMode READ copyModeActive NOTIFY copyModeChanged)
 
   public:
     TerminalItem();
@@ -102,6 +128,16 @@ class TerminalItem : public QQuickRhiItem {
     static void setServices(settings::Registry* registry, net::Vault* vault,
                             session::ProfileStore* store);
 
+    // The one taskbar button every tab's OSC 9;4 reports collapse onto (T67).
+    // Borrowed and owned by main(), like the three above; null in the tests and
+    // in a bench run, which have no window and therefore no button.
+    static void setTaskbar(TaskbarProgress* taskbar);
+
+    // The one notification-area icon every tab's long-command balloon goes out
+    // through (T68). Borrowed and owned by main(); null in the tests, which
+    // have no window to hang a shell icon on.
+    static void setNotifier(Notifier* notifier);
+
     // Hands over the settings registry (T31) for a terminal built outside the
     // normal path — the tests. setServices() covers the app.
     void setSettings(settings::Registry* registry);
@@ -141,6 +177,28 @@ class TerminalItem : public QQuickRhiItem {
 
     const QVariantList& tunnels() const { return m_tunnels; }
 
+    SftpModel* files() const { return m_files; }
+
+    const QVariantList& snippets() const { return m_snippets; }
+
+    // T69. Sends snippet `index` to the session. Goes through preparePaste()
+    // like every other block of text entering a pty — a snippet is user-authored
+    // and therefore trusted in a way trigger-matched remote text is not, but it
+    // must not become the one path that skips the ESC/C0 strip that path does.
+    // Out-of-range is a no-op: QML holds an index into a list the profile can
+    // replace under it.
+    Q_INVOKABLE void sendSnippet(int index);
+
+    // T74. One broadcast line, through the same preparePaste() path as every
+    // other block of text entering a pty. FALSE means this session could not
+    // take it — no backend, not started yet, or the shell has exited — and the
+    // broadcast drops it from the target set rather than swallowing the line.
+    //
+    // Called by name through QMetaObject::invokeMethod (see broadcast.h), so
+    // the signature here is the contract: renaming it or changing its
+    // parameters breaks the fan-out at runtime, not at compile time.
+    Q_INVOKABLE bool sendBroadcast(const QString& text);
+
     // Answers hostKeyPromptRequested. Ignored when the session is not SSH or
     // has moved on, so a banner answered late cannot reach a different backend.
     Q_INVOKABLE void respondHostKey(bool trust);
@@ -155,12 +213,29 @@ class TerminalItem : public QQuickRhiItem {
 
     Q_INVOKABLE bool hexdumpEnabled() const { return m_hexdump; }
 
-    // Starts or stops capturing the session to a timestamped file. Returns the
-    // path, or empty when stopping or on failure — the caller puts it in a
-    // banner, because a log nobody can find is a log nobody trusts.
+    // Starts or stops capturing the session to a file named by the
+    // `logging.pathTemplate` setting. Returns the path, or empty when stopping
+    // or on failure — the caller puts it in a banner, because a log nobody can
+    // find is a log nobody trusts.
     Q_INVOKABLE QString toggleLogging();
 
-    Q_INVOKABLE bool loggingEnabled() const { return m_log.isOpen(); }
+    bool loggingEnabled() const { return m_log.isOpen(); }
+
+    const QString& logPath() const { return m_logPath; }
+
+    // T71. Enters or leaves copy mode. While it is on, keys drive the cursor
+    // over the scrollback instead of reaching the shell, and the viewport stops
+    // being snapped back to the live screen by every keypress.
+    Q_INVOKABLE void setCopyMode(bool on);
+
+    bool copyModeActive() const { return m_copyMode; }
+
+    // T67, jump-to-prompt. `direction` is -1 for the previous OSC 133 prompt
+    // mark and +1 for the next one, counted from the row at the top of the
+    // viewport so pressing it twice walks two prompts rather than returning to
+    // the same one. False when there is no prompt that way — the caller says so
+    // in a banner rather than leaving a shortcut that silently does nothing.
+    Q_INVOKABLE bool jumpToPrompt(int direction);
 
     // Raises a banner from outside the backend path — the command line naming a
     // session that does not exist, and nothing else so far. Exists because
@@ -208,6 +283,24 @@ class TerminalItem : public QQuickRhiItem {
     // with the attempt count. Empty message clears it.
     void connectionNotice(const QString& message);
 
+    // T67. A command marked by OSC 133 ran longer than the configured
+    // threshold and finished while the window was NOT focused. A banner, not a
+    // dialog — rules/ui.md bans app-modal surfaces in session flows, and this
+    // one arrives precisely when the user is doing something else.
+    void commandFinished(const QString& message, const QString& detail);
+
+    // T70/T71. State the tab strip shows for as long as it lasts. A log running
+    // unnoticed is how a secret ends up on disk, and a mode that has swallowed
+    // the keyboard without saying so reads as a hung terminal.
+    void loggingChanged();
+    void copyModeChanged();
+
+    // T68. A trigger matched. Its own signal rather than reusing the one above:
+    // the two arrive for different reasons and a handler that wanted to treat
+    // them differently would have nothing to branch on. `message` already
+    // contains sanitised remote text.
+    void triggerMatched(const QString& message);
+
   protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
     // ItemDevicePixelRatioHasChanged: the only hook Qt gives for a per-monitor
@@ -227,6 +320,20 @@ class TerminalItem : public QQuickRhiItem {
 
   private:
     void handleOutput(const QByteArray& bytes);
+    // T68. Runs the profile's triggers over one chunk of output and carries out
+    // whatever fired. Called from handleOutput, after the parser has seen the
+    // bytes — the actions can raise a banner, and a banner changes the strip
+    // height, which reaches Grid::resize(); doing that mid-parse is the same
+    // re-entrancy handleOsc() defers around.
+    void runTriggers(const QByteArray& bytes);
+    // Rebuilds the compiled trigger set from the current profile and settings.
+    void applyTriggers();
+    // Appends one line to the trigger log. Opened on first use and left open.
+    void logTrigger(const QString& text);
+    // Acts on what the core decided an OSC string asked for. Only OSC 9;4 and
+    // OSC 133 reach here so far; the clipboard and title kinds are still the
+    // core's honest silence (docs/conformance.md).
+    void handleOsc(const core::vt::OscAction& action);
     void ensureStarted();
     // Takes ownership of `backend` and wires the IBackend contract plus, when
     // it is an SSH one, the prompts. One place, so a fifth backend cannot
@@ -264,6 +371,12 @@ class TerminalItem : public QQuickRhiItem {
                      int wheelSteps);
     // Puts the current selection on the clipboard. No-op without one.
     void copySelection();
+    // T71. Runs one key through copy mode. False means copy mode does not claim
+    // the key, so the caller must leave the event unaccepted and let the QML
+    // chrome see it — a mode that ate Ctrl+Shift+P would be a trap.
+    bool handleCopyKey(QKeyEvent* event);
+    // What copy mode's cursor and anchor currently select.
+    render::Selection copySelectionRange() const;
     // Sends already-sanitised paste bytes and snaps the viewport back.
     void sendPaste(const QByteArray& bytes);
     // Appends the in-flight composition to the frame. A preedit is not grid
@@ -285,6 +398,33 @@ class TerminalItem : public QQuickRhiItem {
     // The tunnel pane's rows, mirrored from the SSH backend. Empty for every
     // backend that has no tunnels, which is all of them except SSH.
     QVariantList m_tunnels;
+    // T65. Owned by this (QObject parent), so QML holding the pointer through
+    // the `files` property cannot outlive or delete it.
+    SftpModel* m_files = nullptr;
+    // T68/T69. Compiled from m_profile on every openProfile() and on every
+    // settings reload; empty when the profile defines none, which is the case
+    // that has to cost nothing.
+    session::TriggerEngine m_triggers;
+    std::vector<session::Snippet> m_snippetList;
+    QVariantList m_snippets;
+    // Monotonic, for the send rate limiter. Started once and never restarted:
+    // an elapsed() that resets would hand every trigger a fresh token bucket.
+    QElapsedTimer m_triggerClock;
+    std::ofstream m_triggerLog;
+    // Latched. Without it a log path that cannot be opened costs a path
+    // resolution, an mkpath, an open and a banner on EVERY match — at a rate
+    // the remote side sets.
+    bool m_triggerLogFailed = false;
+    // Where plainText() was when the last chunk ran out. A remote chooses where
+    // its writes are cut, so a stripper that restarts at Ground every read can
+    // be walked through with a sequence split across two packets.
+    session::StripState m_stripState = session::StripState::Ground;
+    // The highlight rectangles for the CURRENT frame, in viewport coordinates.
+    // Rebuilt from the visible rows each time rather than remembered, so reflow
+    // cannot leave one pointing at text that moved.
+    std::vector<render::HighlightSpan> m_highlights;
+    std::vector<std::pair<std::size_t, std::size_t>> m_highlightRanges;
+    std::vector<int> m_highlightColumns;
     // What this terminal is pointed at. Default-constructed = a local shell,
     // which is what a window opened with no arguments should be.
     session::Profile m_profile;
@@ -295,6 +435,17 @@ class TerminalItem : public QQuickRhiItem {
     bool m_hexdump = false;
     std::uint64_t m_hexdumpOffset = 0;
     SessionLog m_log;
+    // Remembered separately from m_log: the strip keeps naming the file after a
+    // write failure closed the stream, which is the moment the user most needs
+    // to know which file stopped.
+    QString m_logPath;
+    // `logging.includeInput`, pulled in applySettings(). Cached rather than read
+    // per keypress, and re-read on hot reload like every other wired setting.
+    bool m_logInput = false;
+
+    // T71. Copy mode: the cursor, the anchor, and whether keys are ours.
+    bool m_copyMode = false;
+    input::CopyCursor m_copyCursor;
 
     render::RasterFn m_raster;
     std::string m_family;            // what ensureFont() actually resolved
@@ -316,6 +467,19 @@ class TerminalItem : public QQuickRhiItem {
     // that were not rebuilt this frame keep {0, 0}.
     std::vector<std::pair<std::size_t, std::size_t>> m_rowRanges;
 
+    // T67. Started by OSC 133 ; C (the command began producing output) and read
+    // by ; D. Invalid means no command is running, which is also what a D with
+    // no matching C leaves it as — so a shell that only ever sends D can never
+    // produce a notification claiming an invented duration.
+    QElapsedTimer m_commandSince;
+
+    // The newest OSC 9;4 report, and whether a queued delivery for it is
+    // already in flight. Coalescing here is what makes TaskbarProgress's own
+    // rate cap describe the real cost — see handleOsc().
+    std::pair<core::vt::OscAction::Progress, int> m_progress{core::vt::OscAction::Progress::Remove,
+                                                             -1};
+    bool m_progressPosted = false;
+
     render::FrameData m_frame;
     render::Selection m_selection;
     input::Composition m_composition;
@@ -327,6 +491,23 @@ class TerminalItem : public QQuickRhiItem {
     int m_cols = 0;
     int m_rows = 0;
     bool m_started = false;
+    // T74. The far end ran `exit`. m_backend stays non-null after that — the
+    // object is alive, it just has nowhere to write — so it is not on its own a
+    // usable answer to "can this session take input", which is the question a
+    // broadcast has to get right before it reports a line as delivered.
+    bool m_exited = false;
+    // T74. The connection dropped and the backend is retrying. Neither
+    // m_started nor m_exited covers this: m_started is only cleared by
+    // resetSession() and m_exited only by a real EOF, so a tab showing
+    // "Reconnecting in 5 s" otherwise looks fully alive — and a broadcast
+    // would count it as delivered while the bytes were dropped on the floor or
+    // queued to be replayed into a FRESH shell later.
+    //
+    // ponytail: fed only by the SSH reconnect signals, because they are the
+    // only ones TerminalItem wires at all — telnet, raw and serial declare
+    // `reconnecting` too, but nothing in the app listens to any of them yet.
+    // When that gap is closed, set this there as well.
+    bool m_reconnecting = false;
     int m_benchFrames = 0;
     int m_benchSteps = 0;
     // Set only by a 4K bench run, to pin the grid to the M0 baseline's 240x63.

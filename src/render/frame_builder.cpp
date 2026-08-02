@@ -147,10 +147,21 @@ std::string selectionText(std::span<const core::vt::Line> viewport, const Select
             }
             any = true;
             const char32_t ch = line.cells[static_cast<std::size_t>(col)].ch;
+            if (core::vt::isWideTrailing(ch)) {
+                // The right-hand cell of a two-column cluster. It owns no text
+                // — the cluster lives in the cell to its LEFT and was already
+                // emitted — so it contributes nothing at all, not even a space.
+                //
+                // It must be skipped BEFORE the lookup below: kWideTrailing is
+                // not a cluster ref, so lookup() returns an empty span and the
+                // literal-codepoint arm would encode 0x80000000 as UTF-8. That
+                // put four garbage bytes into the clipboard after every CJK or
+                // emoji character a mouse drag crossed.
+                continue;
+            }
             if (ch == 0) {
-                // An unwritten cell, and the continuation half of a wide glyph
-                // (which stores 0 in the second cell). Both are one space here;
-                // trailing runs of them are trimmed below.
+                // An unwritten cell. One space here; trailing runs of them are
+                // trimmed below.
                 rowText += ' ';
                 continue;
             }
@@ -235,8 +246,36 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
 
     // Selection and cursor are NOT part of the row cache: they move without the
     // grid changing, so caching them per row would need its own invalidation.
+    // Highlights UNDER the selection: the selection is what the user is doing
+    // right now, and it has to stay visible over anything a trigger painted.
+    appendHighlights(params, rowCount);
     appendSelection(params, rowCount);
     appendCursor(viewport, params);
+}
+
+void FrameBuilder::appendHighlights(const FrameParams& params, int rowCount) {
+    const float cellW = static_cast<float>(m_metrics.cellWidth);
+    const float cellH = static_cast<float>(cellHeight());
+    for (const HighlightSpan& span : params.highlights) {
+        if (span.row < 0 || span.row >= rowCount || span.endCol <= span.beginCol) {
+            continue;
+        }
+        const int first = std::max(0, span.beginCol);
+        const int last = std::min(params.cols, span.endCol);
+        if (last <= first) {
+            continue;
+        }
+        SolidInstance rect;
+        rect.x = static_cast<float>(first) * cellW;
+        rect.y = static_cast<float>(span.row) * cellH;
+        rect.w = static_cast<float>(last - first) * cellW;
+        rect.h = cellH;
+        unpackColor(m_theme.highlightBg, rect.r, rect.g, rect.b);
+        // Semi-transparent for the same reason the selection is: the glyphs
+        // underneath stay legible without a second text pass in another colour.
+        rect.a = 0.35F;
+        m_solids.push_back(rect);
+    }
 }
 
 bool FrameBuilder::rowNeedsRebuild(int row, const core::vt::DamageList& damage) const {

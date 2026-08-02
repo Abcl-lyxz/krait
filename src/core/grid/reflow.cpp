@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace krait::core::vt {
@@ -52,6 +53,24 @@ ReflowResult reflow(std::span<const Line> rows, int newCols, int cursorRow, int 
 
         Joined joined = joinLogicalLine(rows, first, last, cursorRow, cursorCol);
 
+        // Shell-integration marks (line.h) belong to the LOGICAL line, so they
+        // are gathered here and re-attached to whichever row heads the re-split
+        // run below. That is the whole reason a mark lives on the Line: a
+        // resize rebuilds every visual row, and anything keyed by row number
+        // would now be pointing at different text. OR rather than taking
+        // rows[first] alone so a mark that landed on a continuation row — a
+        // long prompt wrapping, with C arriving on the second row — is carried
+        // rather than dropped.
+        std::uint8_t marks = 0;
+        int exitCode = -1;
+        for (std::size_t r = first; r < last; ++r) {
+            marks |= rows[r].marks;
+            if (exitCode < 0) {
+                exitCode = rows[r].exitCode;
+            }
+        }
+        bool headEmitted = false;
+
         // Trim the unwritten tail — rule 1 in the header. Walks in from the end
         // only, so interior holes survive.
         std::size_t contentEnd = joined.cells.size();
@@ -71,6 +90,11 @@ ReflowResult reflow(std::span<const Line> rows, int newCols, int cursorRow, int 
             Line line(cols);
             std::copy(pending.begin(), pending.end(), line.cells.begin());
             line.wrappedFromPrev = continuation;
+            if (!headEmitted) {
+                line.marks = marks;
+                line.exitCode = exitCode;
+                headEmitted = true;
+            }
             out.lines.push_back(std::move(line));
             pending.clear();
         };

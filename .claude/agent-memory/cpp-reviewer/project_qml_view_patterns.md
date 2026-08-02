@@ -52,5 +52,19 @@ invisible to the build and to the KRAIT_UI_SELFTEST run.
    callback re-derives the target from current state, so a queued keystroke
    between the two turns retargets the action to the wrong tab/pane.
 
+8. **A confirm banner must carry the identity of what it confirms.** RECURRING:
+   the model holds one `m_pending` slot, the banner is per-tab, and
+   `confirmRequested` routes to `currentPane()`. Two tabs can therefore hold two
+   banners while only the newest payload survives — Accept on the older one runs
+   the newer command. Any `resolve(bool)` with no payload/token argument is a
+   defect. Found in T74 broadcast; the same shape would bite paste and host-key
+   confirmation if they ever became window-scoped instead of pane-scoped.
+9. **Item 3 recurs on every new banner source.** T74 added TWO more unguarded
+   `banner.* = ...` writers (`showBroadcastConfirm`, and `onReported` →
+   `raiseSessionNotice`, which is TIMER-driven and so fires with no user
+   present). Both stomp a live credential/host-key prompt whose backend then
+   waits forever, even though `tab.queueCredential()` exists for exactly this.
+   Check every new banner writer against the queue.
+
 See [[project-watch-items]] for the per-task findings and
 [[project-render-qt-patterns]] for the QRhi side.

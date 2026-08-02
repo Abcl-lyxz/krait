@@ -21,6 +21,29 @@
     </message>
 </context>
 <context>
+    <name>BroadcastBar</name>
+    <message>
+        <source>BROADCAST ON</source>
+        <translation>BROADCAST ON</translation>
+    </message>
+    <message>
+        <source>BROADCAST READY</source>
+        <translation>BROADCAST READY</translation>
+    </message>
+    <message>
+        <source>%1. %2</source>
+        <translation>%1. %2</translation>
+    </message>
+    <message>
+        <source>Enter sends this line to every session above.</source>
+        <translation>Enter sends this line to every session above.</translation>
+    </message>
+    <message>
+        <source>Pick sessions with 1-9 or the mouse, then Ctrl+Enter to start.</source>
+        <translation>Pick sessions with 1-9 or the mouse, then Ctrl+Enter to start.</translation>
+    </message>
+</context>
+<context>
     <name>ErrorBanner</name>
     <message>
         <source>Could not create the pseudoconsole.</source>
@@ -104,6 +127,77 @@
     </message>
 </context>
 <context>
+    <name>FilePanel</name>
+    <message>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>Up</source>
+        <translation>Up</translation>
+    </message>
+    <message>
+        <source>Edit</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
+        <source>Remote</source>
+        <translation>Remote</translation>
+    </message>
+    <message>
+        <source>Local</source>
+        <translation>Local</translation>
+    </message>
+    <message>
+        <source>Drop to upload</source>
+        <translation>Drop to upload</translation>
+    </message>
+    <message>
+        <source>Stop watching</source>
+        <translation>Stop watching</translation>
+    </message>
+    <message>
+        <source>Editing %1 — saving uploads it back</source>
+        <translation>Editing %1 — saving uploads it back</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Stop</translation>
+    </message>
+    <message>
+        <source>Shell integration</source>
+        <translation>Shell integration</translation>
+    </message>
+    <message>
+        <source>Uninstall</source>
+        <translation>Uninstall</translation>
+    </message>
+    <message>
+        <source>Drag a file across to transfer it.</source>
+        <translation>Drag a file across to transfer it.</translation>
+    </message>
+    <message>
+        <source>Written between two marker lines in %1. The rest of that file is left exactly as it is.</source>
+        <translation>Written between two marker lines in %1. The rest of that file is left exactly as it is.</translation>
+    </message>
+    <message>
+        <source>Krait&apos;s block comes out of %1. The rest of that file is left exactly as it is.</source>
+        <translation>Krait&apos;s block comes out of %1. The rest of that file is left exactly as it is.</translation>
+    </message>
+    <message>
+        <source>Write the change</source>
+        <translation>Write the change</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
     <name>Main</name>
     <message>
         <source>Krait</source>
@@ -112,14 +206,6 @@
     <message>
         <source>That session is no longer saved.</source>
         <translation>That session is no longer saved.</translation>
-    </message>
-    <message>
-        <source>Logging this session to %1</source>
-        <translation>Logging this session to %1</translation>
-    </message>
-    <message>
-        <source>Stopped logging this session.</source>
-        <translation>Stopped logging this session.</translation>
     </message>
     <message>
         <source>Not wired up yet: %1</source>
@@ -167,8 +253,44 @@
         <translation>Cancel</translation>
     </message>
     <message>
+        <source>File transfer needs an SSH session, and this tab is not one.</source>
+        <translation>File transfer needs an SSH session, and this tab is not one.</translation>
+    </message>
+    <message>
+        <source>Send to every selected session</source>
+        <translation>Send to every selected session</translation>
+    </message>
+    <message>
+        <source>Logging this session to %1</source>
+        <translation>Logging this session to %1</translation>
+    </message>
+    <message>
+        <source>Stopped logging this session.</source>
+        <translation>Stopped logging this session.</translation>
+    </message>
+    <message>
+        <source>No earlier prompt in this session.</source>
+        <translation>No earlier prompt in this session.</translation>
+    </message>
+    <message>
+        <source>No later prompt in this session.</source>
+        <translation>No later prompt in this session.</translation>
+    </message>
+    <message>
+        <source>Prompts come from OSC 133 shell integration — enable it in your shell to use this.</source>
+        <translation>Prompts come from OSC 133 shell integration — enable it in your shell to use this.</translation>
+    </message>
+    <message>
         <source>%1 open, %2 total</source>
         <translation>%1 open, %2 total</translation>
+    </message>
+    <message>
+        <source>COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave</source>
+        <translation>COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave</translation>
+    </message>
+    <message>
+        <source>● Logging to %1</source>
+        <translation>● Logging to %1</translation>
     </message>
     <message>
         <source>Trust this server</source>
@@ -223,6 +345,17 @@
     </message>
 </context>
 <context>
+    <name>SnippetBar</name>
+    <message>
+        <source>This session has no snippets. Add a snippets = list to it in sessions.toml.</source>
+        <translation>This session has no snippets. Add a snippets = list to it in sessions.toml.</translation>
+    </message>
+    <message>
+        <source>%1. %2</source>
+        <translation>%1. %2</translation>
+    </message>
+</context>
+<context>
     <name>krait::app</name>
     <message>
         <source>New session</source>
@@ -265,8 +398,32 @@
         <translation>Start or stop logging this session</translation>
     </message>
     <message>
+        <source>Copy mode (vim keys)</source>
+        <translation>Copy mode (vim keys)</translation>
+    </message>
+    <message>
+        <source>Broadcast to several sessions</source>
+        <translation>Broadcast to several sessions</translation>
+    </message>
+    <message>
         <source>Show port forwards</source>
         <translation>Show port forwards</translation>
+    </message>
+    <message>
+        <source>Show the file transfer panel</source>
+        <translation>Show the file transfer panel</translation>
+    </message>
+    <message>
+        <source>Show the snippet bar</source>
+        <translation>Show the snippet bar</translation>
+    </message>
+    <message>
+        <source>Jump to the previous prompt</source>
+        <translation>Jump to the previous prompt</translation>
+    </message>
+    <message>
+        <source>Jump to the next prompt</source>
+        <translation>Jump to the next prompt</translation>
     </message>
     <message>
         <source>Command palette</source>
@@ -319,6 +476,72 @@
     <message>
         <source>About Krait</source>
         <translation>About Krait</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::BroadcastModel</name>
+    <message>
+        <source>Broadcast paused: nothing was sent for a while.</source>
+        <translation>Broadcast paused: nothing was sent for a while.</translation>
+    </message>
+    <message>
+        <source>Press Ctrl+Enter in the broadcast strip to start it again. The wait is the broadcast.idleSeconds setting.</source>
+        <translation>Press Ctrl+Enter in the broadcast strip to start it again. The wait is the broadcast.idleSeconds setting.</translation>
+    </message>
+    <message>
+        <source>Broadcast paused: Krait is no longer the active window.</source>
+        <translation>Broadcast paused: Krait is no longer the active window.</translation>
+    </message>
+    <message>
+        <source>The sessions you picked are still selected. Press Ctrl+Enter in the broadcast strip to start it again.</source>
+        <translation>The sessions you picked are still selected. Press Ctrl+Enter in the broadcast strip to start it again.</translation>
+    </message>
+    <message>
+        <source>Broadcast stopped: every session it was sending to has closed.</source>
+        <translation>Broadcast stopped: every session it was sending to has closed.</translation>
+    </message>
+    <message>
+        <source>Pick at least one session before starting the broadcast.</source>
+        <translation>Pick at least one session before starting the broadcast.</translation>
+    </message>
+    <message>
+        <source>This line can destroy data or escalate privileges, and broadcast will run it on every selected session at once.</source>
+        <translation>This line can destroy data or escalate privileges, and broadcast will run it on every selected session at once.</translation>
+    </message>
+    <message>
+        <source>Broadcast was paused while that was waiting, so nothing was sent.</source>
+        <translation>Broadcast was paused while that was waiting, so nothing was sent.</translation>
+    </message>
+    <message>
+        <source>Dropped from the broadcast — these sessions are not connected, so they received nothing.</source>
+        <translation>Dropped from the broadcast — these sessions are not connected, so they received nothing.</translation>
+    </message>
+    <message>
+        <source>Broadcast stopped: nothing is left to send to.</source>
+        <translation>Broadcast stopped: nothing is left to send to.</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::QuakeWindow</name>
+    <message>
+        <source>Krait does not understand the drop-down hotkey “%1”.</source>
+        <translation>Krait does not understand the drop-down hotkey “%1”.</translation>
+    </message>
+    <message>
+        <source>Write it the way the other shortcuts are written, for example Ctrl+Alt+` or Ctrl+Shift+F12. A combination with no Ctrl, Alt, Shift or Win is only allowed for a function key.</source>
+        <translation>Write it the way the other shortcuts are written, for example Ctrl+Alt+` or Ctrl+Shift+F12. A combination with no Ctrl, Alt, Shift or Win is only allowed for a function key.</translation>
+    </message>
+    <message>
+        <source>Another program is already using %1, so Krait&apos;s drop-down hotkey is off.</source>
+        <translation>Another program is already using %1, so Krait&apos;s drop-down hotkey is off.</translation>
+    </message>
+    <message>
+        <source>Krait could not claim %1 as a system-wide hotkey, so the drop-down is off.</source>
+        <translation>Krait could not claim %1 as a system-wide hotkey, so the drop-down is off.</translation>
+    </message>
+    <message>
+        <source>Pick a different combination in the quake.hotkey setting. Windows keeps some for itself — F12 belongs to the debugger, and anything with the Windows key usually belongs to Windows.</source>
+        <translation>Pick a different combination in the quake.hotkey setting. Windows keeps some for itself — F12 belongs to the debugger, and anything with the Windows key usually belongs to Windows.</translation>
     </message>
 </context>
 <context>
@@ -377,6 +600,185 @@
     </message>
 </context>
 <context>
+    <name>krait::app::SftpModel</name>
+    <message>
+        <source>Refused the name “%1”: it is not a plain file name.</source>
+        <translation>Refused the name “%1”: it is not a plain file name.</translation>
+    </message>
+    <message>
+        <source>A name carrying a path separator, a drive letter or a control character would decide where the file lands instead of you.</source>
+        <translation>A name carrying a path separator, a drive letter or a control character would decide where the file lands instead of you.</translation>
+    </message>
+    <message>
+        <source>“%1” is no longer in this remote folder.</source>
+        <translation>“%1” is no longer in this remote folder.</translation>
+    </message>
+    <message>
+        <source>Folders are not transferred yet — only files.</source>
+        <translation>Folders are not transferred yet — only files.</translation>
+    </message>
+    <message>
+        <source>“%1” is no longer in this folder.</source>
+        <translation>“%1” is no longer in this folder.</translation>
+    </message>
+    <message>
+        <source>Only files from this computer can be uploaded.</source>
+        <translation>Only files from this computer can be uploaded.</translation>
+    </message>
+    <message>
+        <source>Downloading %1</source>
+        <translation>Downloading %1</translation>
+    </message>
+    <message>
+        <source>Saving %1 back to the server</source>
+        <translation>Saving %1 back to the server</translation>
+    </message>
+    <message>
+        <source>Writing %1</source>
+        <translation>Writing %1</translation>
+    </message>
+    <message>
+        <source>Reading %1</source>
+        <translation>Reading %1</translation>
+    </message>
+    <message>
+        <source>Uploading %1</source>
+        <translation>Uploading %1</translation>
+    </message>
+    <message>
+        <source>The change to %1 was stopped.</source>
+        <translation>The change to %1 was stopped.</translation>
+    </message>
+    <message>
+        <source>Could not write %1.</source>
+        <translation>Could not write %1.</translation>
+    </message>
+    <message>
+        <source>Removed. Open a new shell on %1 to see the change.</source>
+        <translation>Removed. Open a new shell on %1 to see the change.</translation>
+    </message>
+    <message>
+        <source>Installed. Open a new shell on %1 to see the change.</source>
+        <translation>Installed. Open a new shell on %1 to see the change.</translation>
+    </message>
+    <message>
+        <source>Could not save “%1” back to the server.</source>
+        <translation>Could not save “%1” back to the server.</translation>
+    </message>
+    <message>
+        <source>Could not open “%1” for editing.</source>
+        <translation>Could not open “%1” for editing.</translation>
+    </message>
+    <message>
+        <source>Could not read the remote folder.</source>
+        <translation>Could not read the remote folder.</translation>
+    </message>
+    <message>
+        <source>Could not download “%1”.</source>
+        <translation>Could not download “%1”.</translation>
+    </message>
+    <message>
+        <source>Could not upload “%1”.</source>
+        <translation>Could not upload “%1”.</translation>
+    </message>
+    <message>
+        <source>Could not make a temporary folder.</source>
+        <translation>Could not make a temporary folder.</translation>
+    </message>
+    <message>
+        <source>Looking for shell start-up files on %1…</source>
+        <translation>Looking for shell start-up files on %1…</translation>
+    </message>
+    <message>
+        <source>There is no shell integration to remove on %1.</source>
+        <translation>There is no shell integration to remove on %1.</translation>
+    </message>
+    <message>
+        <source>Krait could not read any shell start-up file on %1.</source>
+        <translation>Krait could not read any shell start-up file on %1.</translation>
+    </message>
+    <message>
+        <source>It looked for %1. Create the one your shell uses and try again — Krait will not write over a file it could not read first.</source>
+        <translation>It looked for %1. Create the one your shell uses and try again — Krait will not write over a file it could not read first.</translation>
+    </message>
+    <message>
+        <source>%1 has more than one shell start-up file.</source>
+        <translation>%1 has more than one shell start-up file.</translation>
+    </message>
+    <message>
+        <source>The Krait block in %1 looks edited.</source>
+        <translation>The Krait block in %1 looks edited.</translation>
+    </message>
+    <message>
+        <source>Its start and end markers do not pair up, so Krait cannot tell where the block ends. Nothing was changed.</source>
+        <translation>Its start and end markers do not pair up, so Krait cannot tell where the block ends. Nothing was changed.</translation>
+    </message>
+    <message>
+        <source>There is no Krait block in %1.</source>
+        <translation>There is no Krait block in %1.</translation>
+    </message>
+    <message>
+        <source>Could not read the bundled %1 script.</source>
+        <translation>Could not read the bundled %1 script.</translation>
+    </message>
+    <message>
+        <source>It should be in the shell-integration folder beside Krait.</source>
+        <translation>It should be in the shell-integration folder beside Krait.</translation>
+    </message>
+    <message>
+        <source>Remove Krait&apos;s block from %1?</source>
+        <translation>Remove Krait&apos;s block from %1?</translation>
+    </message>
+    <message>
+        <source>Replace Krait&apos;s block in %1?</source>
+        <translation>Replace Krait&apos;s block in %1?</translation>
+    </message>
+    <message>
+        <source>Add Krait&apos;s block to %1?</source>
+        <translation>Add Krait&apos;s block to %1?</translation>
+    </message>
+    <message>
+        <source>Could not stage the change on this computer.</source>
+        <translation>Could not stage the change on this computer.</translation>
+    </message>
+    <message>
+        <source>Folders cannot be opened in an editor — only files.</source>
+        <translation>Folders cannot be opened in an editor — only files.</translation>
+    </message>
+    <message>
+        <source>“%1” is already open for editing.</source>
+        <translation>“%1” is already open for editing.</translation>
+    </message>
+    <message>
+        <source>Stop watching it before opening it again.</source>
+        <translation>Stop watching it before opening it again.</translation>
+    </message>
+    <message>
+        <source>“%1” is a program, so Krait will not hand it to Windows.</source>
+        <translation>“%1” is a program, so Krait will not hand it to Windows.</translation>
+    </message>
+    <message>
+        <source>Opening it with what this computer associates with it would run it. Name a text editor in the editor.command setting to open files like this one.</source>
+        <translation>Opening it with what this computer associates with it would run it. Name a text editor in the editor.command setting to open files like this one.</translation>
+    </message>
+    <message>
+        <source>Nothing on this computer opens “%1”.</source>
+        <translation>Nothing on this computer opens “%1”.</translation>
+    </message>
+    <message>
+        <source>Name the editor you want in the editor.command setting.</source>
+        <translation>Name the editor you want in the editor.command setting.</translation>
+    </message>
+    <message>
+        <source>The editor.command setting has no program in it.</source>
+        <translation>The editor.command setting has no program in it.</translation>
+    </message>
+    <message>
+        <source>Could not start the editor.</source>
+        <translation>Could not start the editor.</translation>
+    </message>
+</context>
+<context>
     <name>krait::app::TerminalItem</name>
     <message>
         <source>The shell exited with code %1.</source>
@@ -393,6 +795,30 @@
     <message>
         <source>Could not start logging.</source>
         <translation>Could not start logging.</translation>
+    </message>
+    <message>
+        <source>A trigger pattern is not valid and was skipped.</source>
+        <translation>A trigger pattern is not valid and was skipped.</translation>
+    </message>
+    <message>
+        <source>Could not write the trigger log.</source>
+        <translation>Could not write the trigger log.</translation>
+    </message>
+    <message>
+        <source>A trigger matched: %1</source>
+        <translation>A trigger matched: %1</translation>
+    </message>
+    <message>
+        <source>Logging stopped.</source>
+        <translation>Logging stopped.</translation>
+    </message>
+    <message>
+        <source>A command failed after %1 s (exit status %2).</source>
+        <translation>A command failed after %1 s (exit status %2).</translation>
+    </message>
+    <message>
+        <source>A command finished after %1 s.</source>
+        <translation>A command finished after %1 s.</translation>
     </message>
 </context>
 <context>
@@ -454,6 +880,10 @@
     <message>
         <source>Gave up reconnecting to %1 after %2 attempts.</source>
         <translation>Gave up reconnecting to %1 after %2 attempts.</translation>
+    </message>
+    <message>
+        <source>The connection closed.</source>
+        <translation>The connection closed.</translation>
     </message>
     <message>
         <source>Could not create an SSH session.</source>
@@ -518,6 +948,10 @@
     <message>
         <source>%1 stopped responding.</source>
         <translation>%1 stopped responding.</translation>
+    </message>
+    <message>
+        <source>The session is not connected.</source>
+        <translation>The session is not connected.</translation>
     </message>
 </context>
 <context>

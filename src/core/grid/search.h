@@ -18,7 +18,14 @@ struct Line;
 // a screenful of 80-column rows would otherwise mean searching mostly padding.
 // A wide cluster's trailing half contributes nothing — it is the same character
 // as its lead, not a second one.
-std::string lineText(const Line& line, const ClusterPool& pool);
+// `columns`, when given, is filled with one entry per BYTE of the result plus a
+// terminator: `(*columns)[i]` is the grid column byte `i` came from, and the
+// last entry is the column just past the row's text. That is what turns a match
+// at byte offsets into cells to paint (T68's highlight action), and it lives
+// here because the mapping has to agree with the text byte for byte — a second
+// walk of the row would be a second chance to disagree with this one.
+std::string lineText(const Line& line, const ClusterPool& pool,
+                     std::vector<int>* columns = nullptr);
 
 // Where a match landed. `line` counts scrollback first, then the viewport, so
 // it is stable while nothing scrolls; `begin`/`end` are BYTE offsets into that

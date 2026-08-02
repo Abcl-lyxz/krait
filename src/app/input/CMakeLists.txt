@@ -11,6 +11,7 @@ add_library(krait-input STATIC
     mouse.cpp
     paste.cpp
     ime.cpp
+    copy_mode.cpp
 )
 target_include_directories(krait-input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 # krait-core PUBLIC: mouse.h takes a core::vt::Grid to read the tracking mode.

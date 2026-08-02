@@ -41,6 +41,100 @@ Item {
         tab.showTunnels = !tab.showTunnels
     }
 
+    // T65: the SFTP file panel, a strip for the same reason the tunnel list is
+    // one. Only SSH sessions have one, and asking on any other tab says so
+    // rather than doing nothing — a shortcut that silently no-ops reads as a
+    // broken build.
+    property bool showFiles: false
+
+    function toggleFiles() {
+        const files = tab.terminal ? tab.terminal.files : null
+        if (!files || !files.available) {
+            tab.raiseSessionError(
+                qsTr("File transfer needs an SSH session, and this tab is not one."), "")
+            return
+        }
+        tab.showFiles = !tab.showFiles
+        if (tab.showFiles) {
+            // Opened here, not on connect: the SFTP channel is opened lazily by
+            // the backend because most sessions never transfer a file.
+            files.start()
+        }
+    }
+
+    // T69: the snippet bar, a strip for the same reason the other two are. It
+    // opens on any backend — a snippet is text going into a session, and a
+    // local shell takes text as readily as a remote one.
+    property bool showSnippets: false
+
+    function toggleSnippets() {
+        tab.showSnippets = !tab.showSnippets
+        if (tab.showSnippets) {
+            snippetBar.forceActiveFocus()
+        } else {
+            tab.focusCurrent()
+        }
+    }
+
+    // T74: the broadcast strip. One shared BroadcastModel, owned by Main.qml
+    // and handed to every tab, because the whole point is that it spans them —
+    // and because the strip has to be on screen on EVERY tab while it is armed,
+    // not only the one it was opened from.
+    property var broadcast: null
+
+    // Whether THIS tab is a broadcast target, for the tab strip's marking.
+    //
+    // Reads `revision` first for its dependency: isMarked() is a method, so a
+    // binding registers nothing on it — the same reason `terminal` below reads
+    // panes.count. Approximated by the FOCUSED pane: targets are sessions, and
+    // a split tab has more than one. The strip names every target in full, so
+    // the tab mark is the shorthand, not the source of truth.
+    readonly property bool broadcasting:
+        tab.broadcast && tab.terminal
+        ? (tab.broadcast.revision, tab.broadcast.isMarked(tab.terminal))
+        : false
+
+    // Opens the strip on this tab, pre-selecting this session. Nothing is sent
+    // until it is armed from the strip — opening it is not turning it on.
+    function toggleBroadcast() {
+        if (!tab.broadcast) {
+            return
+        }
+        if (tab.broadcast.state === 0) {
+            tab.broadcast.begin(tab.terminal)
+            broadcastBar.focusInput()
+        } else {
+            tab.broadcast.stop()
+            tab.focusCurrent()
+        }
+    }
+
+    // The held destructive line. rules/ui.md: a per-tab banner, never a dialog.
+    function showBroadcastConfirm(message, detail) {
+        // A changed host key outranks everything (rules/net.md), so this waits
+        // rather than replacing it. Nothing is lost: the line stays held in the
+        // model and pressing Enter again re-raises this question.
+        if (banner.mode === "hostkey") {
+            return
+        }
+        // A credential prompt is HELD, not dropped. Overwriting it left the
+        // backend waiting for an answer that could never arrive — the same bug
+        // two panes prompting at once already has a queue for, so it uses that
+        // queue. banner.dismiss() re-raises it when this is answered.
+        if (banner.mode === "credential" && banner.target) {
+            tab.queueCredential(banner.target, banner.message, banner.inputEcho)
+        }
+        banner.target = null
+        banner.mode = "broadcast"
+        banner.severity = "danger"
+        banner.showAccept = true
+        banner.acceptText = qsTr("Send to every selected session")
+        banner.rejectText = qsTr("Cancel")
+        banner.detail = detail
+        banner.message = message
+        banner.forceActiveFocus()
+    }
+
     // Credential prompts that arrived while the banner was busy with another
     // pane's. One banner and N panes means they have to queue somewhere, and
     // dropping them means a backend waits for an answer nobody can give.
@@ -139,14 +233,72 @@ Item {
     // rules/ui.md makes the per-tab banner the only error surface, so callers
     // outside the backend path still need a way in.
     function raiseSessionError(message, detail) {
+        tab.raiseSessionBanner(message, detail, "error")
+    }
+
+    // T67: a command finished, which is news but not a failure. The calm
+    // severity on purpose — a build that succeeded must not look like a dropped
+    // connection, and it does NOT steal focus, because the whole point is that
+    // the user is somewhere else when it arrives.
+    function raiseSessionNotice(message, detail) {
+        tab.raiseSessionBanner(message, detail, "warning")
+    }
+
+    function raiseSessionBanner(message, detail, severity) {
+        // A notice never takes the banner from a question. Both of those modes
+        // have a backend waiting on an answer, and T74 made this reachable with
+        // NOBODY AT THE KEYBOARD: the broadcast idle timeout is a timer, so it
+        // could clobber a focused host-key prompt on its own. One guard here
+        // rather than at each caller, since raiseSessionNotice is the shared
+        // door every one of them comes through.
+        if (severity === "warning"
+                && (banner.mode === "credential" || banner.mode === "hostkey")) {
+            return
+        }
         banner.target = null
         banner.mode = "error"
-        banner.severity = "error"
+        banner.severity = severity
         banner.showAccept = false
         banner.rejectText = qsTr("Dismiss")
         banner.detail = detail
         banner.message = message
-        banner.forceActiveFocus()
+        if (severity !== "warning") {
+            banner.forceActiveFocus()
+        }
+    }
+
+    // T70: start or stop the session log. One place, reached from both the
+    // palette entry and the shortcut, so the two cannot drift into saying
+    // different things about the same file.
+    //
+    // Where the file went, said out loud. A log nobody can find is a log
+    // nobody trusts — and one running unnoticed is how a password ends up on
+    // disk, which is also why statusStrip below stays up for as long as it runs.
+    function toggleLogging() {
+        if (!tab.terminal) return
+        const path = tab.terminal.toggleLogging()
+        tab.raiseSessionNotice(
+            path.length > 0 ? qsTr("Logging this session to %1").arg(path)
+                            : qsTr("Stopped logging this session."), "")
+    }
+
+    // T71: hand the keyboard to copy mode, or give it back.
+    function toggleCopyMode() {
+        if (!tab.terminal) return
+        tab.terminal.setCopyMode(!tab.terminal.copyMode)
+        tab.focusCurrent()
+    }
+
+    // T67: walks OSC 133 prompt marks. A shortcut that silently does nothing
+    // reads as a broken build, so the end of the history says so.
+    function jumpPrompt(direction) {
+        if (tab.terminal && tab.terminal.jumpToPrompt(direction)) {
+            return
+        }
+        tab.raiseSessionNotice(
+            direction < 0 ? qsTr("No earlier prompt in this session.")
+                          : qsTr("No later prompt in this session."),
+            qsTr("Prompts come from OSC 133 shell integration — enable it in your shell to use this."))
     }
 
     ListModel {
@@ -192,9 +344,17 @@ Item {
                         to.resolvePaste(true)
                     }
                 }
+                // Not addressed to a pane: the broadcast spans them, so the
+                // held line lives in the model rather than in one terminal.
+                if (banner.mode === "broadcast" && tab.broadcast) {
+                    tab.broadcast.resolve(true)
+                }
                 banner.dismiss()
             }
             onRejected: {
+                if (banner.mode === "broadcast" && tab.broadcast) {
+                    tab.broadcast.resolve(false)
+                }
                 const to = banner.target
                 if (to) {
                     if (banner.mode === "credential") {
@@ -263,13 +423,110 @@ Item {
             }
         }
 
+        // T65. Half the tab at most: the terminal underneath is still the
+        // point, and a file panel that pushes it to four rows is one people
+        // close instead of using.
+        FilePanel {
+            id: filePanel
+            width: parent.width
+            visible: tab.showFiles && tab.terminal && tab.terminal.files.available
+            height: visible ? Math.round(tab.height * 0.45) : 0
+            files: tab.terminal ? tab.terminal.files : null
+            onCloseRequested: {
+                tab.showFiles = false
+                tab.focusCurrent()
+            }
+        }
+
+        SnippetBar {
+            id: snippetBar
+            width: parent.width
+            visible: tab.showSnippets
+            terminal: tab.terminal
+            onCloseRequested: {
+                tab.showSnippets = false
+                tab.focusCurrent()
+            }
+        }
+
+        // On every tab, not only the one it was opened from: while a broadcast
+        // is live the user must never be able to look at a tab that does not
+        // say so and name the targets.
+        BroadcastBar {
+            id: broadcastBar
+            width: parent.width
+            broadcast: tab.broadcast
+            visible: tab.broadcast ? tab.broadcast.state !== 0 : false
+            onCloseRequested: tab.focusCurrent()
+        }
+
+        // T70/T71: the one strip that says what this tab is currently DOING to
+        // the user's keyboard and to their disk.
+        //
+        // Not two strips, and not a corner badge: both states are the kind that
+        // must not be missable. A log running unnoticed is how a secret ends up
+        // somewhere nobody remembers, and a mode that has taken the keyboard
+        // without saying so reads as a hung terminal. Both are bindings on
+        // Q_PROPERTYs with NOTIFY, so a log that STOPS — a full disk — takes the
+        // strip down with it rather than leaving a stale reassurance up.
+        Rectangle {
+            id: statusStrip
+            width: parent.width
+            visible: tab.terminal
+                     && (tab.terminal.logging || tab.terminal.copyMode)
+            // TODO(theme): tokens once the theme system exists (M5). Matched to
+            // the snippet and tunnel strips so they read as one application.
+            color: "#12141c"
+            height: visible ? statusRow.implicitHeight + 10 : 0
+
+            Row {
+                id: statusRow
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 6
+                spacing: 12
+
+                Text {
+                    visible: tab.terminal && tab.terminal.copyMode
+                    // The keys are ON the strip rather than in the docs: a modal
+                    // terminal whose mode you have to look up is one people
+                    // press Escape out of and never use again.
+                    text: qsTr("COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave")
+                    color: "#f9e2af"
+                    textFormat: Text.PlainText
+                }
+
+                Text {
+                    visible: tab.terminal && tab.terminal.logging
+                    // The path, every time. "Logging" alone does not answer the
+                    // question anyone actually has, which is WHICH file.
+                    text: qsTr("● Logging to %1").arg(tab.terminal ? tab.terminal.logPath : "")
+                    color: "#f38ba8"
+                    textFormat: Text.PlainText
+                    elide: Text.ElideMiddle
+                    width: Math.min(implicitWidth, statusStrip.width - 24)
+                }
+            }
+        }
+
+        // The panel's failures are the tab's banner, like every other error
+        // here (rules/ui.md). The target follows the focused terminal, so a
+        // split tab cannot show one pane's failure over another's session.
+        Connections {
+            target: tab.terminal ? tab.terminal.files : null
+            function onErrorRaised(message, detail) {
+                tab.raiseSessionError(message, detail)
+            }
+        }
+
         // One axis, chosen by the first split. The panes are positioned by
         // weight rather than laid out in a Row, so a divider drag moves one
         // boundary instead of re-flowing everything after it.
         Item {
             id: area
             width: parent.width
-            height: parent.height - banner.height - tunnels.height
+            height: parent.height - banner.height - tunnels.height - filePanel.height
+                    - snippetBar.height - broadcastBar.height - statusStrip.height
 
             Repeater {
                 id: repeater
@@ -289,6 +546,29 @@ Item {
                     // Clicking an unfocused pane focuses it, the way every
                     // tiling terminal behaves.
                     onActiveFocusChanged: if (activeFocus) tab.currentPane = index
+
+                    // T74. Registered per PANE, not per tab: a split pane is
+                    // its own session, and "send to many sessions" means all of
+                    // them. offer() is register-or-relabel, so pointing a pane
+                    // at a different profile renames it in the strip rather
+                    // than adding a second row for the same terminal.
+                    Component.onCompleted: {
+                        if (tab.broadcast) {
+                            tab.broadcast.offer(view, view.sessionTitle)
+                        }
+                    }
+                    onSessionChanged: {
+                        if (tab.broadcast) {
+                            tab.broadcast.offer(view, view.sessionTitle)
+                        }
+                    }
+                    // A closed pane stops being a target. Without this the
+                    // model keeps a row the user reads as "still receiving".
+                    Component.onDestruction: {
+                        if (tab.broadcast) {
+                            tab.broadcast.forget(view)
+                        }
+                    }
 
                     onErrorRaised: (message, hint) => {
                         // A changed host key arrives as TWO signals — the
@@ -348,6 +628,26 @@ Item {
                             return
                         }
                         tab.showCredential(view, prompt, echo)
+                    }
+
+                    // T67. Never forceActiveFocus: this arrives while the user
+                    // is in another window, and grabbing focus back would be
+                    // the app deciding what they should be looking at.
+                    onCommandFinished: (message, detail) => {
+                        if (banner.message.length > 0) {
+                            return  // a live prompt outranks a finished command
+                        }
+                        tab.raiseSessionNotice(message, detail)
+                    }
+
+                    // T68. Calm severity and no focus steal, like a finished
+                    // command: a trigger firing is news, not a failure, and it
+                    // must never take the banner from a live prompt.
+                    onTriggerMatched: (message) => {
+                        if (banner.message.length > 0) {
+                            return
+                        }
+                        tab.raiseSessionNotice(message, "")
                     }
 
                     onConnectionNotice: (message) => {

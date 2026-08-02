@@ -8,12 +8,16 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "../net/vault/vault.h"
+#include "broadcast.h"
 #include "gpu_policy.h"
+#include "notifier.h"
+#include "quake.h"
 #include "session/cli.h"
 #include "session_model.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
 #include "settings_model.h"
+#include "taskbar_progress.h"
 #include "terminal_item.h"
 #include <windows.h>
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
@@ -187,6 +191,27 @@ int main(int argc, char* argv[]) try {
     krait::app::TerminalItem::setServices(&registry, &vault, &store);
     krait::app::SessionModel::setStore(&store);
 
+    // T67, OSC 9;4. Declared here — before the engine — for the same reason the
+    // vault is: it installs a native event filter on the application and holds
+    // a COM interface, and destruction in reverse declaration order means both
+    // are released while the tabs that report into it are already gone.
+    krait::app::TaskbarProgress taskbar;
+    krait::app::TerminalItem::setTaskbar(&taskbar);
+
+    // T68, the desktop notification. Here for a third reason on top of those
+    // two: it holds a notification-area icon keyed by the window's HWND, and
+    // its destructor is the only thing that retracts it. Declared before the
+    // engine means destroyed after it — late enough that every tab is gone,
+    // and the cached HWND is what makes that work with no window left.
+    krait::app::Notifier notifier;
+    krait::app::TerminalItem::setNotifier(&notifier);
+
+    // T74, the drop-down. Declared here for the third time for the same two
+    // reasons: it installs a native event filter and holds a SYSTEM-WIDE hotkey
+    // registration, and reverse declaration order means both are released after
+    // the engine — and therefore after the window they are keyed to — is gone.
+    krait::app::QuakeWindow quake;
+
     // BEFORE the engine builds the tree. TerminalView gets its geometry during
     // loadFromModule(), and geometry is what starts the first shell — so a
     // launch profile handed over afterwards would mean spawning PowerShell and
@@ -246,10 +271,22 @@ int main(int argc, char* argv[]) try {
         for (krait::app::SettingsModel* model : root->findChildren<krait::app::SettingsModel*>()) {
             model->setRegistry(&registry);
         }
+        // T74. Same argument as the settings page above: there is exactly one
+        // broadcast model and it exists from startup, unlike a terminal, which
+        // a new tab creates whenever it likes.
+        for (krait::app::BroadcastModel* model :
+             root->findChildren<krait::app::BroadcastModel*>()) {
+            model->setSettings(&registry);
+        }
     }
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     if (window != nullptr) {
+        // Before show(): the TaskbarButtonCreated message this waits for is
+        // posted once the button exists, and Microsoft is explicit that it
+        // "must be received by your application before it calls any
+        // ITaskbarList3 method".
+        taskbar.attach(window);
         // Before scene graph init (first expose): GPU timestamps for the
         // bench, and the WARP software adapter when benching that leg.
         QQuickGraphicsConfiguration config;
@@ -285,7 +322,36 @@ int main(int argc, char* argv[]) try {
                              }
                              QCoreApplication::exit(3);
                          });
-        window->setVisible(true);  // deferred so the config precedes sg init
+        // T74. Connected BEFORE attach(), so a hotkey refused at startup and
+        // one refused after a live quake.hotkey edit take the SAME route to the
+        // same banner. rules/ui.md: a per-tab banner, never a dialog. Raised by
+        // NAME rather than through the launchError context property the command
+        // line uses, because both moments are past Component.onCompleted.
+        //
+        // "The hotkey did nothing" is the failure people actually hit here, and
+        // it is indistinguishable from a broken build unless something says
+        // which combination was refused.
+        QObject::connect(&quake, &krait::app::QuakeWindow::hotkeyFailed, window,
+                         [window](const QString& message, const QString& detail) {
+                             QMetaObject::invokeMethod(window, "raiseGlobalError",
+                                                       Q_ARG(QVariant, message),
+                                                       Q_ARG(QVariant, detail));
+                         });
+        // Before setVisible: attach() changes the window flags, which on Windows
+        // recreates the native window, and doing that to a window already on
+        // screen is a visible flash plus a new HWND for the hotkey registration
+        // to have been made against.
+        //
+        // A quake window then starts HIDDEN — that is what a drop-down is. The
+        // one exception is a hotkey that could not be claimed: starting hidden
+        // there would leave an app with no window and no working way to summon
+        // one, which is a trap rather than a degraded feature.
+        const bool quakeReady = quake.attach(window, &registry);
+        if (quake.dropDown()) {
+            qInfo("quake: drop-down mode, hotkey '%s' %s", registry.text("quake.hotkey").c_str(),
+                  quakeReady ? "registered" : "REFUSED");
+        }
+        window->setVisible(!quake.dropDown() || !quakeReady);
         // Queried on the GUI thread after the first frames; the
         // sceneGraphInitialized signal is emitted on the render thread and
         // proved unreliable to observe from here.

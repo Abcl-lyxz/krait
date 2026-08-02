@@ -22,22 +22,37 @@ qt_add_qml_module(krait-app
     QML_FILES
         qml/Banner.qml
         qml/BannerButton.qml
+        qml/BroadcastBar.qml
+        qml/FilePanel.qml
         qml/Main.qml
         qml/Palette.qml
         qml/SessionPane.qml
         qml/Settings.qml
+        qml/SnippetBar.qml
         qml/TabStrip.qml
     SOURCES
         backend_factory.cpp
+        broadcast.cpp
+        broadcast.h
         capture.cpp
         capture.h
         backend_factory.h
+        quake.cpp
+        quake.h
         mremoteng_import.cpp
         mremoteng_import.h
+        notifier.cpp
+        notifier.h
         session_model.cpp
         settings_model.cpp
         settings_model.h
         session_model.h
+        sftp_model.cpp
+        sftp_model.h
+        shell_integration.cpp
+        shell_integration.h
+        taskbar_progress.cpp
+        taskbar_progress.h
         terminal_item.cpp
         terminal_item.h
         ../render/spike/grid_item.cpp
@@ -75,9 +90,16 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # API; its headers (rhi/qrhi.h) ship under the private include umbrella.
 # krait-shaper carries krait-core, HarfBuzz, FreeType and DirectWrite: the whole
 # T23/T24/T25 render pipeline the spike path was replaced with.
+# ole32 for CoCreateInstance(CLSID_TaskbarList) — the OSC 9;4 taskbar bar (T67).
+# uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
+# user32 (RegisterHotKey/SetForegroundWindow, quake.cpp) is another MSVC default.
 target_link_libraries(krait-app
     PRIVATE krait-core krait-render krait-input krait-settings krait-session krait-net Qt6::Quick Qt6::GuiPrivate
-            freetype)
+            freetype ole32
+            # shell32 for Shell_NotifyIconW (notifier.cpp) — the library
+            # learn.microsoft.com names for it, alongside ole32's CoCreateInstance
+            # for the taskbar.
+            shell32)
 
 # Translations (plan T32). EN and TH ship together: rules/ui.md makes Thai a
 # first-class locale, not an afterthought, so a string that lands without both
@@ -119,4 +141,20 @@ add_custom_command(TARGET krait-app POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/OpenConsole.exe
         ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/LICENSE
         $<TARGET_FILE_DIR:krait-app>/openconsole
+)
+
+# T73. The shell-integration scripts ride next to the exe the same way, and for
+# the same reason they are FILES rather than a Qt resource: the SSH installer
+# uploads one of them verbatim, and a user with a local shell has to be able to
+# point `source` at a real path. shell_integration.cpp resolves them relative to
+# applicationDirPath().
+add_custom_command(TARGET krait-app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:krait-app>/shell-integration
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.bash
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.zsh
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.fish
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.ps1
+        $<TARGET_FILE_DIR:krait-app>/shell-integration
 )

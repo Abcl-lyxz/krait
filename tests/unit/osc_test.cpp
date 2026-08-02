@@ -2,7 +2,10 @@
 #include "core/terminal/session.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +20,10 @@ std::vector<OscAction> run(Session& session, std::string_view bytes) {
     session.onOsc = [&actions](const OscAction& action) { actions.push_back(action); };
     session.feed({reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()});
     return actions;
+}
+
+void feed(Session& session, std::string_view bytes) {
+    session.feed({reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()});
 }
 
 }  // namespace
@@ -118,7 +125,11 @@ TEST_CASE("an aborted or unknown OSC does nothing", "[core][osc]") {
     CHECK(run(session, "\x1b]52;c;aGVsbG8=\x18").empty());
     // Codes we do not implement stay silent rather than half-handled.
     CHECK(run(session, "\x1b]4;1;rgb:00/00/00\x1b\\").empty());
-    CHECK(run(session, "\x1b]133;A\x1b\\").empty());
+    // An OSC 133 with a letter nobody implements marks nothing and reports
+    // nothing — the same honest silence as OSC 4 above. (A is a different
+    // story: it marks the grid AND reports, which the shell-integration case
+    // below pins.)
+    CHECK(run(session, "\x1b]133;Z\x1b\\").empty());
     // An empty string is not an action.
     CHECK(run(session, "\x1b]\x1b\\").empty());
 }
@@ -129,4 +140,415 @@ TEST_CASE("OSC 0 and 2 are titles", "[core][osc]") {
     REQUIRE(title.size() == 1);
     CHECK(title[0].kind == OscAction::Kind::Title);
     CHECK(title[0].text == "my shell");
+}
+
+TEST_CASE("OSC 9;4 reports taskbar progress and refuses what it cannot read", "[core][osc]") {
+    Session session(24, 80);
+
+    // State 1 carries a percentage.
+    const std::vector<OscAction> set = run(session, "\x1b]9;4;1;42\x1b\\");
+    REQUIRE(set.size() == 1);
+    CHECK(set[0].kind == OscAction::Kind::Progress);
+    CHECK(set[0].progress == OscAction::Progress::Set);
+    CHECK(set[0].percent == 42);
+
+    // BEL terminates it as well as ST, and 0 removes the bar.
+    const std::vector<OscAction> gone = run(session, "\x1b]9;4;0\x07");
+    REQUIRE(gone.size() == 1);
+    CHECK(gone[0].progress == OscAction::Progress::Remove);
+
+    // 2 and 4 may omit the percentage — ConEmu says so in as many words — and
+    // "absent" stays distinct from 0 so the app can leave the bar where it was.
+    for (const auto& [bytes, state] :
+         {std::pair{"\x1b]9;4;2\x1b\\", OscAction::Progress::Error},
+          std::pair{"\x1b]9;4;4\x1b\\", OscAction::Progress::Paused}}) {
+        const std::vector<OscAction> partial = run(session, bytes);
+        REQUIRE(partial.size() == 1);
+        CHECK(partial[0].progress == state);
+        CHECK(partial[0].percent == -1);
+    }
+
+    // 3 is indeterminate; Microsoft says the value is ignored, so whether one
+    // arrives or not the state is what matters.
+    const std::vector<OscAction> marquee = run(session, "\x1b]9;4;3;77\x1b\\");
+    REQUIRE(marquee.size() == 1);
+    CHECK(marquee[0].progress == OscAction::Progress::Indeterminate);
+
+    // Out of range is CLAMPED rather than refused: neither MS nor ConEmu says
+    // what 250% means, and a bar pinned at full is the only reading of it that
+    // is not a lie. (A refusal would leave a stale bar saying something else.)
+    const std::vector<OscAction> over = run(session, "\x1b]9;4;1;250\x1b\\");
+    REQUIRE(over.size() == 1);
+    CHECK(over[0].percent == 100);
+
+    // Hostile / confused input is refused WHOLE. Every one of these is a sender
+    // that does not mean what a legal string means, and guessing the nearest
+    // legal state would put something on the user's taskbar nobody asked for.
+    for (const std::string_view bad : {
+             "\x1b]9;4;9;50\x1b\\",          // no such state
+             "\x1b]9;4;10;50\x1b\\",         // two digits is not a state, even if 1 is
+             "\x1b]9;5;1;50\x1b\\",          // OSC 9 subcommand we do not implement
+             "\x1b]9;4x;1\x1b\\",            // subcommand is not exactly "4"
+             "\x1b]9;a notification\x1b\\",  // ConEmu's OSC 9 message form
+             "\x1b]9\x1b\\",
+         }) {
+        CAPTURE(bad);
+        CHECK(run(session, bad).empty());
+    }
+
+    // DEFAULT PARAMETER. An absent or empty state is REMOVE, not malformed:
+    // Windows Terminal's own dispatcher reads a missing state as 0, and
+    // refusing it would leave a bar asserting progress with nothing able to
+    // clear it. `;;50` is the same shape with a percentage after it.
+    for (const std::string_view clears :
+         {"\x1b]9;4\x1b\\", "\x1b]9;4;\x1b\\", "\x1b]9;4;;50\x1b\\"}) {
+        CAPTURE(clears);
+        const std::vector<OscAction> off = run(session, clears);
+        REQUIRE(off.size() == 1);
+        CHECK(off[0].progress == OscAction::Progress::Remove);
+    }
+
+    // State 1 with no percentage at all: the state is legal, the figure simply
+    // is not there. Distinct from 0, so the app can pick a default per state.
+    const std::vector<OscAction> bare = run(session, "\x1b]9;4;1\x1b\\");
+    REQUIRE(bare.size() == 1);
+    CHECK(bare[0].progress == OscAction::Progress::Set);
+    CHECK(bare[0].percent == -1);
+
+    // Both ends of the documented 0-100 range are inclusive.
+    for (const auto& [bytes, want] :
+         {std::pair{"\x1b]9;4;1;0\x1b\\", 0}, std::pair{"\x1b]9;4;1;100\x1b\\", 100},
+          std::pair{"\x1b]9;4;1;101\x1b\\", 100}}) {
+        CAPTURE(bytes);
+        const std::vector<OscAction> at = run(session, bytes);
+        REQUIRE(at.size() == 1);
+        CHECK(at[0].percent == want);
+    }
+
+    // An overlong percentage is refused as a PERCENTAGE, not as a state: "137"
+    // truncated to "13" would be a different answer, not a rounded one.
+    const std::vector<OscAction> huge = run(session, "\x1b]9;4;1;99999999999999999999\x1b\\");
+    REQUIRE(huge.size() == 1);
+    CHECK(huge[0].percent == -1);
+
+    // INTERRUPTED mid-payload. CAN and SUB abort the string (xterm discards
+    // those and so do we); ESC is the first half of ST, so the machine leaves
+    // the string on it and dispatches what it had. Either way the parser comes
+    // back clean, which the sequence after the loop proves.
+    for (const std::string_view aborted : {"\x1b]9;4;1;50\x18", "\x1b]9;4;1;50\x1a"}) {
+        CAPTURE(aborted);
+        CHECK(run(session, aborted).empty());
+    }
+    const std::vector<OscAction> introduced = run(session, "\x1b]9;4;1;50\x1b[c");
+    REQUIRE(introduced.size() == 1);
+    CHECK(introduced[0].percent == 50);
+    CHECK(run(session, "\x1b]9;4;1;7\x1b\\").size() == 1);
+
+    // SPLIT ACROSS CHUNKS, at every byte. A socket read cutting an OSC in half
+    // is the normal case, not the exotic one — the parser holds no buffer of
+    // its own, so OscHandler has to accumulate across feeds or nothing works.
+    for (const std::string_view whole : {"\x1b]9;4;1;42\x1b\\", "\x1b]9;4;2\x07"}) {
+        CAPTURE(whole);
+        for (std::size_t cut = 1; cut < whole.size(); ++cut) {
+            CAPTURE(cut);
+            Session split(24, 80);
+            std::vector<OscAction> seen;
+            split.onOsc = [&seen](const OscAction& one) { seen.push_back(one); };
+            feed(split, whole.substr(0, cut));
+            feed(split, whole.substr(cut));
+            REQUIRE(seen.size() == 1);
+            CHECK(seen[0].kind == OscAction::Kind::Progress);
+        }
+    }
+
+    // A percentage that is not a number is absent, not fatal: the STATE is the
+    // part the sender got right, and dropping it would lose a real error bar.
+    const std::vector<OscAction> junk = run(session, "\x1b]9;4;2;oops\x1b\\");
+    REQUIRE(junk.size() == 1);
+    CHECK(junk[0].progress == OscAction::Progress::Error);
+    CHECK(junk[0].percent == -1);
+
+    // Positional, like OSC 133 ; D's status: a later field that happens to be a
+    // number is an option, not the percentage.
+    const std::vector<OscAction> positional = run(session, "\x1b]9;4;1;oops;50\x1b\\");
+    REQUIRE(positional.size() == 1);
+    CHECK(positional[0].percent == -1);
+
+    // Nothing here ever answers the remote side.
+    std::string replies;
+    session.onReply = [&replies](const std::string& out) { replies += out; };
+    feed(session, "\x1b]9;4;1;10\x1b\\\x1b]9;4;0\x1b\\");
+    CHECK(replies.empty());
+}
+
+TEST_CASE("OSC 133 marks the grid and never answers the remote side", "[core][osc][shell]") {
+    Session session(6, 20);
+    std::string replies;
+    session.onReply = [&replies](const std::string& out) { replies += out; };
+    int oscActions = 0;
+    session.onOsc = [&oscActions](const OscAction&) { ++oscActions; };
+
+    feed(session, "\x1b]133;A;aid=7;cl=m\x1b\\user@host$ \x1b]133;B\x1b\\ls\r\n"
+                  "\x1b]133;C;cmdline_url=ls\x1b\\file-a\r\n"
+                  "\x1b]133;D;3\x1b\\");
+
+    CHECK(replies.empty());
+    // The mark is applied by the core AND forwarded: A, B, C and D each report
+    // once. The app needs the C -> D pair because it is the only signal that a
+    // command ran and for how long, and src/core/ may not read a clock
+    // (rules/vt-core.md). What it must never do is REPLY, which is the line
+    // above.
+    CHECK(oscActions == 4);
+
+    const Grid& grid = session.grid();
+    CHECK((grid.absoluteLineAt(0).marks & kMarkPromptStart) != 0);
+    CHECK((grid.absoluteLineAt(0).marks & kMarkInputStart) != 0);
+    CHECK((grid.absoluteLineAt(1).marks & kMarkOutputStart) != 0);
+    CHECK((grid.absoluteLineAt(2).marks & kMarkCommandEnd) != 0);
+    // The status lands on the line the command was TYPED on, not on the line D
+    // happened to arrive at.
+    CHECK(grid.absoluteLineAt(0).exitCode == 3);
+    CHECK(grid.absoluteLineAt(2).exitCode == -1);
+}
+
+TEST_CASE("OSC 133 D writes its status onto a prompt already in scrollback", "[core][osc][shell]") {
+    // Why the status cannot live in a side table keyed by row: by the time a
+    // slow command finishes, the line it was typed on has usually left the
+    // screen entirely.
+    Session session(3, 20);
+    feed(session, "\x1b]133;A\x1b\\$ sleep\r\n\x1b]133;C\x1b\\");
+    feed(session, "a\r\nb\r\nc\r\nd\r\ne\r\n");
+
+    const Grid& grid = session.grid();
+    REQUIRE(grid.scrollbackSize() > 0);
+    const std::optional<std::size_t> prompt = grid.prevPrompt(grid.absoluteLineCount());
+    REQUIRE(prompt.has_value());
+    REQUIRE(*prompt < grid.scrollbackSize());  // it really did retire into history
+
+    feed(session, "\x1b]133;D;130\x1b\\");
+    CHECK(grid.absoluteLineAt(*prompt).exitCode == 130);
+}
+
+TEST_CASE("prompt navigation walks scrollback and screen as one list", "[core][osc][shell]") {
+    Session session(4, 20);
+    for (const std::string_view command : {"one", "two", "three"}) {
+        feed(session, "\x1b]133;A\x1b\\$ ");
+        feed(session, command);
+        feed(session, "\r\n\x1b]133;C\x1b\\out\r\n");
+    }
+
+    const Grid& grid = session.grid();
+    std::vector<std::size_t> prompts;
+    // nextPrompt is strictly-after, so seed the walk with line 0 when the very
+    // first line is itself a prompt. That asymmetry is what makes a
+    // jump-to-prompt binding pressed twice move twice.
+    if ((grid.absoluteLineAt(0).marks & kMarkPromptStart) != 0) {
+        prompts.push_back(0);
+    }
+    for (std::optional<std::size_t> at = grid.nextPrompt(0); at; at = grid.nextPrompt(*at)) {
+        prompts.push_back(*at);
+    }
+    REQUIRE(prompts.size() == 3);
+    CHECK(prompts[0] < prompts[1]);
+    CHECK(prompts[1] < prompts[2]);
+    // The first of the three has retired into history; the walk crossed the
+    // scrollback/screen seam without the caller knowing there was one.
+    CHECK(prompts[0] < grid.scrollbackSize());
+    CHECK(prompts[2] >= grid.scrollbackSize());
+
+    CHECK(grid.prevPrompt(prompts[2]) == prompts[1]);
+    CHECK(grid.prevPrompt(prompts[1]) == prompts[0]);
+    CHECK_FALSE(grid.prevPrompt(prompts[0]).has_value());
+    CHECK_FALSE(grid.nextPrompt(prompts[2]).has_value());
+    // Out-of-range starts are answers, not crashes: a UI asks from wherever the
+    // viewport happens to be, and the viewport outlives the lines it names.
+    CHECK(grid.prevPrompt(grid.absoluteLineCount() * 4) == prompts[2]);
+    CHECK_FALSE(grid.nextPrompt(grid.absoluteLineCount() * 4).has_value());
+    CHECK_FALSE(grid.nextPrompt(static_cast<std::size_t>(-1)).has_value());
+}
+
+TEST_CASE("OSC 133 marks the head of a wrapped prompt, not the cursor's row",
+          "[core][osc][shell]") {
+    // B arrives after a prompt that has already wrapped, so the cursor sits on
+    // a continuation row. The mark must walk back to the head, or the next
+    // resize moves it.
+    Session session(4, 8);
+    feed(session, "\x1b]133;A\x1b\\0123456789ab\x1b]133;B\x1b\\");
+
+    const Grid& grid = session.grid();
+    REQUIRE(grid.absoluteLineAt(1).wrappedFromPrev);
+    CHECK((grid.absoluteLineAt(0).marks & kMarkInputStart) != 0);
+    CHECK(grid.absoluteLineAt(1).marks == 0);
+}
+
+TEST_CASE("OSC 133 D attributes the status to the FIRST prompt of a multi-line command",
+          "[core][osc][shell]") {
+    // kitty sends `A;k=s` before PS2. Treating that as a prompt start would put
+    // the status on the last continuation row instead of the line the command
+    // began on — the exact failure the write-it-back design exists to prevent.
+    Session session(6, 20);
+    feed(session, "\x1b]133;A\x1b\\$ for i\r\n");
+    feed(session, "\x1b]133;A;k=s\x1b\\> do\r\n");
+    feed(session, "\x1b]133;C\x1b\\out\r\n\x1b]133;D;2\x1b\\");
+
+    const Grid& grid = session.grid();
+    CHECK(grid.absoluteLineAt(0).exitCode == 2);
+    CHECK(grid.absoluteLineAt(1).exitCode == -1);
+    CHECK(grid.absoluteLineAt(1).marks == 0);  // PS2 is not a jump target
+    CHECK_FALSE(grid.nextPrompt(0).has_value());
+}
+
+TEST_CASE("OSC 133 P is prompt start, which is what wezterm and zsh emit", "[core][osc][shell]") {
+    // wezterm's shipped integration and zsh's own Src/Zle/termquery.c send
+    // `133;P;k=i`, never `133;A`. Handling only A means zero marks for them.
+    Session session(4, 20);
+    feed(session, "\x1b]133;P;k=i\x1b\\$ \x1b]133;B\x1b\\");
+    const Grid& grid = session.grid();
+    CHECK((grid.absoluteLineAt(0).marks & kMarkPromptStart) != 0);
+    CHECK((grid.absoluteLineAt(0).marks & kMarkInputStart) != 0);
+
+    Session secondary(4, 20);
+    feed(secondary, "\x1b]133;P;k=s\x1b\\");
+    CHECK(secondary.grid().absoluteLineAt(0).marks == 0);
+}
+
+TEST_CASE("erase takes prompt marks with the text they described", "[core][osc][shell]") {
+    // Otherwise jump-to-prompt lands on blank rows after a `clear`, and the
+    // resize blank-row absorption stops seeing those rows as spare.
+    Session session(6, 20);
+    feed(session, "\x1b]133;A\x1b\\$ x\r\nout\r\n");
+    REQUIRE(session.grid().prevPrompt(session.grid().absoluteLineCount()).has_value());
+
+    feed(session, "\x1b[H\x1b[2J");
+    CHECK_FALSE(session.grid().prevPrompt(session.grid().absoluteLineCount()).has_value());
+
+    // And the cleared rows are absorbable again, which is what a narrowing
+    // resize needs so it does not retire live content into history.
+    session.grid().resize(3, 10);
+    CHECK(session.grid().scrollbackSize() == 0);
+}
+
+TEST_CASE("shell integration is a no-op on the alternate screen", "[core][osc][shell]") {
+    // m_scrollback is the NORMAL buffer's history, so a mark placed while a
+    // full-screen app owns the viewport would name a line in the wrong buffer.
+    Session session(4, 20);
+    feed(session, "\x1b[?1049h\x1b]133;A\x1b\\\x1b]133;D;1\x1b\\");
+    const Grid& grid = session.grid();
+    CHECK_FALSE(grid.prevPrompt(grid.absoluteLineCount()).has_value());
+    feed(session, "\x1b[?1049l");
+    CHECK_FALSE(grid.prevPrompt(grid.absoluteLineCount()).has_value());
+}
+
+TEST_CASE("a D with no prompt open does no history walk at all", "[core][osc][shell]") {
+    // The bound on a hostile stream: `\e]133;D\e\\` is 13 bytes, and without
+    // this a megabyte of them would walk all of scrollback per sequence.
+    // Observable as behaviour rather than as timing: the second D of a pair
+    // cannot claim the prompt the first one already closed.
+    Session session(4, 20);
+    feed(session, "\x1b]133;A\x1b\\$ x\r\n\x1b]133;D;7\x1b\\");
+    const Grid& grid = session.grid();
+    const std::optional<std::size_t> prompt = grid.prevPrompt(grid.absoluteLineCount());
+    REQUIRE(prompt.has_value());
+    CHECK(grid.absoluteLineAt(*prompt).exitCode == 7);
+
+    feed(session, "\x1b]133;D;9\x1b\\");
+    CHECK(grid.absoluteLineAt(*prompt).exitCode == 7);  // not re-claimed
+}
+
+TEST_CASE("a flood of A + 2J + D triples stays bounded instead of rescanning history",
+          "[core][osc][shell]") {
+    // The hostile case T66's `m_promptOpen` bool did NOT cover, and the reason
+    // the open prompt is a stable index now. `ESC]133;A ST` `CSI 2J`
+    // `ESC]133;D ST` is 25 bytes: the 2J clears the mark (sgr.cpp) without
+    // closing the prompt, so a walk bounded only by "is a prompt open" searches
+    // ALL of history, finds nothing, and does it again for every 25 bytes.
+    // With the floor the walk stops where the A opened, which no amount of
+    // remote output can push further away for free.
+    // Small on purpose. `CSI 2J` is O(rows x cols) by definition and that work
+    // is legitimate — it is the HISTORY walk this case is about, and a walk
+    // costs the same per line at any width. A 24x80 grid buries a 10x
+    // regression under its own honest clearing; 6x20 leaves it in the open.
+    Session session(6, 20);
+
+    // A full ring first, so a regression has a whole history to rescan. This is
+    // the multiplier: with the bool alone the flood below is ~10^8 line visits.
+    std::string history;
+    for (int i = 0; i < 12'000; ++i) {
+        history += "line\r\n";
+    }
+    feed(session, history);
+    REQUIRE(session.grid().scrollbackSize() > 9'000);
+
+    std::string flood;
+    for (int i = 0; i < 40'000; ++i) {
+        flood += "\x1b]133;A\x1b\\\x1b[2J\x1b]133;D;1\x1b\\";
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    feed(session, flood);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
+    // A hard bound, so a regression is a FAILING ASSERTION rather than a ctest
+    // that never returns and a CI job killed by its own timeout with nothing to
+    // read (the pattern tests/unit/sftp_test.cpp's flood case uses). Generous
+    // against a loaded machine and still two orders of magnitude under the
+    // unbounded walk, which is minutes here.
+    UNSCOPED_INFO("40k A/2J/D triples over " << session.grid().scrollbackSize()
+                                             << " history lines took " << elapsed.count() << " ms");
+    CHECK(elapsed < std::chrono::seconds(5));
+
+    // And the bound did not come from refusing to do the work: a D that follows
+    // a REAL, uncleared A still finds it and still writes the status.
+    Session live(4, 20);
+    feed(live, "\x1b]133;A\x1b\\$ x\r\nout\r\n\x1b]133;D;42\x1b\\");
+    const std::optional<std::size_t> prompt =
+        live.grid().prevPrompt(live.grid().absoluteLineCount());
+    REQUIRE(prompt.has_value());
+    CHECK(live.grid().absoluteLineAt(*prompt).exitCode == 42);
+}
+
+TEST_CASE("an open prompt survives the eviction of everything around it", "[core][osc][shell]") {
+    // The other half of the same change: the floor is a STABLE index, so the
+    // bound must not turn into a wrong answer when the ring evicts underneath
+    // it. A row index here would name different text after the first eviction.
+    Session session(3, 20);
+    session.grid().scrollback().setCaps(8, 4'000);
+
+    feed(session, "\x1b]133;A\x1b\\$ slow\r\n\x1b]133;C\x1b\\");
+    // Comfortably more output than the 8-line ring holds, so the prompt line is
+    // evicted along with everything else while the command is still running.
+    for (int i = 0; i < 40; ++i) {
+        feed(session, "out\r\n");
+    }
+    REQUIRE(session.grid().scrollbackSize() <= 8);
+    REQUIRE_FALSE(session.grid().prevPrompt(session.grid().absoluteLineCount()).has_value());
+
+    // The prompt it belonged to is gone, so there is nothing to write and
+    // nothing is invented — in particular no status lands on whichever line
+    // happens to sit at the old index now.
+    feed(session, "\x1b]133;D;7\x1b\\");
+    for (std::size_t i = 0; i < session.grid().absoluteLineCount(); ++i) {
+        CHECK(session.grid().absoluteLineAt(i).exitCode == -1);
+    }
+}
+
+TEST_CASE("OSC 133 refuses a status it cannot trust", "[core][osc][shell]") {
+    for (const std::string_view bad :
+         {"\x1b]133;D;-1\x1b\\", "\x1b]133;D;oops\x1b\\", "\x1b]133;D;99999999999\x1b\\",
+          "\x1b]133;D;2147483648\x1b\\", "\x1b]133;D;\x1b\\", "\x1b]133;D\x1b\\"}) {
+        CAPTURE(bad);
+        Session session(3, 20);
+        feed(session, "\x1b]133;A\x1b\\$\r\n");
+        feed(session, bad);
+        // The mark still lands — the command DID finish, we just do not know
+        // how — but no status is invented for it.
+        CHECK((session.grid().absoluteLineAt(1).marks & kMarkCommandEnd) != 0);
+        CHECK(session.grid().absoluteLineAt(0).exitCode == -1);
+    }
+
+    // 2147483647 is the largest value the bound accepts, and it is accepted.
+    Session session(3, 20);
+    feed(session, "\x1b]133;A\x1b\\$\r\n\x1b]133;D;2147483647\x1b\\");
+    CHECK(session.grid().absoluteLineAt(0).exitCode == 2147483647);
 }

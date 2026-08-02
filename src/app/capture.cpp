@@ -1,6 +1,7 @@
 #include "capture.h"
 
 #include "session/profile.h"
+#include "sftp_model.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -75,8 +76,12 @@ SessionLog::~SessionLog() {
     }
 }
 
-bool SessionLog::open(const QString& path) {
+bool SessionLog::open(const QString& path, LogFormat format) {
     close();
+    m_format = format;
+    m_failed = false;
+    m_stripOut = session::StripState::Ground;
+    m_stripIn = session::StripState::Ground;
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) {
         m_error = QStringLiteral("could not create %1").arg(info.absolutePath());
@@ -91,6 +96,12 @@ bool SessionLog::open(const QString& path) {
     m_error.clear();
     m_lastDirection = '\0';
     m_atLineStart = true;
+    if (m_format == LogFormat::Raw) {
+        // No header. Raw means byte-exact: a banner at the top would be the one
+        // thing in the file the far end did not send, and it would land in the
+        // middle of the screen on replay.
+        return true;
+    }
     const QString header = QStringLiteral("=== krait session log, started %1 ===\n")
                                .arg(QDateTime::currentDateTime().toString(Qt::ISODate));
     const QByteArray utf8 = header.toUtf8();
@@ -105,10 +116,41 @@ void SessionLog::close() {
     }
 }
 
-void SessionLog::writeChunk(char direction, const QByteArray& bytes) {
-    if (!m_stream.is_open() || bytes.isEmpty()) {
+bool SessionLog::takeFailure() {
+    const bool failed = m_failed;
+    m_failed = false;
+    return failed;
+}
+
+void SessionLog::checkStream() {
+    if (m_failed || !m_stream.is_open() || m_stream.good()) {
         return;
     }
+    m_failed = true;
+    // The disk filled, the share went away, the stick was pulled. Named once,
+    // then the stream is closed so nothing keeps pretending to record.
+    m_error = QStringLiteral("stopped writing %1").arg(m_path);
+    m_stream.close();
+}
+
+void SessionLog::writeChunk(char direction, const QByteArray& raw_bytes) {
+    if (!m_stream.is_open() || raw_bytes.isEmpty()) {
+        return;
+    }
+    QByteArray stripped;
+    if (m_format == LogFormat::Text) {
+        // Stripped BEFORE the framing below, and with per-direction state, so a
+        // sequence split across two reads cannot walk the stripper (the reason
+        // TriggerEngine carries a StripState at all).
+        session::StripState& state = direction == '<' ? m_stripOut : m_stripIn;
+        stripped = QByteArray::fromStdString(session::plainText(
+            std::string_view(raw_bytes.constData(), static_cast<std::size_t>(raw_bytes.size())),
+            state));
+        if (stripped.isEmpty()) {
+            return;  // a chunk that was nothing but escape sequences
+        }
+    }
+    const QByteArray& bytes = m_format == LogFormat::Text ? stripped : raw_bytes;
     for (const char raw : bytes) {
         const auto byte = static_cast<std::uint8_t>(raw);
         if (m_atLineStart || direction != m_lastDirection) {
@@ -148,22 +190,60 @@ void SessionLog::writeChunk(char direction, const QByteArray& bytes) {
     // happen to the session, and a buffered tail is exactly the part that gets
     // lost when it does.
     m_stream.flush();
+    checkStream();
 }
 
 void SessionLog::writeOutput(const QByteArray& bytes) {
+    if (m_format == LogFormat::Raw) {
+        if (!m_stream.is_open() || bytes.isEmpty()) {
+            return;
+        }
+        m_stream.write(bytes.constData(), bytes.size());
+        m_stream.flush();
+        checkStream();
+        return;
+    }
     writeChunk('<', bytes);
 }
 
 void SessionLog::writeInput(const QByteArray& bytes) {
+    if (m_format == LogFormat::Raw) {
+        return;  // see LogFormat::Raw — a byte-exact stream has no second lane
+    }
     writeChunk('>', bytes);
 }
 
-QString sessionLogPath(const QString& configDir, const QString& sessionName) {
-    const std::string slug = session::slugify(sessionName.isEmpty() ? std::string("session")
-                                                                    : sessionName.toStdString());
-    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
-    return QDir(configDir).filePath(
-        QStringLiteral("logs/%1-%2.log").arg(QString::fromStdString(slug), stamp));
+namespace {
+
+// One substituted template value, reduced to something Win32 will accept as a
+// single path component. See expandLogPath for why this is where the trust
+// boundary sits.
+QString safeField(const QString& raw) {
+    if (raw.isEmpty()) {
+        return QStringLiteral("none");  // a local shell has no host
+    }
+    const QString slug = QString::fromStdString(session::slugify(raw.toStdString()));
+    // slugify never returns empty and leaves only [a-z0-9-], so everything that
+    // makes a path component dangerous is already gone. The one thing it cannot
+    // know about is a DOS device name — "con" slugifies to "con", and CON is
+    // still a device — which is precisely what isSafeLeafName checks.
+    return isSafeLeafName(slug) ? slug : slug + QStringLiteral("-log");
+}
+
+}  // namespace
+
+QString expandLogPath(const QString& configDir, const QString& tmpl, const LogFields& fields,
+                      const QDateTime& when) {
+    QString out = tmpl.isEmpty() ? QString::fromLatin1(kDefaultLogTemplate) : tmpl;
+    out.replace(QStringLiteral("{session}"), safeField(fields.session));
+    out.replace(QStringLiteral("{host}"), safeField(fields.host));
+    // Ours, not anyone's input, so they need no sanitising — and fixed-width, so
+    // the files sort by name into the order they were written.
+    out.replace(QStringLiteral("{date}"), when.toString(QStringLiteral("yyyyMMdd")));
+    out.replace(QStringLiteral("{time}"), when.toString(QStringLiteral("HHmmss")));
+    // An unknown placeholder is left alone on purpose: "{hostname}" then shows
+    // up in the file name, which is the fastest way anyone will notice the typo.
+    return QDir(configDir).filePath(out);
 }
 
 }  // namespace krait::app

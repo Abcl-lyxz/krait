@@ -5,18 +5,21 @@
 #include "../vault/vault.h"
 #include "forward_manager.h"
 #include "forwards.h"
+#include "sftp.h"
 
 #include <QByteArray>
 #include <QString>
 #include <QVariantList>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 // At GLOBAL scope, and deliberately: `struct ssh_session_struct*` written
 // inside the namespace below declares a NEW type called
@@ -131,6 +134,24 @@ class SshBackend : public IBackend {
     // question (rules/net.md).
     void respondHostKey(bool trust);
 
+    // T64. File transfer, queued to the worker thread for the same reason
+    // writeInput is: an ssh_session belongs to one thread, and the GUI is not
+    // it. Each call returns immediately; the answer arrives as sftpListed /
+    // sftpResolved and then sftpFinished, all carrying `requestId` back so a
+    // panel with two panes can tell whose answer it is.
+    //
+    // Requests are served in order, one at a time. That is not a placeholder
+    // for a parallel version: they share one session, and a second transfer
+    // would not go faster — it would only take the shell's turn twice as often.
+    void sftpResolve(quint64 requestId, const QString& path);
+    void sftpList(quint64 requestId, const QString& path);
+    void sftpGet(quint64 requestId, const QString& remotePath, const QString& localPath);
+    void sftpPut(quint64 requestId, const QString& localPath, const QString& remotePath);
+    // Stops the transfer in flight and drops everything still queued. Not
+    // per-request: with one worker there is only ever one transfer to stop, and
+    // a queue the user has abandoned is a queue they want gone.
+    void sftpCancelAll();
+
     // Answers credentialPrompt. `remember` stores it in the vault under
     // vaultKey. Cancel by passing an empty string.
     //
@@ -156,6 +177,20 @@ class SshBackend : public IBackend {
     // A retryable failure, and what happens next. The banner says "reconnecting
     // in 4 s (2 of 5)" rather than leaving a dead terminal that looks alive.
     void reconnecting(int attempt, int ofAttempts, int delayMs);
+
+    // T64, all queued to the GUI thread. Every one of them ends with
+    // sftpFinished for the same requestId, including the ones that failed —
+    // a panel that only hears about successes leaves a spinner up forever.
+    //
+    // `entries` is a list of QVariantMap with keys: name, size, permissions,
+    // mtime (seconds since the epoch), isDir, isLink.
+    void sftpListed(quint64 requestId, const QString& path, const QVariantList& entries);
+    void sftpResolved(quint64 requestId, const QString& path);
+    // `total` is 0 when the server did not say how big the file is.
+    void sftpProgress(quint64 requestId, qulonglong done, qulonglong total);
+    // `cancelled` separates "the user pressed stop" from "it broke", because
+    // only one of those is a banner.
+    void sftpFinished(quint64 requestId, bool ok, bool cancelled, const QString& message);
 
   private:
     struct Impl;  // libssh handles; defined in the .cpp so libssh.h stays there
@@ -208,6 +243,48 @@ class SshBackend : public IBackend {
     bool openShell(int cols, int rows);
     Outcome pump();
 
+    // One turn of everything the session needs doing apart from SFTP: drain the
+    // write queue, apply a pending resize, read stdout (blocking up to
+    // `readTimeoutMs`, or polling when that is 0), drain stderr, service the
+    // tunnels.
+    //
+    // pump() and interleaveShell() BOTH go through this, and that is the whole
+    // point of it existing. A transfer occupies the session for minutes, so an
+    // interleave hook that does LESS than the loop body starves whatever it
+    // left out for the transfer's whole duration — which is how stderr, the
+    // tunnels and pending resizes were starved when this was two copies of a
+    // list. Anything added to the loop body belongs here, not next to it.
+    //
+    // False means a channel read or write failed. Only pump() reports that: a
+    // broken session breaks the transfer's very next sftp call and then pump()'s
+    // next read too, and three banners for one failure is two too many.
+    bool serviceChannel(int readTimeoutMs);
+
+    // T64. What the GUI asked for, waiting its turn on the worker thread.
+    struct SftpRequest {
+        enum class Kind { Resolve, List, Get, Put };
+        Kind kind = Kind::List;
+        quint64 id = 0;
+        // For Get this is the remote source and for Put the remote
+        // destination; `local` is the other end of the same transfer.
+        std::string remote;
+        std::string local;
+    };
+
+    // Refuses the request outright when there is no session to run it on,
+    // rather than queueing something that can never be answered.
+    void queueSftp(SftpRequest request);
+    // Runs at most ONE queued request per pump iteration, so the shell gets a
+    // turn between them. Called from pump() only.
+    void serviceSftp();
+    // `cancelEpoch` is the value of m_sftpCancelEpoch when this request was
+    // dequeued. The transfer stops as soon as the live counter moves past it.
+    void runSftpRequest(const SftpRequest& request, std::uint64_t cancelEpoch);
+    // The interleave hook a transfer's Progress callback calls between chunks
+    // (see Sftp::Progress). Without it a large download is a terminal that
+    // stops responding until the download ends.
+    void interleaveShell();
+
     void fail(ErrorCode code, const QString& message);
     // Clears the answer slot. MUST be called before emitting the prompt, not
     // inside waitForAnswer: the answer can arrive before the worker reaches the
@@ -225,6 +302,32 @@ class SshBackend : public IBackend {
     // Tunnels. Lives here rather than in Impl because it holds no libssh type
     // in its header, and it is touched only from the worker thread.
     ForwardManager m_forwards;
+    // T64. Same reasoning, and the same thread. Opened lazily on the first
+    // request: most sessions never transfer a file, and an SFTP channel nobody
+    // asked for is a channel the server logs and some jump hosts refuse.
+    Sftp m_sftp;
+    // Cancellation, as a counter rather than a flag, because a flag has stale
+    // states and this does not. sftpCancelAll() bumps it; a request snapshots
+    // it when it is dequeued and stops the moment the two differ.
+    //
+    // A bool got this wrong twice over: a cancel arriving with nothing running
+    // — which is the NORMAL end-of-transfer race, since the Stop button stays
+    // live until the queued sftpFinished reaches the GUI — left the flag set,
+    // and the next unrelated request was then reported cancelled. An epoch
+    // cannot be left set, because there is nothing to leave set.
+    //
+    // Atomic rather than mutex-guarded because the transfer callback reads it
+    // between every chunk, and that would be the only contended lock in a
+    // transfer's hot path.
+    std::atomic<std::uint64_t> m_sftpCancelEpoch{0};
+
+    // Worker thread only, both of them. The buffer is a member so serviceChannel
+    // does not allocate 16 KiB on every 20 ms poll; `m_lastTraffic` is what the
+    // keepalive timer measures idleness against, and it lives here because a
+    // transfer's bytes count as traffic too — pump() is not running while one
+    // is in flight.
+    std::vector<char> m_readBuffer;
+    std::chrono::steady_clock::time_point m_lastTraffic;
 
     std::thread m_worker;
     // Why a rung of the auth ladder could not work, when it knows something the
@@ -248,6 +351,7 @@ class SshBackend : public IBackend {
     std::mutex m_mutex;
     std::condition_variable m_cv;
     std::deque<QByteArray> m_writeQueue;
+    std::deque<SftpRequest> m_sftpQueue;
     int m_pendingCols = 0;
     int m_pendingRows = 0;
     bool m_resizePending = false;

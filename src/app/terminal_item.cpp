@@ -2,19 +2,25 @@
 
 #include "backend_factory.h"
 #include "capture.h"
+#include "core/grid/search.h"
 #include "core/unicode/width.h"
 #include "error_banner.h"
 #include "input/ime.h"
 #include "input/keymap.h"
 #include "input/mouse.h"
 #include "input/paste.h"
+#include "net/remote_text.h"
+#include "notifier.h"
 #include "render/shaper/run_splitter.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QInputMethodEvent>
@@ -24,6 +30,7 @@
 #include <QQuickWindow>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVariantMap>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -42,6 +49,24 @@ namespace {
 // is hardcoded to a font that may be absent (T31 makes this a setting).
 constexpr std::array<std::string_view, 5> kFontCandidates{
     "Cascadia Mono", "Cascadia Code", "Consolas", "Lucida Console", "Courier New"};
+
+// T70. The three logging settings, named once so a typo is a link error rather
+// than a silently-defaulted read.
+constexpr std::string_view kLogTemplate = "logging.pathTemplate";
+constexpr std::string_view kLogFormat = "logging.format";
+constexpr std::string_view kLogIncludeInput = "logging.includeInput";
+
+// The schema constrains this to the three choices, so anything else is a file
+// written by a newer build — and Escaped, the default, is the safe read.
+LogFormat logFormatFromName(const QString& name) {
+    if (name == QStringLiteral("raw")) {
+        return LogFormat::Raw;
+    }
+    if (name == QStringLiteral("text")) {
+        return LogFormat::Text;
+    }
+    return LogFormat::Escaped;
+}
 
 QShader loadShader(const QString& path) {
     QFile file(path);
@@ -62,6 +87,8 @@ std::optional<session::Profile> g_launchProfile;
 settings::Registry* g_registry = nullptr;
 net::Vault* g_vault = nullptr;
 session::ProfileStore* g_store = nullptr;
+TaskbarProgress* g_taskbar = nullptr;
+Notifier* g_notifier = nullptr;
 
 }  // namespace
 
@@ -76,9 +103,21 @@ void TerminalItem::setServices(settings::Registry* registry, net::Vault* vault,
     g_store = store;
 }
 
+void TerminalItem::setTaskbar(TaskbarProgress* taskbar) {
+    g_taskbar = taskbar;
+}
+
+void TerminalItem::setNotifier(Notifier* notifier) {
+    g_notifier = notifier;
+}
+
 TerminalItem::TerminalItem() {
     m_vault = g_vault;
     m_store = g_store;
+    // T65. Built here rather than lazily so the `files` property can be
+    // CONSTANT: QML binds to it before any session exists, and a property that
+    // turns from null into an object needs a NOTIFY that nothing else wants.
+    m_files = new SftpModel(this);  // owned by this
     // Through setSettings(), not a bare assignment: it also subscribes to hot
     // reloads and applies the current values, and a tab opened after startup
     // needs both exactly as much as the first one did.
@@ -120,6 +159,8 @@ TerminalItem::TerminalItem() {
 
 void TerminalItem::adoptBackend(net::IBackend* backend) {
     m_backend = backend;
+    m_exited = false;
+    m_reconnecting = false;
     // EVERY lambda below re-checks that `backend` is still the current one, and
     // that is not belt-and-braces — it is the whole correctness argument for
     // switching sessions.
@@ -168,6 +209,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
                 return;
             }
             qInfo("shell exited (%d)", exitCode);
+            m_exited = true;
             // A shell that ran `exit` is NOT an error. Raising a banner here is
             // how a banner teaches people to ignore banners.
             if (exitCode != 0) {
@@ -181,6 +223,10 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
     // and putting them on the seam would give four backends a method that can
     // only ever return "not me".
     auto* ssh = qobject_cast<net::SshBackend*>(m_backend);
+    // Before the early return: the panel has to hear about a NON-SSH session
+    // too, or a tab re-pointed at a local shell keeps offering transfers over
+    // the connection it no longer has.
+    m_files->attach(ssh, QString::fromStdString(m_profile.host));
     if (ssh == nullptr) {
         return;
     }
@@ -215,6 +261,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
             // Clears whatever the last reconnect notice said. A banner that
             // stays up after the thing it describes is over is a banner people
             // stop reading.
+            m_reconnecting = false;
             emit connectionNotice(QString());
         },
         Qt::QueuedConnection);
@@ -234,6 +281,7 @@ void TerminalItem::adoptBackend(net::IBackend* backend) {
             if (backend != m_backend) {
                 return;
             }
+            m_reconnecting = true;
             emit connectionNotice(tr("Connection lost. Reconnecting in %1 s (%2 of %3)…")
                                       .arg(QString::number((delayMs + 999) / 1000),
                                            QString::number(attempt), QString::number(ofAttempts)));
@@ -253,7 +301,13 @@ void TerminalItem::sendInput(const QByteArray& bytes) {
     if (m_backend == nullptr || bytes.isEmpty()) {
         return;
     }
-    m_log.writeInput(bytes);
+    // Opt-in, and off by default (rules/net.md: never in logs). This is the
+    // stream a password typed at an echo-off prompt travels in, and it is the
+    // only one where turning logging on can capture a secret the far end never
+    // echoed back. See SessionLog for what output-only does and does not buy.
+    if (m_logInput) {
+        m_log.writeInput(bytes);
+    }
     m_backend->writeInput(bytes);
 }
 
@@ -286,6 +340,9 @@ void TerminalItem::resetSession() {
     }
     m_session.reset();
     m_started = false;
+    // The panel goes with the connection: a listing left on screen after the
+    // session it came from is a listing of a folder nobody can reach.
+    m_files->attach(nullptr);
     if (!m_tunnels.isEmpty()) {
         // The tunnels belonged to the connection that just went. Leaving them
         // on screen would show a pane full of listeners that no longer exist.
@@ -296,6 +353,10 @@ void TerminalItem::resetSession() {
 
 void TerminalItem::openProfile(const session::Profile& profile) {
     m_profile = profile;
+    // Before resetSession(), so the first bytes of the new connection are
+    // already being matched: a login banner is exactly the kind of thing people
+    // write a trigger for.
+    applyTriggers();
     resetSession();
     // Nothing else to do before the first geometry: ensureStarted() bails until
     // the grid size is known, and updateGrid() calls it again once it is.
@@ -365,21 +426,281 @@ void TerminalItem::setHexdump(bool on) {
 QString TerminalItem::toggleLogging() {
     if (m_log.isOpen()) {
         m_log.close();
+        m_logPath.clear();
+        emit loggingChanged();
         return {};
     }
     namespace ks = settings;
     const ks::Resolution dir = ks::resolveConfigDir(
         ks::systemPathInputs(), [](const QString& path) { return QFile::exists(path); });
-    const QString path = sessionLogPath(dir.dir, sessionTitle());
-    if (!m_log.open(path)) {
+    const QString tmpl =
+        m_settings == nullptr ? QString() : QString::fromStdString(m_settings->text(kLogTemplate));
+    const QString format =
+        m_settings == nullptr ? QString() : QString::fromStdString(m_settings->text(kLogFormat));
+    const LogFields fields{.session = sessionTitle(),
+                           .host = QString::fromStdString(m_profile.host)};
+    const QString path = expandLogPath(dir.dir, tmpl, fields, QDateTime::currentDateTime());
+    if (!m_log.open(path, logFormatFromName(format))) {
         emit errorRaised(tr("Could not start logging."), m_log.error());
         return {};
     }
+    m_logPath = path;
+    emit loggingChanged();
     return path;
+}
+
+void TerminalItem::setCopyMode(bool on) {
+    if (m_copyMode == on || !m_session) {
+        return;
+    }
+    m_copyMode = on;
+    if (on) {
+        // OUTPUT KEEPS ARRIVING, and the view does not freeze. Grid already
+        // solves the case that matters: pushToScrollback() bumps m_viewOffset
+        // whenever the viewport is scrolled up, so once the user is reading
+        // history the rows under them do not move however much the far end
+        // prints. Sitting at the live bottom, the screen scrolls exactly as it
+        // does outside copy mode — which is what staying at the bottom asks for
+        // — and the first `k` moves into history and pins it.
+        //
+        // The alternative, freezing the viewport on entry, was rejected: it
+        // needs the cursor tracked in absolute-line space while the yank needs
+        // it in the viewport space render::Selection uses, and two coordinate
+        // systems for one cursor is how a selection ends up describing text the
+        // user is not looking at.
+        //
+        // Starts where the shell's cursor is when the view is live, and at the
+        // bottom of what is on screen when it is not — in both cases on a row
+        // the user is already looking at.
+        const core::vt::Grid& grid = m_session->grid();
+        m_copyCursor = {};
+        m_copyCursor.row = grid.viewOffset() == 0 ? grid.row : std::max(0, m_rows - 1);
+        m_copyCursor.col = grid.viewOffset() == 0 ? grid.col : 0;
+        m_copyCursor.anchorRow = m_copyCursor.row;
+        m_copyCursor.anchorCol = m_copyCursor.col;
+    } else {
+        // Leaving snaps back to the live screen, the same thing a keypress does
+        // outside copy mode. A mode you left that silently left you reading
+        // history is a mode people think is still on.
+        m_session->grid().scrollViewToBottom();
+        m_selection.active = false;
+    }
+    emit copyModeChanged();
+    rebuildFrame();
+    update();
+}
+
+// The selection copy mode is currently describing, in the viewport coordinates
+// render::Selection uses. Line mode widens to whole rows at read time rather
+// than moving the anchor, so a `V` then `v` gives back the character selection
+// the user had rather than a row-wide one.
+render::Selection TerminalItem::copySelectionRange() const {
+    render::Selection sel{.active = m_copyCursor.select != input::Selecting::Off,
+                          .anchorRow = m_copyCursor.anchorRow,
+                          .anchorCol = m_copyCursor.anchorCol,
+                          .cursorRow = m_copyCursor.row,
+                          .cursorCol = m_copyCursor.col};
+    if (m_copyCursor.select == input::Selecting::Line) {
+        const bool forward = sel.cursorRow >= sel.anchorRow;
+        sel.anchorCol = forward ? 0 : std::max(0, m_cols - 1);
+        sel.cursorCol = forward ? std::max(0, m_cols - 1) : 0;
+    }
+    return sel;
+}
+
+bool TerminalItem::handleCopyKey(QKeyEvent* event) {
+    const input::Command command = input::translateCopyKey(event->key(), event->modifiers());
+    if (command.kind == input::Command::Kind::None) {
+        return false;  // not ours: the chrome still gets its shortcuts
+    }
+    core::vt::Grid& grid = m_session->grid();
+    switch (command.kind) {
+    case input::Command::Kind::Leave:
+        setCopyMode(false);
+        return true;
+    case input::Command::Kind::Yank:
+        // Through copySelection(), not a second extractor: wrap joining and
+        // trailing-space trimming have to match what a mouse drag produces.
+        m_selection = copySelectionRange();
+        copySelection();
+        setCopyMode(false);
+        return true;
+    case input::Command::Kind::Select:
+        // Pressing the same one again turns it off, which is what vim does and
+        // what anyone who pressed `v` by accident will try.
+        m_copyCursor.select =
+            m_copyCursor.select == command.select ? input::Selecting::Off : command.select;
+        if (m_copyCursor.select == input::Selecting::Off) {
+            m_copyCursor.anchorRow = m_copyCursor.row;
+            m_copyCursor.anchorCol = m_copyCursor.col;
+        }
+        break;
+    case input::Command::Kind::Move: {
+        const int scroll =
+            input::applyMotion(m_copyCursor, command.motion, m_viewport, grid.clusters());
+        if (scroll != 0) {
+            grid.scrollView(scroll);
+        }
+        break;
+    }
+    case input::Command::Kind::None:
+        return false;
+    }
+    m_selection = copySelectionRange();
+    rebuildFrame();
+    update();
+    return true;
 }
 
 void TerminalItem::raiseError(const QString& message, const QString& hint) {
     emit errorRaised(message, hint);
+}
+
+void TerminalItem::applyTriggers() {
+    const bool enabled = m_settings == nullptr || m_settings->boolean("triggers.enabled");
+    // `triggers.allowSend` is read HERE and nowhere else: the engine drops every
+    // send action at compile time when it is off, so there is exactly one place
+    // in the build where the answer can become yes.
+    const bool allowSend =
+        enabled && m_settings != nullptr && m_settings->boolean("triggers.allowSend");
+    m_triggers.setTriggers(enabled ? session::parseTriggers(m_profile.triggers)
+                                   : std::vector<session::Trigger>{},
+                           allowSend);
+    if (!m_triggerClock.isValid()) {
+        m_triggerClock.start();
+    }
+    // The log destination may have just changed, and the stripper's state
+    // belongs to a rule set that no longer exists. Both are reopened lazily.
+    m_triggerLog.close();
+    m_triggerLogFailed = false;
+    m_stripState = session::StripState::Ground;
+    for (const std::string& error : m_triggers.errors()) {
+        // A rule that will never match is worth one banner when it is loaded,
+        // not silence until the user wonders why nothing highlights.
+        emit errorRaised(tr("A trigger pattern is not valid and was skipped."),
+                         QString::fromStdString(error));
+    }
+
+    m_snippetList = session::parseSnippets(m_profile.snippets);
+    m_snippets.clear();
+    for (const session::Snippet& snippet : m_snippetList) {
+        QVariantMap row;
+        row["name"] = QString::fromStdString(snippet.name);
+        // What will actually be sent, on one line, so a snippet whose name says
+        // "restart" cannot quietly be something else. Escapes stay escaped for
+        // the same reason: an invisible CR in a preview is a preview that lies.
+        row["preview"] = QString::fromStdString(session::escapeText(snippet.text));
+        m_snippets.append(row);
+    }
+}
+
+void TerminalItem::logTrigger(const QString& text) {
+    if (m_triggerLogFailed) {
+        return;  // said once, at the rate the user's own config caused it
+    }
+    if (!m_triggerLog.is_open()) {
+        QString path = m_settings != nullptr
+                           ? QString::fromStdString(m_settings->text("triggers.logFile"))
+                           : QString();
+        if (path.isEmpty()) {
+            namespace ks = settings;
+            const ks::Resolution dir = ks::resolveConfigDir(
+                ks::systemPathInputs(), [](const QString& at) { return QFile::exists(at); });
+            path = dir.dir + "/logs/triggers.log";
+        }
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        // The wide overload, not toStdString(): the narrow one decodes with the
+        // active code page, so a config directory under a Thai user name never
+        // opens. MSVC-specific, like the rest of this file's Win32 assumptions.
+        m_triggerLog.open(path.toStdWString(), std::ios::app | std::ios::binary);
+        if (!m_triggerLog.is_open()) {
+            m_triggerLogFailed = true;
+            emit errorRaised(tr("Could not write the trigger log."), path);
+            return;
+        }
+    }
+    // Appended, never rewritten, and the session name is in every line: one
+    // file serves every tab, and a line that does not say which one is a line
+    // nobody can act on.
+    const QString line = QDateTime::currentDateTime().toString(Qt::ISODate) + "\t" +
+                         sessionTitle() + "\t" + text + "\n";
+    const QByteArray bytes = line.toUtf8();
+    m_triggerLog.write(bytes.constData(), bytes.size());
+    m_triggerLog.flush();
+}
+
+void TerminalItem::runTriggers(const QByteArray& bytes) {
+    if (m_triggers.empty()) {
+        return;  // the common case, and it has to cost one branch
+    }
+    // The control layer comes out first. Matching the raw bytes would let a
+    // remote bait a pattern from inside an escape payload it knows will never
+    // be drawn, and would anchor `^` to wherever the last write happened to
+    // stop rather than to a line.
+    const std::string text = session::plainText(
+        {bytes.constData(), static_cast<std::size_t>(bytes.size())}, m_stripState);
+    const auto nowMs = static_cast<std::uint64_t>(m_triggerClock.elapsed());
+
+    for (const session::TriggerHit& hit : m_triggers.feed(text, nowMs)) {
+        // The matched text is REMOTE-chosen and about to sit next to words the
+        // user trusts. rules/net.md, and the helper that already solves exactly
+        // this: controls out, length and line count capped.
+        const QString matched = net::sanitizeRemoteText(hit.matched, 120, 1);
+        if (hit.log) {
+            logTrigger(matched);
+        }
+        if (hit.notify) {
+            if (QWindow* const own = window();
+                own != nullptr && g_notifier != nullptr && QGuiApplication::focusWindow() != own) {
+                g_notifier->notify(own, sessionTitle(), matched);
+            }
+            // A per-tab banner as well as (or instead of) the balloon: the
+            // banner is the surface that survives being missed, and rules/ui.md
+            // makes it the only in-session error surface. Never modal.
+            emit triggerMatched(tr("A trigger matched: %1").arg(matched));
+        }
+        if (!hit.send.empty()) {
+            // Through preparePaste like every other block of text entering a
+            // pty: the send text is user-authored, but it is also the ONE
+            // action a remote host can fire, so it gets the same ESC/C0 strip
+            // and bracketed-paste wrapping a clipboard paste does. The risk
+            // classification is deliberately ignored — the user wrote this into
+            // their own profile, and a confirmation banner on an automated
+            // response is a response that never happens.
+            const auto guarded = input::preparePaste(QString::fromStdString(hit.send),
+                                                     m_session->grid().bracketedPaste);
+            sendPaste(guarded.bytes);
+        }
+    }
+}
+
+void TerminalItem::sendSnippet(int index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= m_snippetList.size() || !m_session) {
+        return;
+    }
+    const auto guarded = input::preparePaste(
+        QString::fromStdString(m_snippetList[static_cast<std::size_t>(index)].text),
+        m_session->grid().bracketedPaste);
+    sendPaste(guarded.bytes);
+}
+
+bool TerminalItem::sendBroadcast(const QString& text) {
+    // Reported honestly rather than swallowed. A broadcast that counts a dead
+    // tab as delivered is the failure mode the whole interlock exists to
+    // prevent: the user believes twelve hosts ran the command and nine did.
+    if (!m_session || !m_started || m_backend == nullptr || m_exited || m_reconnecting) {
+        return false;
+    }
+    // The same path a paste and a snippet take — this must not become the one
+    // way text reaches a pty without the ESC/C0 strip (rules/net.md).
+    const auto guarded = input::preparePaste(text, m_session->grid().bracketedPaste);
+    sendPaste(guarded.bytes);
+    // Enter, OUTSIDE the brackets. A CR inside a bracketed paste is inserted
+    // as a literal newline by readline rather than accepted as a command, so
+    // wrapping it would leave the line sitting unrun on every host — which is
+    // the same lie as swallowing it, arriving one step later.
+    sendInput(QByteArrayLiteral("\r"));
+    return true;
 }
 
 void TerminalItem::respondCredential(const QString& text, bool remember) {
@@ -391,6 +712,12 @@ void TerminalItem::respondCredential(const QString& text, bool remember) {
 TerminalItem::~TerminalItem() {
     if (m_backend != nullptr) {
         m_backend->stop();
+    }
+    // A closed tab stops voting. Without this the taskbar keeps showing the
+    // progress of a shell that no longer exists, and nothing will ever clear it
+    // because the only thing that could has been deleted.
+    if (g_taskbar != nullptr) {
+        g_taskbar->forget(this);
     }
 }
 
@@ -471,6 +798,7 @@ void TerminalItem::ensureStarted() {
         }
         sendInput(QByteArray(reply.data(), static_cast<qsizetype>(reply.size())));
     };
+    m_session->onOsc = [this](const core::vt::OscAction& action) { handleOsc(action); };
     if (m_benchFrames > 0) {
         // A bench run needs no shell: the flood is synthesised so the numbers
         // are reproducible rather than at the mercy of PowerShell's output.
@@ -551,6 +879,9 @@ void TerminalItem::itemChange(ItemChange change, const ItemChangeData& value) {
 
 void TerminalItem::setSettings(settings::Registry* registry) {
     m_settings = registry;
+    // T73. The panel reads editor.command; it has no other way to reach the
+    // registry, and a null one just means the OS default editor.
+    m_files->setSettings(registry);
     if (m_settings == nullptr) {
         return;
     }
@@ -572,6 +903,11 @@ void TerminalItem::applySettings() {
                                ? core::unicode::Ambiguous::Wide
                                : core::unicode::Ambiguous::Narrow;
     const auto scrollback = static_cast<int>(m_settings->integer("scrollback.lines"));
+    // T70. Read here so a hot reload reaches a tab that is already logging. It
+    // takes effect on the NEXT keypress rather than reopening the file: turning
+    // it off mid-session must stop recording input immediately, and turning it
+    // on must not silently rewrite what is already on disk.
+    m_logInput = m_settings->boolean(kLogIncludeInput);
 
     // The east-asian-ambiguous setting changes how many CELLS existing text
     // occupies, so it is a reflow, not a repaint. Applied to the live grid
@@ -591,6 +927,22 @@ void TerminalItem::applySettings() {
                                                static_cast<std::size_t>(std::max(0, scrollback)) *
                                                    kCellsPerLineBudget);
     }
+
+    // T68. Switching taskbar progress off has to retract what is already on the
+    // button, not just stop the next report: the bar a remote host put there is
+    // exactly what the user is declining, and leaving it would make "off" mean
+    // "off from now on" — with no way to clear a bar that is already stuck.
+    // forget() is the same path a closing tab takes, so the aggregate across
+    // the other tabs is recomputed rather than blanked.
+    if (!m_settings->boolean("notify.taskbarProgress") && g_taskbar != nullptr) {
+        g_taskbar->forget(this);
+    }
+
+    // T68. Recompiled on every reload rather than only on connect: turning
+    // triggers off, or turning `allowSend` on, has to reach the tabs that are
+    // already open — a switch that only applies to the next session is one the
+    // user cannot tell apart from a broken one.
+    applyTriggers();
 
     // Against the CONFIGURED family, not the resolved one: ensureFont() writes
     // its fallback into m_family, so comparing that made every hot reload of
@@ -692,6 +1044,14 @@ void TerminalItem::handleOutput(const QByteArray& bytes) {
         return;
     }
     m_log.writeOutput(bytes);
+    if (m_log.takeFailure()) {
+        // The disk filled or the share went away. A per-tab banner, never a
+        // dialog, and never the silent stop that is the whole reason this class
+        // latches a failure at all — the path stays on the strip so the user can
+        // see WHICH file died.
+        emit errorRaised(tr("Logging stopped."), m_log.error());
+        emit loggingChanged();
+    }
     if (m_hexdump) {
         // The DUMP is fed to the parser, not the bytes. Feeding both would put
         // the escape sequences on screen twice — once as hex and once as their
@@ -699,14 +1059,165 @@ void TerminalItem::handleOutput(const QByteArray& bytes) {
         const std::string dump = formatHexdump(bytes, m_hexdumpOffset);
         m_hexdumpOffset += static_cast<std::uint64_t>(bytes.size());
         m_session->feed({reinterpret_cast<const std::uint8_t*>(dump.data()), dump.size()});
+        // The REAL bytes, not the dump: a hexdump is a view, not a mode, so a
+        // trigger keeps watching the session rather than watching hex digits.
+        runTriggers(bytes);
         rebuildFrame();
         update();
         return;
     }
     m_session->feed({reinterpret_cast<const std::uint8_t*>(bytes.constData()),
                      static_cast<std::size_t>(bytes.size())});
+    // After the parser, never during it: a trigger can raise a banner, a banner
+    // changes the strip height, and that reaches Grid::resize() — resizing the
+    // grid under a parser part-way through a chunk is the re-entrancy
+    // handleOsc() already defers around.
+    runTriggers(bytes);
     rebuildFrame();
     update();
+}
+
+// Everything handleOsc() DOES is deferred, and that is the load-bearing part of
+// this function rather than an optimisation.
+//
+// handleOsc runs inside Session::feed(), i.e. with the parser part-way through
+// a chunk of remote bytes. Both of its side effects can re-enter the event
+// loop: raising a banner gives the strip height, which re-evaluates the
+// terminal's own height binding, which reaches geometryChange() and
+// Grid::resize() — resizing the grid UNDER the parser that is still writing to
+// it. And an STA COM call pumps window messages, which can deliver a socket
+// read and start a second feed(). The decision is made here, where the sequence
+// order is known; the effect runs once the chunk is done.
+void TerminalItem::handleOsc(const core::vt::OscAction& action) {
+    using Kind = core::vt::OscAction::Kind;
+
+    if (action.kind == Kind::Progress) {
+        // T68. Checked HERE rather than at the far end of the post, so a host
+        // hammering `\e]9;4;1;1\e\\` costs nothing at all when the user has
+        // declined it — the whole point of the switch is that a remote sender
+        // cannot make Krait do work on the user's desktop. A bar already on
+        // the button is cleared by applySettings(), not by this path, which is
+        // never reached again once the setting is off.
+        if (m_settings != nullptr && !m_settings->boolean("notify.taskbarProgress")) {
+            return;
+        }
+        // COALESCED, one posted event at a time. TaskbarProgress throttles the
+        // COM calls, but a 64 KiB read of `\e]9;4;1;1\e\\` is ~5000 sequences,
+        // and posting a QMetaCallEvent for each would allocate 5000 times
+        // before the loop drained one of them — the throttle would be bounding
+        // the wrong thing. The newest report wins; the intermediate values of a
+        // progress bar nobody has seen yet are not worth a heap allocation
+        // each. The aggregation, the tie-break between tabs and the cap on how
+        // often the taskbar is poked all stay in TaskbarProgress, so a second
+        // reporter cannot implement any of them differently.
+        m_progress = {action.progress, action.percent};
+        if (m_progressPosted) {
+            return;
+        }
+        m_progressPosted = true;
+        QMetaObject::invokeMethod(
+            this,
+            [this] {
+                m_progressPosted = false;
+                if (g_taskbar != nullptr) {
+                    g_taskbar->report(this, m_progress.first, m_progress.second);
+                }
+            },
+            Qt::QueuedConnection);
+        return;
+    }
+
+    if (action.kind != Kind::PromptMark) {
+        return;  // clipboard, title and hyperlinks are not wired yet
+    }
+
+    if (action.promptMark == core::vt::kMarkOutputStart) {
+        m_commandSince.start();
+        return;
+    }
+    if (action.promptMark != core::vt::kMarkCommandEnd || !m_commandSince.isValid()) {
+        return;
+    }
+    const qint64 elapsedMs = m_commandSince.elapsed();
+    m_commandSince.invalidate();  // one notification per command, not per D
+
+    if (m_settings == nullptr || !m_settings->boolean("notify.longCommand")) {
+        return;
+    }
+    const qint64 thresholdMs = m_settings->integer("notify.longCommandSeconds") * 1000;
+    if (elapsedMs < thresholdMs) {
+        return;
+    }
+    // Focused means the user is already watching this window; telling them what
+    // they can see is how a notification becomes something people turn off.
+    // focusWindow() rather than QWindow::isActive(), which is also true for
+    // every window in the same transient-parent chain.
+    QWindow* const own = window();
+    if (own == nullptr || QGuiApplication::focusWindow() == own) {
+        return;
+    }
+
+    const QString took = QString::number(elapsedMs / 1000);
+    const QString message =
+        action.exitCode > 0
+            ? tr("A command failed after %1 s (exit status %2).").arg(took).arg(action.exitCode)
+            : tr("A command finished after %1 s.").arg(took);
+    const QString detail = sessionTitle();
+
+    QMetaObject::invokeMethod(
+        this,
+        [this, message, detail] {
+            // Re-read rather than captured: the window can be gone by the time
+            // this runs, and alert() on a stale pointer is a crash from a
+            // notification nobody would be there to see.
+            if (QWindow* const now = window(); now != nullptr) {
+                // The platform's own "this window wants you" affordance: on
+                // Windows it flashes the taskbar button until the window is
+                // activated. Not requestActivate(), which STEALS focus — the
+                // user is deliberately somewhere else.
+                now->alert(0);
+                // T68. All THREE surfaces fire, and they are complementary
+                // rather than redundant: the flash is for someone still
+                // looking at the taskbar, the balloon reaches someone in
+                // another window entirely, and the banner below is the only
+                // one that survives being missed. `notify.longCommand` gates
+                // all of them together — it was checked before this was
+                // posted.
+                if (g_notifier != nullptr) {
+                    // The session title heads the balloon so it says WHICH tab
+                    // even from outside the app; an empty one falls back to
+                    // the application name inside notify().
+                    g_notifier->notify(now, detail, message);
+                }
+            }
+            emit commandFinished(message, detail);
+        },
+        Qt::QueuedConnection);
+}
+
+bool TerminalItem::jumpToPrompt(int direction) {
+    if (!m_session) {
+        return false;
+    }
+    core::vt::Grid& grid = m_session->grid();
+    if (grid.onAlternateScreen()) {
+        // markPrompt refuses to place marks here for the same reason: the
+        // scrollback is the NORMAL buffer's history, so jumping would scroll
+        // another buffer's text over a full-screen application's viewport —
+        // which vim would then repaint away on the next keystroke, leaving the
+        // binding looking broken rather than refused.
+        return false;
+    }
+    const std::size_t from = grid.viewTopLine();
+    const std::optional<std::size_t> found =
+        direction < 0 ? grid.prevPrompt(from) : grid.nextPrompt(from);
+    if (!found) {
+        return false;
+    }
+    grid.scrollToLine(*found);
+    rebuildFrame();
+    update();
+    return true;
 }
 
 void TerminalItem::rebuildFrame() {
@@ -719,14 +1230,55 @@ void TerminalItem::rebuildFrame() {
     // a reader scrolled up must see history, not the live bottom.
     m_viewport = grid.viewportRows();
 
+    // T68's highlight action. Re-derived from the VISIBLE rows every frame
+    // rather than recorded where a match landed: a coordinate captured at feed
+    // time is invalidated by the next reflow, which is the scrollback landmine
+    // CLAUDE.md names, and it would also miss text scrolled back into view.
+    //
+    // Reuses the search path's lineText() — same text extraction, same column
+    // mapping — because two notions of "what is on this row" is how a highlight
+    // ends up one cell off from the characters it is meant to be under.
+    //
+    // ponytail: one regex pass per visible row per rebuild, bounded by
+    // TriggerEngine::kMaxScan per row and skipped entirely when no rule asks for
+    // a highlight. If a profile with many highlight rules ever costs a visible
+    // frame, the upgrade is to cache per row against the damage list the way
+    // FrameBuilder already caches its instances.
+    m_highlights.clear();
+    if (m_triggers.hasHighlight()) {
+        for (std::size_t row = 0; row < m_viewport.size(); ++row) {
+            const std::string text =
+                core::vt::lineText(m_viewport[row], grid.clusters(), &m_highlightColumns);
+            m_triggers.highlightRanges(text, m_highlightRanges);
+            for (const auto& [begin, end] : m_highlightRanges) {
+                if (end >= m_highlightColumns.size()) {
+                    continue;  // a range past the row's text has no cells
+                }
+                m_highlights.push_back({.row = static_cast<int>(row),
+                                        .beginCol = m_highlightColumns[begin],
+                                        .endCol = m_highlightColumns[end]});
+            }
+        }
+    }
+
     render::FrameParams params;
     params.cols = grid.cols;
+    params.highlights = m_highlights;
     params.selection = m_selection;
     params.cursor.visible = grid.viewOffset() == 0;  // hidden while scrolled back
     params.cursor.focused = hasActiveFocus();
     params.cursor.row = grid.row;
     params.cursor.col = grid.col;
     params.cursor.style = render::CursorStyle::Block;
+    if (m_copyMode) {
+        // Copy mode's cursor REPLACES the shell's: two blocks on screen with
+        // only one of them answering the keyboard is the ambiguity the mode
+        // indicator exists to remove, and the shell's is hidden anyway the
+        // moment the viewport scrolls back.
+        params.cursor.visible = true;
+        params.cursor.row = m_copyCursor.row;
+        params.cursor.col = m_copyCursor.col;
+    }
 
     // ONE shaping batch for the whole frame, not one per row. FrameBuilder's
     // callback is per row, so shaping inside it would mean a separate blocking
@@ -1020,6 +1572,18 @@ void TerminalItem::keyPressEvent(QKeyEvent* event) {
          event->modifiers().testFlag(Qt::ShiftModifier) && event->key() == Qt::Key_C)) {
         copySelection();
         event->accept();
+        return;
+    }
+    // T71. AFTER copy/paste and BEFORE translateKey: copy mode owns bare
+    // letters, so it has to come before translation, and it must come before
+    // the scrollViewToBottom() below — snapping to the live screen on every
+    // keypress is exactly what a mode for reading history must not do.
+    if (m_copyMode) {
+        if (handleCopyKey(event)) {
+            event->accept();
+        } else {
+            QQuickRhiItem::keyPressEvent(event);
+        }
         return;
     }
 

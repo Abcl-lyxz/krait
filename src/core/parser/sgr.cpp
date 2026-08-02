@@ -288,6 +288,13 @@ bool handleErase(Grid& grid, const Params& params, std::span<const std::uint8_t>
                 // leaving the flag would glue blanks onto the previous
                 // logical line at reflow time.
                 grid.lineAt(r).wrappedFromPrev = false;
+                // T66: the same argument for the shell-integration marks. The
+                // text a prompt mark described is gone, and keeping the mark
+                // leaves jump-to-prompt pointing at a blank row — and lets
+                // OSC 133 ; D write an exit status onto one. eraseScreen() and
+                // the scroll paths already drop them by assigning a fresh Line.
+                grid.lineAt(r).marks = 0;
+                grid.lineAt(r).exitCode = -1;
             }
             if (c1 == grid.cols - 1 && r + 1 < grid.rows) {
                 // Erasing to end-of-line severs the join to the next row

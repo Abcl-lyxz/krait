@@ -1,221 +1,148 @@
 # STATE
 
-Phase: **M3 code-complete — T52-T63 done**, on branch `t52-backend-factory`.
-**M2 IS MERGED** (PR #24, commit 2794cc4 on main). **M3 is PR #25**, opened
-2026-07-31 at commit 683eda3 and pushed.
+Phase: M4 — power tools. Feature-complete on `t64-m4-power-tools`, in review.
 
-**CI is GREEN on PR #25 at commit 58e47ea** — fast-gate passed in 13m52s,
-mergeable and clean. **Next: a human reads the PR and merges it.** Then M4.
+## Now
 
-Read "What is NOT done" before telling anyone M3 is finished — several milestone
-bullets shipped as a deliberate, documented refusal rather than as code, and
-that is the thing to review before merging, not the test count.
+M4 is built and gated. Nine commits on `t64-m4-power-tools` (`3f4252a`..`385dbaa`),
+branched from the M3 merge `8627724`. **529 tests green**, up from 402. Build clean
+under `/W4 /WX`, clang-format clean, clang-tidy clean on the gated
+`bugprone-*`/`concurrency-*` checks. The working tree is clean and the branch is
+pushed; the PR is open and needs a human to merge it.
 
-The first CI attempt FAILED, on clang-format, in a file from T57 that this
-session never touched — an include out of order and a ternary wrapped the wrong
-way. It surfaced now because the fast gate had never once completed on a
-milestone-sized branch until it was fanned out; the failing run died at
-clang-format in 7m38s and the passing one took 13m52s, which is the difference
-between stopping there and actually running the translation check and the
-clang-tidy sweep over every changed .cpp. Treat "clang-tidy was clean" claims
-from before that fan-out as unverified.
+Every feature `docs/plan/01-milestones.md` lists for M4 shipped, including all
+three cut-line items — editor round-trip, broadcast, quake mode. Nothing was cut.
 
-## What landed
-
-| Task | What |
+| Task | What landed |
 |---|---|
-| T52 | Backend factory: a saved session finally opens a connection |
-| T52b | The translation gate reads the SOURCES, not just the two .ts files |
-| T53 | Tabs and splits, with a scripted UI self-test |
-| T54 | Telnet: RFC 1143 negotiation, contract tests, fuzz target |
-| T55 | Raw sockets, and TcpBackend extracted from telnet's socket half |
-| T56 | Serial: VID/PID identity, replug reconnect, DTR/RTS/break |
-| T57 | Hexdump view and timestamped session logging |
-| T58 | Jump hosts via native ProxyJump, our host-key UX on every hop |
-| T59 | Port forwarding L/R/D, SOCKS5, live tunnel pane |
-| T60 | The agent bridge — libssh cannot reach the Windows agent, and did not |
-| T61 | User certificates; FIDO2 answered through the agent (ADR-0014) |
-| T62 | ssh_config and mRemoteNG importers, and all three wired to the palette |
+| T64 | `src/net/ssh/sftp.{h,cpp}` — SFTP on the SSH worker thread, no second session |
+| T65 | `src/app/sftp_model.*` + `qml/FilePanel.qml` — dual-pane panel, drag-drop |
+| T66 | OSC 133 A/P/B/C/D marks on grid lines, surviving scrollback and reflow |
+| T67 | OSC 9;4 → `ITaskbarList3`, `Shell_NotifyIconW` notification, jump-to-prompt |
+| T68 | `src/app/session/triggers.*` — regex over output: highlight/notify/log/send |
+| T69 | Snippet bar |
+| T70 | Logging UX — path template, three formats, honest secret position |
+| T71 | `src/app/input/copy_mode.*` — vim-keys, cluster- and width-correct |
+| T73 | `assets/shell-integration/*`, rc-file auto-install over SFTP, editor round-trip |
+| T74 | Broadcast-with-interlock, quake mode + global hotkey |
 
-402 tests pass; clang-tidy clean on every file touched; the app self-test
-exercises tabs, splits, divider drag and close.
+## Next task (exactly one)
 
-## T60 was fixing a lie, not adding a feature
+**Merge the PR, then start M5.** Watch CI settle and merge. If CI fails it will
+almost certainly be clang-format on a file a hook missed — that is what happened
+to PR #25, and the fix is to run clang-format in place and push, not to argue
+with the gate.
 
-`tryAgent()` carried a comment saying it reached the Windows agent "through
-libssh's own transport". It did not, and the shape of the failure is worth
-keeping:
+M5 is theme gallery + live editor, background image/blur/acrylic, sixel + kitty
+graphics, OSC 66, mode 2048, mode 2031 + OSC 10/11, CRT shader. Read
+`docs/plan/01-milestones.md`. **Before starting it**, note that M4 left 47 hex
+colour literals across four new QML files with `TODO(theme)` markers, and
+`theme.name` is a dead setting — the theme system does not exist at all. M5's
+first task is that system, and those literals are its first customer.
 
-- libssh's agent client has ONE transport — read `SSH_AUTH_SOCK` (or
-  `SSH_OPTIONS_IDENTITY_AGENT`), then `ssh_socket_unix()`, which is
-  `socket(AF_UNIX)` + `connect`. There is no named-pipe path in `src/agent.c` on
-  any platform. The agent that ships with Windows listens on
-  `\\.\pipe\openssh-ssh-agent` and nothing else.
-- So it reached nothing, and reported that as **`SSH_AUTH_DENIED` — the same
-  code libssh returns when the server refused every key**. The ladder fell
-  through to a password prompt and nothing looked broken. That is why it
-  survived two milestones.
+## Open questions
 
-Do not "simplify" the bridge away on the grounds that libssh has agent support.
-It has agent support for a transport Windows does not use.
+- **Nothing in M4 has been run by a human.** The whole milestone is verified by
+  tests and by reading. **user-decides** whether to do a manual pass before merge;
+  the list of what only a human can check is under "Not covered by any test".
+- **M3's serial demo still has never been run** — carried over, unchanged. Needs a
+  USB serial adapter.
+- **First-run discoverability** — carried over from M3 and now worse: M4 added
+  five palette commands and five shortcuts, and still nothing tells a new user
+  that `Ctrl+Shift+P` exists. **user-decides**.
 
-## Verified facts — do NOT re-derive
+## Watchouts
 
-Everything below was read out of libssh 0.12's own source in
-`build/fuzz-msvc/vcpkg_installed/vcpkg/blds/libssh/src/libssh-0-*.clean/`, or
-measured here. Documentation was wrong or silent on several of them.
+- **`main` is protected.** Branch + PR, always. A direct commit is refused.
+- **The build shell has no dev environment.** vcvars64 (VS **18** Community, not
+  2022) plus `QT_ROOT=C:\Qt\6.10.3\msvc2022_64`; `VCPKG_ROOT` comes from vcvars —
+  do not override it. A hung ctest holds `krait-qt-tests.exe` open and the next
+  link fails LNK1168: `taskkill /F /IM krait-qt-tests.exe` first.
+- **A failed build leaves the OLD test exe in place, and ctest then reports
+  "All tests passed" from it.** This bit the M4 mutation testing: a mutation that
+  failed to compile came back green, which reads as "the test is not load-bearing"
+  when the truth is "the test never saw the change". Never read a ctest result
+  without confirming the build before it exited 0.
+- **Three `krait-app.exe` exist.** `build/dev/` is current; `build/rel/` and
+  `build/release/` are stale enough to look like regressions when run by hand.
+- **`Read` returns only line 1** of any file the claude-mem hook has observations
+  on. Use `Grep` with pattern `^`, `output_mode: content`, `head_limit: 0`.
 
-- **`ssh_set_agent_socket(session, fd)` is the whole seam.** It calls
-  `ssh_socket_set_fd(session->agent->sock, fd)`; `session->agent` is allocated
-  unconditionally in `ssh_new()`; `ssh_agent_is_running()` returns true iff that
-  socket's fd is not INVALID_SOCKET. So handing libssh a connected socket is
-  enough to make it speak the agent protocol down it. **libssh then OWNS that
-  fd** — `ssh_free` closes it.
-- **`shutdown()` does NOT reliably wake a recv already pending** on Windows.
-  Documented behaviour covers recv calls made AFTER the shutdown; one already
-  inside the kernel usually returns and sometimes does not. It cost an hour: the
-  round-trip tests passed standalone and hung under ctest, with the relay
-  provably finished. The relay socket now carries `SO_RCVTIMEO` (200 ms) purely
-  so the stop flag gets looked at. Do not remove it in favour of shutdown alone.
-- **`CancelIoEx` cancels only I/O that is ALREADY OUTSTANDING.** A relay caught
-  between "wrote the request" and "about to issue the read" would issue an
-  uncancellable read a moment later. That is why the pipe is opened
-  `FILE_FLAG_OVERLAPPED` and every operation waits on `{io event, stop event}`,
-  with an atomic checked before each one. The flag alone does not close it.
-- **`lpNumberOfBytesTransferred` is documented as possibly erroneous when
-  `lpOverlapped` is non-null.** `GetOverlappedResult` is the only source used.
-- **`ssh_connect()` calls `ssh_options_apply()` itself** (client.c). That
-  matters because `SSH_OPTIONS_CERTIFICATE` only appends to the UNEXPANDED list
-  (`opts.certificate_non_exp`) while auth reads `opts.certificate`, and
-  `ssh_options_apply` is the only thing that moves one to the other — and it is
-  **not in the installed headers**, so it cannot be called directly. Set the
-  option before `ssh_connect` or it is accepted, returns SSH_OK, and is never
-  read.
-- **`ssh_connect()` also calls `ssh_options_parse_config(session, NULL)`** when
-  the config has not been processed. Krait therefore already honours
-  `~/.ssh/config` on every connection — which is why the T62 importer is about
-  making hosts VISIBLE, not about making them work.
-- **The vcpkg libssh is built `WITH_FIDO2=OFF`.** Both `WITH_FIDO2` and
-  `HAVE_LIBFIDO2` are undefined in this tree's generated `config.h`, and the
-  port's configure log prints `With FIDO2/U2F support: OFF`. The sk API is
-  declared in the header regardless, which is what makes this expensive to get
-  wrong. ADR-0014.
-- **libssh does NOT expand `~` for a path handed to `ssh_pki_import_privkey_file`
-  or `ssh_pki_import_cert_file`.** It expands only while applying its OPTIONS —
-  `ssh_options_apply` runs `ssh_path_expand_escape` over the identity and
-  certificate lists — so a key this backend opens itself never gets it. That
-  matters because `~/.ssh/id_ed25519` is the canonical ssh_config spelling, so
-  every key T62 imports arrives written that way. `expandHome` in
-  `backend_factory.cpp` is the one funnel that fixes it, for imported and
-  hand-typed profiles alike.
-- **`ssh_pki_import_privkey_file` returns `SSH_EOF` (-2), not `SSH_ERROR` (-1),
-  for a file it cannot open at all.** The passphrase branch keys off
-  `SSH_ERROR`, so an unreadable path used to fall out of the ladder in silence
-  and degrade to a password prompt. It now sets `m_authHint`.
-- **libssh does not verify host certificates.** `knownhosts.c` skips
-  `@cert-authority` and `@revoked` lines at parse time and says so in a comment;
-  `ssh_session_is_known_server` is not CA-aware.
-- **ssh_config(5), all three counter-intuitive**: keyword and value may be
-  separated by whitespace OR exactly one `=`; the FIRST value of a repeated
-  keyword wins, not the last; `LocalForward`/`RemoteForward` take TWO
-  whitespace-separated arguments, which OpenSSH joins with a colon before
-  parsing. A parser that guesses gets all three backwards.
-- **mRemoteNG's confCons.xml**: `Node` is in the EMPTY namespace while the root
-  is in `mrng:`, so an XPath of `//mrng:Node` finds nothing; containers carry
-  `Hostname`, `Protocol` and `Port` too, so `Type` is the only way to tell them
-  apart; a missing `Type` means Connection.
-- **A self-closing `<Node/>` emits an EndElement** from QXmlStreamReader. The
-  folder stack must be popped by what was PUSHED, not by seeing a Node end — the
-  first version flattened every sibling after a leaf, and a test caught it.
+## Not covered by any automated test — M4's honest list
 
-### Still true, from earlier milestones
+Do not read 529 green as "M4 is verified". These are the holes, and they are the
+first place to look when something is wrong:
 
-- **`SetSearchPathMode` does NOT harden `CreateProcessW`.** Resolve the path
-  yourself and pass it as `lpApplicationName`, which `resolveShellCommand` does.
-- **Qt reports `RemoteHostClosedError` for a graceful FIN and a reset alike.**
-  Measured both ways. A clean telnet logout and a dropped connection are
-  genuinely indistinguishable at that layer.
-- **`ssh_jump_callbacks_struct` has no `size` member** — no `ssh_callbacks_init`.
-  libssh keeps the pointer, so the structs must outlive `ssh_connect`.
-- **`QTimer::stop()` from another thread is refused silently.**
-- **Qt caps socket READS and has no write-buffer cap at all.** Telnet's
-  subnegotiation answers amplify 6 bytes to 20; capped at 1 MB pending.
-- **A QML `Timer` never fires in a window that is never composited.** The UI
-  self-test is driven from `main()` by `QMetaObject::invokeMethod`.
-- **A `Repeater` delegate must be an Item**, so `Shortcut` cannot be one.
-- **RFC 1928 corrections** are in `socks5.cpp` and its tests; the MUST-close on
-  "no acceptable methods" is on the CLIENT, and offering only "no
-  authentication" is a deliberate deviation from section 3.
-- **`GUID_DEVINTERFACE_COMPORT` is in ntddser.h**, needs `DIGCF_DEVICEINTERFACE`;
-  `SetupDiOpenDevRegKey` fails with `INVALID_HANDLE_VALUE`, not null.
-- **`mlkem768x25519-sha256` does not work in this build** — a POSTPONEMENT,
-  re-test on the next libssh bump.
-- **`tr(runtimeString)` is invisible to lupdate** — the action registry repeats
-  its labels as `QT_TR_NOOP` literals and a test compares the two lists.
+- **`interleaveShell()` is entirely uncovered.** Making it a complete no-op still
+  passes all 529 tests — not the stderr drain, not the tunnels, not the resize,
+  not the keystroke path that predates M4. The blocker is structural:
+  `SshTestServer` serves *either* a shell *or* SFTP on one session, and a
+  starvation test needs both channels live at once. Fixing it means restructuring
+  the fixture's linear `auth → one channel → serve` flow into a multi-channel
+  poll loop, in a fixture whose own comments record that libssh's callbacks-based
+  server path is a Windows stub. This is the single biggest test gap in M4.
+- **No SFTP fuzz harness.** `rules/net.md` wants fuzz seeds with new message
+  handling; `tests/fuzz/parser_fuzz.cpp` fuzzes VT sequences, not SFTP wire
+  messages, so a seed there would be theatre.
+- **Every QML surface** — FilePanel, SnippetBar, BroadcastBar, the copy-mode and
+  logging strips. There are no QML tests in this repo at all. Drag-and-drop and
+  keyboard reachability are both untested.
+- **The live Win32 calls**: `RegisterHotKey`, `ITaskbarList3`, `Shell_NotifyIconW`.
+  Compile-checked only; they need a desktop session with Explorer running.
+- **The editor launch path** — needs a real editor process.
+- **The zsh `precmd_functions` reordering** in the shell integration script is
+  reasoned from the documentation, not run against a real zsh with oh-my-zsh
+  loaded. Same class of gap as the serial demo.
+- **Docs↔schema agreement has no gate test**, which is exactly why the entire
+  `[logging]` block drifted out of `docs/configuration.md` undetected.
+- **The shortcut table vs `actions.cpp`** — 24 hardcoded duplicates in `Main.qml`,
+  no gate test.
 
-## What is NOT done
+## Known defects, deliberately not fixed in M4
 
-Some of these are refusals, and are the right answer. They are listed so nobody
-mistakes them for oversights.
+- **A `D` can still land on an older prompt** if a marked line is destroyed
+  without its mark being cleared — scroll-region scrolling discards `Line`s when
+  `scrollTop != 0`. Found during the gate audit, distinct from the anchor bug that
+  WAS fixed, and it needs its own corpus case.
+- **Quake mode has no palette entry and no registered Action**, and
+  `quake.hotkey` defaults to empty — out of the box it is reachable by neither
+  keyboard, mouse, nor palette.
+- **The shell-integration confirmation flow is mouse-only.** `BannerButton.qml`
+  has no focus or `Keys` handling and the install sheet has no Esc path, so
+  confirming a write to someone else's machine requires a mouse.
+- **Telnet, raw and serial declare `reconnecting`** but nothing in the app listens
+  to any of them, so broadcast cannot see their reconnects the way it now sees
+  SSH's. Pre-existing; flagged in the code where the next person will find it.
+- **`~TerminalItem` joins the backend on the GUI thread** while `resetSession()`
+  correctly offloads it to the pool. Pre-existing.
+- **Trigger highlights re-derive per output chunk**, not per frame, with a
+  `ponytail:` comment naming the ceiling and the upgrade path.
 
-- **No test drives libssh through an agent-SIGNED authentication.** The bridge
-  is tested end to end against a real named pipe, and libssh is tested to accept
-  the socket, but nothing joins the two: a fake agent that could really sign
-  needs `ssh_pki_export_pubkey_blob` and friends, which live in `pki.h` — a
-  header libssh does not install.
-- **FIDO2 is untested against hardware.** No authenticator was available. An
-  `sk-*` key named directly by a profile is deliberately REFUSED with a message
-  pointing at `ssh-add`, because this libssh cannot sign with one (ADR-0014).
-- **User certificates have no server-side test.** The plumbing is tested; making
-  the in-process libssh server accept a CA-signed user certificate is real work
-  and was not done.
-- **The pipe server's identity is not checked.** If the agent service is not
-  running, a local process can create that pipe name first and answer as the
-  agent. `SECURITY_IDENTIFICATION` stops it impersonating us, and a squatter can
-  only OFFER keys the server still has to have authorised — so it is a nuisance,
-  not a credential leak. OpenSSH's own Windows client carries the same exposure.
-  Closing it means a `GetNamedPipeServerProcessId` owner-SID check, which would
-  break every setup where the agent runs as something we did not guess.
-- **`Include` in an ssh_config is reported, not followed**, and ssh_config's
-  first-obtained-value rule ACROSS blocks is not modelled — a `Host *` placed
-  BEFORE the specific blocks would win in real ssh and does not here. Files are
-  written the other way round; the manual page says to write them that way.
-- **The importers read fixed locations**, with no file picker: `~/.ssh/config`,
-  `%APPDATA%\mRemoteNG\confCons.xml`, and PuTTY's registry key.
-- **No forwarding runs end to end in a test.** The SOCKS5 and spec parsers are
-  covered; the socket-and-channel plumbing is not. Tunnel latency is bounded by
-  the 20 ms shell poll, marked in `forward_manager.h` with its upgrade path.
-- **No multi-hop contract test.** ADR-0002 asks for a two-hop chain including
-  failure mid-chain; the in-process test server takes one connection.
-- **`ConptyBackend::resolveShellCommand` and the serial backend have no
-  hardware-level test**, and **the M3 demo has not been run** — plug a USB
-  serial adapter, watch it appear with a friendly name, replug it, toggle the
-  hexdump. Needs hardware this session did not have.
-- **Splits are a flat list with one orientation per tab**, not a tree. Marked in
-  `SessionPane.qml`. **Serial replug detection polls** once a second rather than
-  using `CM_Register_Notification`. Both marked with their upgrade paths.
+## Facts verified during M4 — do not re-derive
 
-## Two gates that were lying, now fixed (do not re-introduce)
-
-- **The fast gate had NEVER completed on a milestone-sized branch.** clang-tidy
-  ran serially over every changed file and blew the 30-minute job timeout;
-  GitHub reports a timeout kill as "cancelled", which STATE.md previously
-  recorded as the concurrency group doing it. Fanned out four ways.
-- **The [i18n] tests compared the two .ts files with each other and nothing
-  else.** A `tr()` string missing from both passed green. lupdate now runs in CI
-  with `-locations none`, and the build fails if it changes anything.
-
-## Build environment
-
-The shell has no dev environment. Every build needs vcvars64 plus `QT_ROOT`
-(`C:\Qt\6.10.3\msvc2022_64`); `VCPKG_ROOT` comes from vcvars itself and is the
-VS-bundled vcpkg, which is what built this tree — do not override it with
-`C:\vcpkg`, which does not exist here. Invoke a self-contained `.cmd` via
-`MSYS_NO_PATHCONV=1 cmd.exe /c 'C:\abs\path.cmd'` with single quotes.
-
-**Do not write `\r\n` inside a python or bash heredoc** — it collapses to a raw
-newline, MSVC then reports "newline in string literal", and it has cost two
-repairs.
-
-**A hung ctest holds `krait-qt-tests.exe` open** and the next link fails with
-LNK1168. `taskkill /F /IM krait-qt-tests.exe` before rebuilding.
+- **libssh 0.12** (vcpkg, features `core;pcap;server`). `sftp_read` returns 0 for
+  EOF and negative for error — the OPPOSITE of `ssh_channel_read`. No fixed max
+  chunk: query `sftp_limits()`. The session must be in blocking mode.
+  `sftp_handle_remove` takes the *info* pointer, not `msg->handle`.
+  `sftp_client_message_get_data` NUL-terminates and truncates binary at the first
+  zero byte — use `ssh_string_data`/`ssh_string_len`. SFTP v3 has no wire type
+  field, so `permissions` must carry the format bits (`0100644`, `0040755`).
+  `sftp_get_client_message` treats a timed-out read as fatal, so it cannot be
+  called on an idle channel. Server-side SFTP needs `#define WITH_SERVER`; libssh's
+  default handler suite is `#ifndef _WIN32` and is a stub here.
+- **Qt cannot bound PCRE2.** `QRegularExpression::MatchOption` has three values and
+  nothing in the class reaches `match_limit` or `depth_limit`. That is why triggers
+  use `std::regex`, which throws `regex_error(error_complexity)` while matching.
+- **`LoadIconW` returns a SHARED icon** — never `DestroyIcon` it. Microsoft's own
+  taskbar sample does, which is only valid for its non-shared resource icon.
+- **`ITaskbarList3`**: `HrInit()` before every other method, and
+  `TaskbarButtonCreated` must arrive first. Qt already `OleInitialize`s the GUI
+  thread, so no `CoInitializeEx`.
+- **`QFileSystemWatcher` stops watching a file the instant it is renamed** — which
+  is what write-then-rename editors do, and why the round-trip watches the
+  directory too.
+- **Microsoft and ConEmu disagree about OSC 9;4 state 4** (Warning vs Paused).
+  Both map to `TBPF_PAUSED`, so the enum is named after the flag.
+- **zsh, wezterm and DomTerm emit `OSC 133;P`, never `133;A`.** kitty sends
+  `A;k=s` before PS2, so `k=` must be parsed, not ignored.
+- M3's libssh facts still hold — see `git show 728cbff:STATE.md`.

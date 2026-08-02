@@ -30,6 +30,7 @@ void trimTail(Line& line) {
 }  // namespace
 
 void Scrollback::push(Line&& row) {
+    ++m_generation;  // any path through here changes the visual row count
     const bool continues = row.wrappedFromPrev && !m_forceBreak && !m_lines.empty();
     m_forceBreak = false;
     if (continues) {
@@ -37,6 +38,14 @@ void Scrollback::push(Line&& row) {
         Line& back = m_lines.back();
         m_cells -= back.cells.size();
         back.cells.insert(back.cells.end(), row.cells.begin(), row.cells.end());
+        // The continuation row joins a line that already exists, so its marks
+        // join too — the logical line keeps every shell-integration mark any of
+        // its rows carried, which is what makes a mark survive being retired
+        // into history (line.h).
+        back.marks |= row.marks;
+        if (back.exitCode < 0) {
+            back.exitCode = row.exitCode;
+        }
         // One line may not eat the whole budget on its own — a stream that
         // never emits a newline is otherwise unbounded.
         if (back.cells.size() > m_maxCells) {
@@ -72,6 +81,7 @@ void Scrollback::evict() {
     while ((m_lines.size() > m_maxLines || m_cells > m_maxCells) && m_lines.size() > 1) {
         m_cells -= m_lines.front().cells.size();
         m_lines.pop_front();
+        ++m_dropped;  // every index below shifts; the stable numbering does not
     }
 }
 
@@ -118,13 +128,71 @@ std::vector<Line> Scrollback::viewRows(int cols, std::size_t fromEnd, std::size_
             std::make_move_iterator(wrapped.lines.begin() + static_cast<std::ptrdiff_t>(end))};
 }
 
+std::size_t Scrollback::visualRowsOfLine(std::size_t i, int cols) const {
+    if (cols < 1 || i >= m_lines.size()) {
+        return 0;
+    }
+    const auto ucols = static_cast<std::size_t>(cols);
+    const std::vector<Cell>& cells = m_lines[i].cells;
+    // reflow() trims the never-written tail before it splits, so counting it
+    // here would report rows the viewport will never show.
+    std::size_t end = cells.size();
+    while (end > 0 && cells[end - 1].ch == 0) {
+        --end;
+    }
+    // The same wrap rule reflow() applies, without the copying: a wide cluster
+    // and its kWideTrailing half cannot straddle a row boundary, so one column
+    // of a row can go unused and a plain ceil(cells / cols) under-counts.
+    // Under-counting is the failure that matters — it puts the line asked for
+    // just ABOVE the top of the viewport, i.e. invisible.
+    std::size_t used = 0;
+    std::size_t rows = 1;  // an empty logical line still occupies a row
+    for (std::size_t k = 0; k < end;) {
+        const bool wide = k + 1 < end && isWideTrailing(cells[k + 1].ch);
+        const std::size_t need = wide && ucols >= 2 ? 2 : 1;
+        if (used + need > ucols) {
+            ++rows;
+            used = 0;
+        }
+        used += need;
+        k += wide ? 2 : 1;
+    }
+    return rows;
+}
+
+std::size_t Scrollback::visualRowsFrom(std::size_t first, int cols) const {
+    std::size_t rows = 0;
+    for (std::size_t i = first; i < m_lines.size(); ++i) {
+        rows += visualRowsOfLine(i, cols);
+    }
+    return rows;
+}
+
+std::size_t Scrollback::visualRowCount(int cols) const {
+    if (cols < 1) {
+        return 0;
+    }
+    if (m_rowCacheGeneration != m_generation || m_rowCacheCols != cols) {
+        m_rowCacheRows = visualRowsFrom(0, cols);
+        m_rowCacheGeneration = m_generation;
+        m_rowCacheCols = cols;
+    }
+    return m_rowCacheRows;
+}
+
 void Scrollback::setCaps(std::size_t maxLines, std::size_t maxCells) {
+    ++m_generation;  // evict() below may drop lines
     m_maxLines = std::max<std::size_t>(1, maxLines);
     m_maxCells = std::max<std::size_t>(1, maxCells);
     evict();
 }
 
 void Scrollback::clear() {
+    ++m_generation;
+    // Counted as an eviction of everything, so linesEverStarted() keeps rising
+    // and an index captured before the clear resolves to 0 rather than to some
+    // line that happens to sit at the same position now.
+    m_dropped += m_lines.size();
     m_lines.clear();
     m_cells = 0;
 }

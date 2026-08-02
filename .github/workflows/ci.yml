@@ -34,7 +34,18 @@ jobs:
     # windows-latest already carried VS2026; that claim is contested and the
     # explicit label does not depend on it either way.
     runs-on: windows-2025-vs2026
-    timeout-minutes: 30
+    # 60, not 30, because Configure alone is 16-19 MINUTES: the vcpkg binary
+    # cache is not being hit, so every run rebuilds dependencies from source.
+    # That left the gate ~10 minutes for a clang-tidy step that needs 6+ on a
+    # small PR, and the margin was luck rather than headroom -- the M4 PR's
+    # first run finished 12 seconds inside the limit and its second was killed
+    # mid-tidy, so the gate reported a timeout where the code was clean.
+    #
+    # This raises the ceiling; it does not fix the cause. The 16-19 minutes is
+    # the real defect and it belongs to whoever next touches CI: a cache that
+    # missed is indistinguishable here from a cache that was never written,
+    # because the restore step reports success either way.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4

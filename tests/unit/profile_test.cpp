@@ -246,6 +246,35 @@ TEST_CASE("bulkSet is all-or-nothing on the field name", "[session]") {
     CHECK(store.find(idB)->user == "ops");
 }
 
+TEST_CASE("triggers and snippets survive the file and inherit", "[session]") {
+    // T68/T69. They are ordinary text fields precisely so this works: a rule
+    // set written once on [folders."prod"] reaches every host under it, and a
+    // save cannot lose the multi-line text a rule list is.
+    ProfileStore store;
+    store.setInherited("prod", "triggers", "\\bFATAL\\b >> highlight,notify\n");
+
+    Profile web;
+    web.name = "web 1";
+    web.folder = "prod";
+    web.markExplicit("folder");
+    web.snippets = "Disk >> df -h\\r\n";
+    web.markExplicit("snippets");
+    const std::string id = store.add(web);
+
+    CHECK(store.find(id)->triggers == "\\bFATAL\\b >> highlight,notify\n");
+    CHECK(store.find(id)->snippets == "Disk >> df -h\\r\n");
+
+    // A profile's own list overrides rather than merging: a session that says
+    // "these are my rules" must not silently keep the folder's as well.
+    Profile quiet;
+    quiet.name = "quiet";
+    quiet.folder = "prod";
+    quiet.markExplicit("folder");
+    quiet.triggers = "";
+    quiet.markExplicit("triggers");
+    CHECK(store.resolve(quiet).triggers.empty());
+}
+
 TEST_CASE("folders fills in intermediate levels", "[session]") {
     ProfileStore store;
     Profile deep;

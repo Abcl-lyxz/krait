@@ -9,15 +9,17 @@
 #include "capture.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 
 #include <string>
 
+using krait::app::expandLogPath;
 using krait::app::formatHexdump;
+using krait::app::LogFormat;
 using krait::app::SessionLog;
-using krait::app::sessionLogPath;
 
 TEST_CASE("a hexdump line has offset, hex and text", "[capture]") {
     const std::string dump = formatHexdump(QByteArray("hello"), 0);
@@ -101,18 +103,111 @@ TEST_CASE("control bytes are escaped rather than written raw", "[capture]") {
     CHECK_FALSE(text.contains(QChar(0x1b)));
 }
 
-TEST_CASE("a log path cannot escape its directory", "[capture]") {
-    // The name comes from a profile, which comes from a TOML file or an
-    // importer. A session called "../../etc/passwd" must not produce a path
-    // outside the logs directory.
-    const QString path = sessionLogPath("C:/cfg", "../../evil");
-    CHECK(path.contains(QStringLiteral("/logs/")));
+namespace {
+
+// A fixed instant, so a substitution test asserts on the stamp rather than on
+// whatever the clock said while it ran.
+QDateTime when() {
+    return QDateTime(QDate(2026, 8, 1), QTime(19, 30, 5));
+}
+
+QString expand(const QString& tmpl, const QString& session, const QString& host = {}) {
+    return expandLogPath("C:/cfg", tmpl, {.session = session, .host = host}, when());
+}
+
+}  // namespace
+
+TEST_CASE("the default template reproduces what T57 wrote", "[capture]") {
+    // The setting existing must change nothing until someone edits it.
+    const QString path = expand("", "prod eu");
+    CHECK(path == QStringLiteral("C:/cfg/logs/prod-eu-20260801-193005.log"));
+}
+
+TEST_CASE("a substituted value cannot escape its directory", "[capture]") {
+    // The value comes from a profile, which comes from a TOML file or an
+    // importer, and {host} is remote-influenced besides. A session called
+    // "../../etc/passwd" must not choose where the file lands.
+    const QString path = expand("logs/{session}.log", "../../evil");
+    CHECK(path == QStringLiteral("C:/cfg/logs/evil.log"));
     CHECK_FALSE(path.contains(QStringLiteral("..")));
 
-    // And a name that slugifies to nothing still produces a usable file.
-    const QString thai = sessionLogPath("C:/cfg", QString::fromUtf8("เซิร์ฟเวอร์"));
-    CHECK(thai.contains(QStringLiteral("/logs/session-")));
-    CHECK(thai.endsWith(QStringLiteral(".log")));
+    // Separators, drive letters and the Win32-illegal set all go the same way.
+    CHECK(expand("logs/{host}.log", "", "a\\b:c*d?e|f") ==
+          QStringLiteral("C:/cfg/logs/a-b-c-d-e-f.log"));
+
+    // A name that slugifies to nothing still produces a usable file rather than
+    // an empty component.
+    const QString thai = expand("logs/{session}.log", QString::fromUtf8("เซิร์ฟเวอร์"));
+    CHECK(thai == QStringLiteral("C:/cfg/logs/session.log"));
+}
+
+TEST_CASE("a DOS device name is not a usable file name", "[capture]") {
+    // The one thing slugify cannot know about: "con" survives it unchanged, and
+    // CON is still a device. Opening it would succeed and write to nothing.
+    CHECK(expand("logs/{session}.log", "CON") == QStringLiteral("C:/cfg/logs/con-log.log"));
+    CHECK(expand("logs/{host}.log", "", "lpt1") == QStringLiteral("C:/cfg/logs/lpt1-log.log"));
+    // A name that merely CONTAINS one is fine — only the whole stem is reserved.
+    CHECK(expand("logs/{session}.log", "console") == QStringLiteral("C:/cfg/logs/console.log"));
+}
+
+TEST_CASE("separators in the template are the user's own choice", "[capture]") {
+    // The template is trusted — the user typed it into their own settings — and
+    // a separator in it is how they say "one folder per host". Only the
+    // SUBSTITUTED values are hostile.
+    CHECK(expand("logs/{host}/{date}.log", "s", "web1.prod") ==
+          QStringLiteral("C:/cfg/logs/web1-prod/20260801.log"));
+    // A host with no value at all still names something.
+    CHECK(expand("logs/{host}.log", "s", "") == QStringLiteral("C:/cfg/logs/none.log"));
+}
+
+TEST_CASE("an unknown placeholder is left where it can be seen", "[capture]") {
+    // Silently dropping it would leave the user staring at a file name with a
+    // hole in it and no idea why; leaving it shows the typo.
+    CHECK(expand("logs/{hostname}.log", "s").endsWith(QStringLiteral("{hostname}.log")));
+}
+
+TEST_CASE("the raw format is byte-exact and carries no input", "[capture]") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = QDir(dir.path()).filePath("raw.log");
+
+    SessionLog log;
+    REQUIRE(log.open(path, LogFormat::Raw));
+    log.writeOutput(QByteArray("\x1b[31mred\x1b[0m", 12));
+    log.writeInput(QByteArray("secret"));
+
+    QFile file(path);
+    REQUIRE(file.open(QIODevice::ReadOnly));
+    const QByteArray text = file.readAll();
+    // Byte for byte, no header, no timestamps: the file replays.
+    CHECK(text == QByteArray("\x1b[31mred\x1b[0m", 12));
+    // And input is not in it, whatever the include-input setting says — a
+    // byte-exact stream has no lane to put a direction marker in.
+    CHECK_FALSE(text.contains("secret"));
+}
+
+TEST_CASE("the text format strips the escape sequences out", "[capture]") {
+    QTemporaryDir dir;
+    REQUIRE(dir.isValid());
+    const QString path = QDir(dir.path()).filePath("text.log");
+
+    SessionLog log;
+    REQUIRE(log.open(path, LogFormat::Text));
+    log.writeOutput(QByteArray("\x1b[31mred\x1b[0m\r\n", 14));
+    // Split across two writes, mid-sequence. A stripper that restarted at
+    // Ground on every read would put "1mbait" into the file — the far end picks
+    // where its writes are cut.
+    log.writeOutput(QByteArray("\x1b[3", 3));
+    log.writeOutput(QByteArray("1mbait\r\n", 8));
+
+    QFile file(path);
+    REQUIRE(file.open(QIODevice::ReadOnly));
+    const QString text = QString::fromUtf8(file.readAll());
+    CHECK(text.contains(QStringLiteral("red")));
+    CHECK(text.contains(QStringLiteral("bait")));
+    CHECK_FALSE(text.contains(QStringLiteral("[31m")));
+    CHECK_FALSE(text.contains(QStringLiteral("1mbait")));
+    CHECK_FALSE(text.contains(QChar(0x1b)));
 }
 
 TEST_CASE("a log that cannot be opened says so instead of pretending", "[capture]") {

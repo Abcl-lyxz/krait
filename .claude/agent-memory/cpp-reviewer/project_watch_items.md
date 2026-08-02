@@ -415,3 +415,237 @@ T62 verified CORRECT, do not re-flag:
 - Open, LOW: no size cap in `SessionModel::readTextFile` (GUI thread,
   `readAll()`), `Block::set` is O(k^2) in distinct keywords, mRemoteNG is
   O(N*depth) in `folders.join()` per leaf. Fixed paths, so hang not privilege.
+
+## T67 — taskbar progress (OSC 9;4) + jump-to-prompt (OSC 133)
+
+BLOCKING found (fix before re-review re-flags):
+- `Grid::viewOffsetCeiling() = max(maxViewOffset(), m_viewOffset)` is
+  SELF-REFERENTIAL. Using the current offset as its own ceiling makes
+  `pushToScrollback`'s `min(off+1, ceiling)` a no-op and turns `scrollView`
+  into a one-way ratchet above `maxViewOffset()` (which under-counts, being
+  LOGICAL lines vs the visual rows `scrollToLine` computes). Any future
+  "sticky deep offset" needs a SEPARATE member, never `m_viewOffset` itself.
+- `TaskbarProgress::apply()` reaches `m_window->winId()` synchronously from
+  `~TerminalItem` -> `forget()` -> `schedule()`. `winId()` CREATES a platform
+  window; after `QWindow::close()` (which per Qt docs "effectively calls
+  destroy()") that resurrects a native window mid-teardown. A `QPointer` does
+  NOT guard this: QPointer clears at the top of `~QObject`, and QQuickWindow
+  deletes its content item (and therefore the TerminalItems) in the
+  `~QQuickWindow` BODY, before `~QObject` runs. Guard on
+  `QWindow::handle() == nullptr` (public, qwindow.h:229) instead.
+
+T67 verified CORRECT, do not re-flag:
+- The throttle cannot drop a final value: `apply()` re-reads `current()`
+  rather than a captured snapshot, and `QTimer::singleShot(ms, this, fn)` is
+  cancelled with the context object, so `m_pending` stuck true is moot.
+- COM: no `CoInitializeEx` is right (Qt OleInitializes the GUI thread STA);
+  `IID_PPV_ARGS` works with a header-level `struct ITaskbarList3;` because
+  shobjidl.h's uuid'd redeclaration precedes the use in the .cpp; no leak on
+  the `HrInit` failure path; `Release()` precedes Qt's OleUninitialize because
+  `QGuiApplication` is declared before the taskbar in main().
+- `nativeEventFilter` returning false always, and the Explorer-restart
+  release/re-acquire, are both correct. `removeNativeEventFilter` in the dtor
+  is redundant with `~QAbstractNativeEventFilter` but harmless.
+- `m_applied` / `m_buttonReady`: the early return that skips recording
+  `m_applied` is deliberate and has no stuck state.
+- Parser: `parseExitStatus` is overflow-checked, `parseProgress` clamps to
+  0-100, subparam/`k=`/positional-status handling matches ghostty+wezterm,
+  and `end(aborted||overflowed)` kills interrupted strings. Corpus has
+  CAN/SUB/new-introducer variants; fuzz seeds and the conformance row landed.
+- `notify.longCommandSeconds` cannot overflow `*1000`: `Registry::integer`
+  returns `int64_t` and out-of-range TOML keeps the default (min 1, max 3600),
+  so remote `C`/`D` pairs are bounded to ~1 notification/sec.
+- `visualRowsOfLine` counts rows identically to `reflow()` (verified line by
+  line) and is bounds-guarded; `scrollToLine`'s INT_MAX clamp is real.
+
+## T68/T69 triggers + snippet bar (src/app/session/triggers.*, terminal_item)
+
+BLOCKING found:
+- `feed()` dedupes a straddling match with `begin + length <= tailLen`, which
+  only drops matches whose END is inside the carried tail. Any pattern whose
+  match GROWS as the line completes (`err(or)?`, `error.*`, `\w+`, `Continue.*`)
+  fires twice — duplicate banner/log and a duplicate `send` (burst=3 covers the
+  second). Correct shape: dedupe on the ABSOLUTE begin offset per rule, not on
+  the end.
+- `plainText()` is a stateless per-chunk skipper and diverges from
+  `parser/tables.h`, where `t[s][0x1B] = {None, State::Escape}` makes ESC an
+  ANYWHERE transition. `ESC ESC ] 0 ; error BEL` and `ESC [ 0 ESC ] 0 ; error
+  BEL` both leak the OSC payload as matchable text, and a sequence split across
+  two chunks leaks whatever lands in the second. Defeats the "cannot be baited
+  from inside an escape payload" claim in triggers.h AND docs/configuration.md.
+
+Latent (re-flag if untouched):
+- `feed()` computes the carried tail from the TRUNCATED subject when a chunk
+  exceeds kMaxScan, gluing the 64 KB mark to bytes that arrive megabytes later
+  — a fabricated adjacency that can fire a rule. Clear m_tail on truncation.
+- `catch (regex_error) { continue; }` in feed/highlightRanges retries a rule
+  that hit MSVC's complexity ceiling forever. `highlightRanges` runs per VISIBLE
+  ROW per `rebuildFrame()`, and rebuildFrame runs per output CHUNK — so the
+  ceiling is paid rows x chunks on the UI thread. Disable the rule after the
+  first complexity throw.
+- `TerminalItem::logTrigger` retries `resolveConfigDir` + `mkpath` + `open` +
+  `emit errorRaised` on EVERY hit when the path is unwritable (up to 64/chunk),
+  and never reopens when `triggers.logFile` changes.
+
+Verified CORRECT, do not re-flag:
+- `lineText`'s `columns` out-param: `charge()` does `resize(out.size(), cell)`
+  after each cell, wide-trailing cells contribute nothing, holes charge 1 byte,
+  terminator = `last`. size == text.size()+1, so rebuildFrame's
+  `end >= columns.size()` guard rejects nothing valid. Map is in step.
+- `runTriggers` placement (after `Session::feed`, before `rebuildFrame`) IS
+  safe: `Grid::viewportRows()` returns by VALUE, so a banner->strip-height->
+  `Grid::resize()` re-entry during the emit cannot dangle m_viewport, and
+  rebuildFrame re-reads everything afterwards.
+- `takeSendToken` arithmetic: no overflow (steps*interval <= nowMs), refilledMs
+  floor-aligns, burst clamps to kSendBurst. Sound token bucket.
+- The subject/tail buffers are bounded (4 KB + 64 KB); `sregex_iterator` holds
+  iterators into a local `subject` that nothing mutates; handleOutput arrives
+  QueuedConnection so the engine is UI-thread-only.
+- `sessionTitle()` is profile-derived, NOT remote-settable (OSC title is still
+  core silence), so the tab-separated trigger log cannot be forged.
+- i18n: EN+TH both landed for every new tr()/qsTr() string.
+
+## T73 — sftp_model shell-integration installer + editor round trip (2026-08-01)
+
+BLOCKING found (3):
+- `stopEditing(name)` keys on the LEAF NAME while `m_edits` is keyed by local
+  path; two watched files sharing a name (different remote dirs) → the wrong
+  Edit is discarded, the clicked one keeps auto-uploading, and the stopped one
+  silently stops reaching the server. Fix: key stopEditing on `localPath`
+  (the QML row already carries it).
+- `launchEditor` with `editor.command` empty (the DEFAULT) calls
+  `QDesktopServices::openUrl` on a REMOTE-named temp file → Windows shell
+  association runs `.exe/.bat/.lnk/.hta` the server chose. Recurring shape:
+  "open with the OS default" on remote-derived content.
+- Probe failure ≠ "file absent": every non-ENOENT `sftpGet` failure collapses
+  into `found` being empty, and the resulting "Add Krait's block to X?" write
+  is an `O_TRUNC` put that erases an existing rc file. `Sftp::put` opens the
+  remote O_TRUNC, so a wrong "absent" verdict is unrecoverable data loss.
+
+Non-blocking, still open:
+- `confirmShellIntegration` ignores `QFile::write`/close status → a short write
+  uploads a truncated rc over a live one. Same shape as the T5x staged-write
+  finding; QSaveFile or a write()==size check.
+- Probe reads the rc with `readAll()` + `QString::fromUtf8`, no cap, five files
+  automatically. Also makes the `int i` loop counters in blockState/spliceBlock
+  theoretically overflowable. `Sftp::get` streams (disk-bounded) but the model
+  is not.
+- `m_editRequests` is never cleared in `attach()` — stale ids accumulate.
+- `finishProbe()` passes `m_install.found.constFirst()` by reference into
+  `chooseShellTarget`, which can `resetInstall()` (destroys `found`). Safe only
+  by statement ordering today.
+
+Verified CORRECT, do not re-flag:
+- `handleFinished` `discardEdit(*it)` then `m_edits.erase(it)` — `removePath`
+  emits nothing, so `it` is live; `errorRaised` reaches only QML banner setters,
+  no re-entry into SftpModel.
+- `flushEdits` iterates a `std::exchange`d COPY; re-inserting into `m_editDirty`
+  is safe, and `uploading` cannot latch (cancel path clears it before returning).
+- `spliceBlock`/`blockState` agree on the span for every 1-begin/1-end input;
+  CRLF and no-trailing-newline are preserved and tested. Damaged (end-before-
+  begin, doubled block, lone marker) is refused by the caller.
+- `m_remotePath` non-empty ⟹ `m_homePath` non-empty, so `afterResolve` cannot
+  strand the flow at "probing". `cancel()` → `sftpCancelAll()` emits
+  `sftpFinished(cancelled)` for every queued request, so no stage is orphaned.
+- Deleting the scratch/temp dir mid-put is NOT a remote-truncation risk:
+  `Sftp::put` opens the LOCAL ifstream before `sftp_open(..., O_TRUNC)`.
+- `~SftpModel` calling `discardEdit` → `m_watcher->removePath` is fine; QObject
+  children die after the derived dtor body.
+
+## T74 — broadcast (src/app/broadcast.*) + quake (src/app/quake.*)
+
+Open at review time (2026-08-01, uncommitted on t64-m4-power-tools):
+- BLOCKING: `BroadcastModel::resolve(bool)` is not bound to the line it
+  displayed. `m_pending` is a single slot; `confirmRequested` routes to
+  `root.currentPane()`. Two tabs → two held dangerous lines → Accept on the
+  older banner runs the NEWER line. Fix = pass `banner.detail` (or a token)
+  into resolve() and refuse on mismatch.
+- BLOCKING: `TerminalItem::sendBroadcast` liveness test is
+  `m_session && m_started && m_backend && !m_exited` — it misses
+  "connected but RECONNECTING". SSH queues into `m_writeQueue`,
+  `TcpBackend::writeInput` DROPS on `!isConnected()`, yet true is returned and
+  the line is counted delivered. IBackend has no `isConnected()`; the cheap fix
+  is an `m_reconnecting` flag driven by the existing SSH
+  `reconnecting`/`connected` lambdas in adoptBackend.
+- BLOCKING: `QuakeWindow::applyHotkey()` live-failure path emits `hotkeyFailed`
+  → a banner on a window that is HIDDEN in drop-down mode. main() enforces
+  "stay visible on failure" only at startup. Fix = showDropDown() from the
+  failure paths when `m_dropDown && !m_visible`.
+- `attach()` returns before `connect(registry, &Registry::changed, ...)` when
+  quake.hotkey is EMPTY (the default) → setting it later is dead until restart,
+  contradicting docs/configuration.md ("re-registers immediately — no restart").
+- Broadcast confirm only holds `PasteRisk::DangerousCommand`; `Multiline` /
+  `ExecutesOnPaste` (which `PasteResult::needsConfirm()` covers) fan out to
+  every host unconfirmed.
+- No test destroys a marked target QObject without calling `forget()`, so the
+  central QPointer-nulls lifetime claim is untested.
+
+Verified CORRECT, do not re-flag:
+- `rebuildRows()`'s `std::erase_if(m_targets, ...)` is re-entrancy-safe from
+  every caller. `offer()` calls it mid-range-for but `return`s on the next
+  statement (dangling ref never read); `fanOut()`/`begin()`/`stop()`/`forget()`
+  all finish iterating first. `rebuildRows` emits `tabsChanged` LAST.
+- No synchronous re-entry into `m_targets` from inside `fanOut`'s loop: every
+  `IBackend::writeInput` queues (conpty/ssh/serial mutex+cv, tcp socket write),
+  `sendPaste`→`rebuildFrame` emits nothing QML routes back to offer/forget, and
+  `emit sessionChanged()` fires only from `openProfile()`.
+- `Component.onDestruction` → `forget(view)`: QPointer is ALREADY null there
+  (~QObject zeroes sharedRefcount before the declarative destroyed callback),
+  so `target.tab == tab` is false — the `|| target.tab.isNull()` clause is
+  load-bearing, not belt-and-braces. Do not "simplify" it away.
+- Nothing reaches a pty bypassing `input::preparePaste`; `looksDangerous()` runs
+  on the SANITISED text, so classifier and payload agree. The separate
+  `sendInput("\r")` outside the bracketed-paste wrapper is correct.
+- Quake HWND caching (register-time cache, never `winId()` at unregister),
+  `removeNativeEventFilter` in the dtor, and `QuakeWindow quake;` declared
+  before `QQmlApplicationEngine engine;` (destroyed after it) are all right.
+- `Registry` keeps the DEFAULT for out-of-range values rather than clamping, so
+  `seconds * 1000` in `restartIdleTimer` cannot overflow.
+- Notifier/TaskbarProgress cache their HWND lazily (first notify / per apply),
+  AFTER quake's `setFlags()`, so no stale-HWND cross-feature bug.
+
+## M4 gate audit (branch t64-m4-power-tools, 8627724..HEAD) — 2026-08-01
+
+Open findings handed to the lead auditor (re-check before re-flagging):
+- `Sftp::listDir` (sftp.cpp:225) is the ONLY blocking libssh loop in the repo
+  with no `m_shutdown` read and no interleave hook. 65536 iterations x the
+  15 s `SSH_OPTIONS_TIMEOUT` = an unjoinable worker. `realpath`/`stat` are one
+  round trip so they are bounded; `get`/`put` cancel via the Progress callback.
+- `interleaveShell()` (ssh_backend.cpp:1116) reads only `is_stderr=0`; pump()
+  reads 1 as well at :905 with a comment saying why. Also skips
+  `m_forwards.service()` and the `m_resizePending` drain, so tunnels + pty
+  resize are starved for the whole transfer.
+- `SftpModel::cancelShellIntegration()` resets `m_install` but not `m_open`, so
+  an in-flight Probe resumes the chain with `scratchDir` empty and downloads to
+  a RELATIVE "probe" path in the process CWD. Cancel is reachable during
+  "probing" (FilePanel.qml:627 hides it only for "writing").
+- `launchEditor(const QString&, const QString&)` is called with `it->local,
+  it->name`; the header comment claims by-value. `QDesktopServices::openUrl` ->
+  ShellExecute pumps a nested loop that delivers queued `sftpFinished`.
+- Pre-existing: `~TerminalItem` (terminal_item.cpp:713) calls `backend->stop()`
+  (which joins) on the GUI thread; `resetSession()` offloads it to the pool.
+
+Verified CORRECT, do not re-flag:
+- SFTP handle lifetimes: every sftp_opendir/sftp_open is closed on EVERY exit
+  path; every sftp_attributes freed; sftp_limits_free, ssh_string_free_char
+  present. `open()` leaving `m_session` set after an `sftp_init` failure is
+  deliberate and safe.
+- The listDir cap counts ITERATIONS (`++seen` before the isSafeName filter),
+  not stored entries. Test at tests/unit/sftp_test.cpp:480.
+- Truncated-download detection (sftp.cpp:366) deletes the file and is distinct
+  from `cancelled()`. Test at sftp_test.cpp:538.
+- Teardown ordering: `m_sftp.close()` (sftp_free) runs FIRST in runOnce's
+  teardown lambda, before ssh_channel_free/ssh_disconnect/ssh_free, on both
+  exits; member order also destroys `m_sftp` before `m_impl`.
+- `queueSftp` closes the TOCTOU: the `m_connected` read and the push are under
+  the same mutex teardown clears them under. The `emit` inside that lock is
+  safe ONLY because every sftpFinished connection is explicit QueuedConnection
+  (sftp_model.cpp:219) — a Direct one would deadlock the non-recursive mutex.
+- Cancel epoch: bump+swap under one lock, snapshot under the same lock as the
+  pop; request ids are never reused and handleFinished drops unknown ids.
+- reflow's mark gather uses the same half-open [first,last) as joinLogicalLine;
+  `visualRowsOfLine` reproduces reflow's wrap arithmetic exactly; `prevPrompt`'s
+  `i-- > floor` is the correct inclusive form; `indexOfStable` + `clear()`
+  advancing `m_dropped` degrade a stale `m_openPrompt` to floor 0.
+- Notifier's `wcsncpy_s(..., _TRUNCATE)` sized by ARRAYSIZE bounds remote
+  command output into szInfo/szInfoTitle; no format string anywhere on it.

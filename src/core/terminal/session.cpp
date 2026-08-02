@@ -86,6 +86,19 @@ void Session::oscEnd(bool aborted) {
     if (action.kind == OscAction::Kind::None) {
         return;
     }
+    if (action.kind == OscAction::Kind::PromptMark) {
+        // Applied to the grid FIRST — the mark belongs on the grid line
+        // (line.h) and nothing above the core places it. Then forwarded like
+        // any other action: the C -> D transition is the only thing that tells
+        // the app a command ran and for how long, and a wall clock is exactly
+        // what src/core/ is not allowed to read (rules/vt-core.md). Nothing is
+        // ever sent BACK either way — a prompt mark is an assertion, not a
+        // query.
+        m_grid.markPrompt(action.promptMark);
+        if (action.promptMark == kMarkCommandEnd) {
+            m_grid.setCommandExit(action.exitCode);
+        }
+    }
     if (action.kind == OscAction::Kind::ClipboardRead && !m_clipboardReadAllowed) {
         // Silence, not a refusal reply. Answering "no" still tells a remote
         // program that a clipboard exists and that asking is a thing it can do,

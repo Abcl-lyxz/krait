@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -310,4 +311,64 @@ TEST_CASE("grid: a stored cluster survives a resize", "[reflow][cluster]") {
     // tagged encoding.
     CHECK(g.cellAt(1, 1).ch == stored);
     CHECK(g.clusters().lookup(g.cellAt(1, 1).ch).size() == 2);
+}
+
+TEST_CASE("reflow: a prompt mark rides its logical line through a re-split", "[reflow][shell]") {
+    // A prompt long enough to wrap: two visual rows, ONE logical line, the mark
+    // on its head. This is the case a side table keyed by row number gets
+    // wrong — after the rewrap below there is no row 0 in the old sense.
+    std::vector<Line> rows{makeLine(U"user@host:~$ ", 13), makeLine(U"ls -l........", 13, true)};
+    rows[0].marks = krait::core::vt::kMarkPromptStart | krait::core::vt::kMarkInputStart;
+    rows[0].exitCode = 0;
+
+    // Widen: the two rows join into one, and the mark comes with them.
+    const ReflowResult wide = reflow(rows, 26, -1, 0);
+    REQUIRE(wide.lines.size() == 1);
+    CHECK(wide.lines[0].marks ==
+          (krait::core::vt::kMarkPromptStart | krait::core::vt::kMarkInputStart));
+    CHECK(wide.lines[0].exitCode == 0);
+
+    // Narrow: one logical line becomes four rows, and the mark stays on the
+    // HEAD of the run rather than smearing across all of them — a jump-to-
+    // prompt that landed on row 3 of a wrapped prompt would scroll the top of
+    // the prompt off screen.
+    const ReflowResult narrow = reflow(wide.lines, 5, -1, 0);
+    REQUIRE(narrow.lines.size() == 4);
+    CHECK(narrow.lines[0].marks ==
+          (krait::core::vt::kMarkPromptStart | krait::core::vt::kMarkInputStart));
+    CHECK(narrow.lines[0].exitCode == 0);
+    for (std::size_t i = 1; i < narrow.lines.size(); ++i) {
+        CAPTURE(i);
+        CHECK(narrow.lines[i].marks == 0);
+        CHECK(narrow.lines[i].exitCode == -1);
+    }
+}
+
+TEST_CASE("grid: a prompt mark survives a window resize", "[reflow][shell]") {
+    // The task's real question: does the mark still point at the same TEXT
+    // after the user drags the window? Driven through Grid::resize rather than
+    // reflow() directly, so the screen/scrollback split and the blank-row
+    // absorption are in the picture too.
+    Grid g(6, 20);
+    g.markPrompt(krait::core::vt::kMarkPromptStart);
+    for (const char32_t ch : std::u32string_view(U"user@host:~$ ls -l /usr/share/doc")) {
+        g.putChar(ch);
+    }
+    REQUIRE(g.prevPrompt(g.absoluteLineCount()) == 0U);
+
+    g.resize(6, 10);
+    const std::optional<std::size_t> after = g.prevPrompt(g.absoluteLineCount());
+    REQUIRE(after.has_value());
+    // Same logical line, wherever the rewrap put it: the head still carries the
+    // mark and still starts with the prompt the user can see.
+    const Line& head = g.absoluteLineAt(*after);
+    CHECK(head.cells[0].ch == U'u');
+    CHECK((head.marks & krait::core::vt::kMarkPromptStart) != 0);
+    CHECK_FALSE(head.wrappedFromPrev);
+
+    g.resize(6, 40);
+    const std::optional<std::size_t> back = g.prevPrompt(g.absoluteLineCount());
+    REQUIRE(back.has_value());
+    CHECK(g.absoluteLineAt(*back).cells[0].ch == U'u');
+    CHECK((g.absoluteLineAt(*back).marks & krait::core::vt::kMarkPromptStart) != 0);
 }

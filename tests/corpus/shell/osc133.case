@@ -1,0 +1,228 @@
+# OSC 133 semantic shell-integration marks (T66).
+#
+# EXPECT tokens describe the MARKS the grid ended up holding, in the same
+# scrollback-then-screen index space Grid::absoluteLineAt uses, 1-based:
+#   mark:N:<letters>  the marks on line N, in A B C D order
+#   exit:N:<status>   the exit status recorded on line N
+#   -                 no marks anywhere, which is what every malformed form
+#                     must produce
+#
+# ST is written \x1B\x5C rather than \\: the case reader takes a backslash
+# literally, so a doubled one is two bytes.
+#
+# The spec: OSC 133 ; <A|B|C|D> [; <key>=<value> ...] ST, terminated by ST or
+# BEL. A = prompt start, B = prompt end / user input start, C = command
+# executed / output start, D = command finished with an optional exit status.
+
+# A marks the line the prompt begins on
+IN \x1B]133;A\x1B\x5C
+EXPECT mark:1:A
+
+# ...and the key=value options real shells attach are IGNORED, not fatal.
+# wezterm sends aid= and cl=, contour sends click_events=1; the list grows with
+# every terminal, and losing a prompt boundary because a shell added a key it
+# did not have last year is the failure mode this pins. `k=` is NOT one of
+# these — it changes what the command means, and has its own cases below.
+IN \x1B]133;A;aid=7;cl=m;click_events=1\x1B\x5C
+EXPECT mark:1:A
+IN \x1B]133;A;k=i;aid=7\x1B\x5C
+EXPECT mark:1:A
+
+# B lands on the SAME line as A — prompt text then the command typed after it
+# is one line — which is exactly why the mark is a bitmask and not an enum.
+IN \x1B]133;A\x1B\x5C$\x20\x1B]133;B\x1B\x5C
+EXPECT mark:1:AB
+
+# C marks the first line of output
+IN \x1B]133;A\x1B\x5C$\x1B]133;B\x1B\x5Cls\x0D\x0A\x1B]133;C\x1B\x5C
+EXPECT mark:1:AB mark:2:C
+
+# The whole cycle. The status from D lands on line 1 — the line the command was
+# typed on — not on line 3 where D happened to arrive.
+IN \x1B]133;A\x1B\x5C$\x1B]133;B\x1B\x5Cls\x0D\x0A\x1B]133;C\x1B\x5Cout\x0D\x0A\x1B]133;D;0\x1B\x5C
+EXPECT mark:1:AB exit:1:0 mark:2:C mark:3:D
+
+# A failing command keeps its status
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;127\x1B\x5C
+EXPECT mark:1:A exit:1:127 mark:2:D
+
+# The status is POSITIONAL — first field only, as ghostty parses it and as
+# wezterm emits it (`\033]133;D;%s;aid=%s\007`, status first, options after).
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;0;aid=12345\x1B\x5C
+EXPECT mark:1:A exit:1:0 mark:2:D
+
+# ...so a non-numeric first field does NOT license taking a number from a later
+# one. `D;oops;5` reports nothing, which is what every other terminal does.
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;oops;5\x1B\x5C
+EXPECT mark:1:A mark:2:D
+
+# key=value before the status is a shape no emitter produces, and is read the
+# same way: field 1 is not a number, so there is no status.
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;aid=7;3\x1B\x5C
+EXPECT mark:1:A mark:2:D
+
+# A bare D still closes the command; there is simply no status to show
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D\x1B\x5C
+EXPECT mark:1:A mark:2:D
+
+# A status that is not a number is REFUSED rather than guessed at, and the mark
+# survives: the command did finish, we just do not know how.
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;oops\x1B\x5C
+EXPECT mark:1:A mark:2:D
+
+# Overflowing and negative statuses go the same way. "137" truncated to "13" is
+# a different answer, not a rounded one.
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;99999999999999999999\x1B\x5C
+EXPECT mark:1:A mark:2:D
+IN \x1B]133;A\x1B\x5Cx\x0D\x0A\x1B]133;D;-1\x1B\x5C
+EXPECT mark:1:A mark:2:D
+
+# BEL terminates an OSC 133 as well as ST does
+IN \x1B]133;A\x07
+EXPECT mark:1:A
+
+# P is prompt START, not "prompt properties", and `P;k=i` is what wezterm's
+# shipped integration, DomTerm's, and zsh's own Src/Zle/termquery.c emit.
+# Handling only A would place ZERO marks for three real shell integrations.
+IN \x1B]133;P;k=i\x1B\x5C$\x20\x1B]133;B\x1B\x5C
+EXPECT mark:1:AB
+
+# ...and P with no k= at all is still the primary prompt
+IN \x1B]133;P\x1B\x5C
+EXPECT mark:1:A
+
+# A SECONDARY prompt is not a jump target. kitty sends `A;k=s` before PS2, so
+# without this every continuation row of a multi-line command is a prompt —
+# and D's exit status would attach to the LAST such row rather than to the line
+# the command actually began on.
+IN \x1B]133;A\x1B\x5C$ for i\x0D\x0A\x1B]133;A;k=s\x1B\x5C> do\x0D\x0A\x1B]133;C\x1B\x5Cout\x0D\x0A\x1B]133;D;0\x1B\x5C
+EXPECT mark:1:A exit:1:0 mark:3:C mark:4:D
+
+# k=r (zsh RPROMPT) and k=c (continuation) are the same story
+IN \x1B]133;A;k=r\x1B\x5C
+EXPECT -
+IN \x1B]133;A;k=c\x1B\x5C
+EXPECT -
+
+# ...and s on its own, stated plainly rather than only inside the PS2 trace
+# above, so the fail-open cases below have a fail-CLOSED neighbour to be read
+# against.
+IN \x1B]133;A;k=s\x1B\x5C
+EXPECT -
+
+# An UNRECOGNISED kind letter FAILS OPEN — it marks the prompt, exactly as an
+# absent k= does. The alphabet a terminal knows is i / r / c / s; anything else
+# is an option this parser does not recognise, and the spec rule for those is
+# the one OSC 8's parameters already follow: ignore it. ghostty maps an unknown
+# kind to null, i.e. unspecified, i.e. still a prompt.
+#
+# The failure this pins is not exotic. Reading `k=` as "secondary unless it is
+# exactly i" means the day a shell starts emitting a kind letter this list does
+# not have, the user loses EVERY jump target and every exit status — a total
+# loss of the feature, to gain a distinction nobody asked for.
+IN \x1B]133;A;k=x\x1B\x5C
+EXPECT mark:1:A
+IN \x1B]133;A;k=initial\x1B\x5C
+EXPECT mark:1:A
+IN \x1B]133;P;k=x\x1B\x5C
+EXPECT mark:1:A
+
+# A MALFORMED k= with no value at all goes the same way. "The sender wrote
+# nothing" is not "the sender said secondary".
+IN \x1B]133;A;k=\x1B\x5C
+EXPECT mark:1:A
+
+# ...including when it arrives among options that ARE recognised, since the
+# scan stops at the first k= it meets.
+IN \x1B]133;A;aid=7;k=x;cl=m\x1B\x5C
+EXPECT mark:1:A
+
+# A known kind still wins when an unknown one is nowhere near it: k= is read
+# positionally-first, not merged.
+IN \x1B]133;A;k=s;aid=7\x1B\x5C
+EXPECT -
+
+# An unknown command letter marks NOTHING. Guessing which of A/B/C/D a shell
+# meant would put a prompt boundary somewhere the user cannot see one.
+IN \x1B]133;Z\x1B\x5C
+EXPECT -
+
+# L (fresh line), N (new command) and I (end prompt, terminate at EOL) are
+# spec'd letters we have not implemented. Honest silence, not a half-mark.
+IN \x1B]133;L\x1B\x5C\x1B]133;A\x1B\x5C
+EXPECT mark:1:A
+IN \x1B]133;N\x1B\x5C
+EXPECT -
+IN \x1B]133;I\x1B\x5C
+EXPECT -
+
+# Degenerate strings are not marks
+IN \x1B]133\x1B\x5C
+EXPECT -
+IN \x1B]133;\x1B\x5C
+EXPECT -
+IN \x1B]133;;;\x1B\x5C
+EXPECT -
+
+# Aborted mid-string (CAN, SUB). xterm discards these and so do we, so no mark
+# is placed and the parser comes back clean.
+IN \x1B]133;A\x18
+EXPECT -
+IN \x1B]133;A\x1A
+EXPECT -
+
+# Erase takes the mark with the text it described. Otherwise jump-to-prompt
+# lands on a blank row after a `clear`, and D writes a status onto one.
+IN \x1B]133;A\x1B\x5C$ x\x1B[H\x1B[2J
+EXPECT -
+
+# The alternate screen is a full-screen app's viewport and shares none of the
+# normal buffer's history, so a mark placed there would name a line in the
+# wrong buffer entirely.
+IN \x1B[?1049h\x1B]133;A\x1B\x5C\x1B[?1049l
+EXPECT -
+
+# An OSC that never terminates places nothing at all
+IN \x1B]133;A
+EXPECT -
+
+# Embedded C0 inside the payload is IGNORED by the Williams machine rather than
+# buffered, so this is still 133;A. Pinned because that is one table cell.
+IN \x1B]133;\x0D\x0AA\x1B\x5C
+EXPECT mark:1:A
+
+# Interrupted by a new introducer rather than a terminator. ESC is the first
+# half of ST, so the Williams machine LEAVES the string on it (machine.cpp only
+# counts CAN/SUB as an abort, matching xterm's osc_end exit action): the mark is
+# dispatched and the CSI that follows is parsed normally. Pinned because the
+# difference between "aborted" and "terminated" here is one byte.
+IN \x1B]133;A\x1B[c
+EXPECT mark:1:A
+
+# THE CURSOR MOVED BETWEEN A AND D, which is ordinary shell behaviour and not a
+# hostile stream: zsh transient prompts and powerlevel10k repaint above the
+# prompt before precmd runs, and any full-screen redraw does the same. The
+# status belongs to the prompt the command was TYPED at, wherever the cursor
+# has since wandered to.
+#
+# Two commands, and `CSI H` puts the cursor on the FIRST one's line before the
+# second D arrives. Anchoring the backwards walk at the cursor made it start
+# below the open prompt, never reach it, and stamp 5 onto command one — which
+# already had a 0 — while command two got nothing. Line 1 reads AD because D's
+# own mark does land at the cursor; only the STATUS is written back.
+IN \x1B]133;A\x1B\x5C$ one\x0D\x0A\x1B]133;D;0\x1B\x5C\x0D\x0A\x1B]133;A\x1B\x5C$ two\x0D\x0A\x1B[H\x1B]133;D;5\x1B\x5C
+EXPECT mark:1:AD exit:1:0 mark:2:D mark:3:A exit:3:5
+
+# The same anchoring bug's other half: with no earlier prompt below the cursor
+# to land on wrongly, the walk simply found nothing and the status was DROPPED.
+# A user watching a command they typed at the bottom of a screenful of output
+# would see no exit status at all.
+IN out\x0D\x0Aout\x0D\x0A\x1B]133;A\x1B\x5C$ x\x0D\x0A\x1B[H\x1B]133;D;3\x1B\x5C
+EXPECT mark:1:D mark:3:A exit:3:3
+
+# ...and the walk still takes the NEWEST prompt rather than running past it
+# into an older one. Both commands' prompts are above the cursor now, so a walk
+# that went one line too far would re-stamp command one; it stops at command
+# two, and command one keeps the 7 it earned.
+IN \x1B]133;A\x1B\x5C$ one\x0D\x0A\x1B]133;D;7\x1B\x5C\x0D\x0A\x1B]133;A\x1B\x5C$ two\x0D\x0A\x1B[H\x1B]133;D;9\x1B\x5C
+EXPECT mark:1:AD exit:1:7 mark:2:D mark:3:A exit:3:9

@@ -60,6 +60,10 @@ struct Theme {
     std::uint32_t cursor = 0xF5E0DC;
     std::uint32_t cursorText = 0x1E1E2E;
     std::uint32_t selectionBg = 0x45475A;
+    // T68's trigger highlight. A different colour from the selection on
+    // purpose: the two can overlap, and a highlight that looks like a selection
+    // would have the user pressing Ctrl+Shift+C over text they never selected.
+    std::uint32_t highlightBg = 0xF9E2AF;
 };
 
 // An inclusive text selection in viewport coordinates. Rows are viewport rows,
@@ -80,11 +84,25 @@ struct CursorState {
     CursorStyle style = CursorStyle::Block;
 };
 
+// A trigger match to paint (T68), in viewport coordinates. Half-open columns.
+//
+// Supplied per frame rather than cached with the row, and derived from the
+// VISIBLE text rather than from where a match landed when it arrived: a
+// coordinate recorded at feed time is invalidated by the next reflow, which is
+// the scrollback landmine CLAUDE.md names. Re-deriving it from what is on
+// screen cannot go stale.
+struct HighlightSpan {
+    int row = 0;
+    int beginCol = 0;
+    int endCol = 0;
+};
+
 // Everything one frame needs that is not the grid itself.
 struct FrameParams {
     Selection selection;
     CursorState cursor;
     int cols = 0;
+    std::span<const HighlightSpan> highlights;
 };
 
 // Turns viewport rows plus shaped runs into the two instance arrays the GPU
@@ -168,6 +186,7 @@ class FrameBuilder {
     void buildRow(int row, const core::vt::Line& line, const RowRuns& runs, const RasterFn& raster,
                   GlyphAtlas& atlas, RowCache& out) const;
 
+    void appendHighlights(const FrameParams& params, int rowCount);
     void appendSelection(const FrameParams& params, int rowCount);
     void appendCursor(std::span<const core::vt::Line> viewport, const FrameParams& params);
 

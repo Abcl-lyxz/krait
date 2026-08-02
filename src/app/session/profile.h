@@ -61,6 +61,14 @@ struct Profile {
     // behind an "advanced" toggle. Empty means the theme decides.
     std::string accent;
 
+    // T68/T69. One rule per line, parsed by triggers.h. Text rather than a
+    // structured field for the same reason `forwards` is text: every mechanism
+    // this struct has — [defaults] and [folders."prod"] inheritance, bulkSet,
+    // the TOML round-trip — works on `key = text`, and a structured field would
+    // need its own copy of each of them.
+    std::string triggers;
+    std::string snippets;
+
     // ConPTY only: the shell to spawn. Empty means the configured default.
     std::string command;
 
