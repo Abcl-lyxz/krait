@@ -228,11 +228,16 @@ void SixelDecoder::emitSixel(std::uint8_t bits, int repeat) {
     if (repeat <= 0) {
         return;
     }
-    const int endX = m_x + repeat;
+    // SATURATING, not wrapping. `repeat` is capped at 2^24 by the parameter
+    // parser, so a hundred-odd `!16777215~` commands — about a kilobyte of
+    // input — would carry a plain `m_x + repeat` past INT_MAX, and signed
+    // overflow is undefined behaviour reachable from a remote host. That is a
+    // security bug by rules/vt-core.md's definition, not a cosmetic one.
+    const int endX = repeat > kMaxImageDimension - m_x ? kMaxImageDimension + 1 : m_x + repeat;
     if (!ensureSize(endX, m_bandTop + 6)) {
-        // Still ADVANCE the position. A bound is not a reason to start drawing
-        // the rest of the image in the wrong place, and the sender is going to
-        // keep sending either way.
+        // Still ADVANCE the position, up to the saturation point. A bound is
+        // not a reason to start drawing the rest of the image in the wrong
+        // place, and the sender is going to keep sending either way.
         m_x = endX;
         return;
     }
@@ -337,7 +342,12 @@ void SixelDecoder::put(std::uint8_t byte) {
         return;
     case '-':
         m_x = 0;
-        m_bandTop += 6;
+        // Saturating for the same reason as emitSixel's endX above. This one
+        // needs ~360 MB of `-` bytes to overflow rather than a kilobyte, which
+        // makes it the less urgent half and not a different problem.
+        if (m_bandTop <= kMaxImageDimension) {
+            m_bandTop += 6;
+        }
         return;
     default:
         break;

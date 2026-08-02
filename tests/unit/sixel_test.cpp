@@ -425,3 +425,43 @@ TEST_CASE("placements whose anchor was evicted are dropped", "[core][images]") {
     REQUIRE(store.placements().size() == 2);
     CHECK(store.placements().front().anchor == 50);
 }
+
+TEST_CASE("a repeat flood cannot overflow the active position", "[core][sixel]") {
+    // Found by reading, not by the fuzzer — which has never been run against
+    // this decoder (STATE.md flags that). `repeat` is capped at 2^24 by the
+    // parameter parser, so a plain `m_x + repeat` carries past INT_MAX after
+    // about a hundred commands: roughly a KILOBYTE of input, trivially
+    // reachable from a remote host, and signed overflow is undefined
+    // behaviour. rules/vt-core.md calls that a security bug, not a defect.
+    Params params;
+    params.count = 0;
+    SixelDecoder decoder;
+    decoder.begin(params);
+
+    const std::string flood = "#1;2;100;0;0" + [] {
+        std::string out;
+        for (int i = 0; i < 400; ++i) {
+            out += "!16777215~";
+        }
+        return out;
+    }();
+    for (const char ch : flood) {
+        decoder.put(static_cast<std::uint8_t>(ch));
+    }
+    // The bound held and nothing was produced; the point is that we got here at
+    // all, and that a sanitizer build gets here too.
+    CHECK(decoder.overflowed());
+    CHECK_FALSE(decoder.end(false).has_value());
+
+    // The same for the band position, which `-` advances. It needs far more
+    // input to overflow — ~360 MB — which makes it the less urgent half of the
+    // same problem, not a different one.
+    SixelDecoder bands;
+    bands.begin(params);
+    for (int i = 0; i < 200000; ++i) {
+        bands.put(static_cast<std::uint8_t>('-'));
+    }
+    bands.put(static_cast<std::uint8_t>('~'));
+    CHECK(bands.overflowed());
+    CHECK_FALSE(bands.end(false).has_value());
+}
