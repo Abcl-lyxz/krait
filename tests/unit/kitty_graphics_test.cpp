@@ -316,3 +316,29 @@ TEST_CASE("a graphics command may end with BEL", "[core][kitty][session]") {
                          encodeBase64(rgba(1, '\x09', '\x08', '\x07', '\xff')) + "\x07");
     CHECK(session.grid().images.find(22) != nullptr);
 }
+
+TEST_CASE("a sender cannot buy unbounded scrolling with r=", "[core][kitty][session]") {
+    // Found by re-reading the diff, not by a fuzzer. `r=` is the SENDER's
+    // choice and clamped only at 10000, so a one-pixel image plus about forty
+    // bytes of control data would otherwise buy ten thousand line feeds — each
+    // pushing a line into scrollback. A megabyte of those is a quarter of a
+    // billion line operations: the same throughput denial of service the OSC
+    // 133 A+D flood turned out to be in M4, arriving by a different door.
+    //
+    // Clamping to the screen costs nothing real: an image taller than the
+    // screen cannot be shown in full anyway.
+    Session session = sized(10, 20);
+    feedAll(session,
+            apc("a=T,f=32,s=1,v=1,i=40,c=1,r=10000", rgba(1, '\x01', '\x02', '\x03', '\xff')));
+
+    // The placement still records what the sender asked for — that is what it
+    // wants drawn, and the renderer will clip it.
+    REQUIRE(session.grid().images.placements().size() == 1);
+    CHECK(session.grid().images.placements().front().rows == 10000);
+
+    // But the SCROLLING it caused is bounded by the screen height. On a
+    // 10-row grid the cursor ends on the last row, and scrollback grew by at
+    // most that many lines rather than by ten thousand.
+    CHECK(session.grid().row == 9);
+    CHECK(session.grid().scrollbackSize() <= 10);
+}

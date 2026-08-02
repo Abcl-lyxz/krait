@@ -72,6 +72,10 @@ class Session final : public ParserEvents {
     // scale carried in the pen. Private because it is not an event — the
     // parser never calls it; oscEnd does, for one Kind.
     void writeSizedText(const OscAction& action);
+    // Moves the cursor below a just-placed image, BOUNDED BY THE SCREEN. The
+    // bound is a denial-of-service fix, not tidiness — see the comment on the
+    // definition. Shared by sixel and kitty so the two cannot diverge on it.
+    void advanceBelowImage(int rows);
 
     Grid m_grid;
     Parser m_parser;

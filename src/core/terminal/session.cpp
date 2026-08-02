@@ -145,10 +145,26 @@ void Session::dcsUnhook(bool aborted) {
     }
 
     // DEC leaves the cursor at the start of the line BELOW the image, which is
-    // what makes a run of sixels stack instead of overprint. Done with the
-    // ordinary line feed so scrollback capture, damage and the scrolling region
-    // all behave exactly as they do for text.
-    for (int i = 0; i < rows; ++i) {
+    // what makes a run of sixels stack instead of overprint.
+    advanceBelowImage(rows);
+}
+
+void Session::advanceBelowImage(int rows) {
+    // BOUNDED BY THE SCREEN, and that bound is the point rather than a
+    // tidiness. Kitty's `r=` is chosen by the SENDER and clamped only at
+    // 10000, so `a=T,s=1,v=1,c=1,r=10000` — a one-pixel image and about forty
+    // bytes — would otherwise buy ten thousand line feeds, each of which
+    // pushes a line into scrollback. A megabyte of those is a quarter of a
+    // billion line operations: the same throughput denial of service the OSC
+    // 133 A+D flood turned out to be in M4, arriving by a different door.
+    //
+    // Clamping costs nothing real: an image taller than the screen cannot be
+    // shown in full anyway, so scrolling further than the screen height
+    // accomplishes nothing a user could see.
+    const int steps = std::min(rows, m_grid.rows);
+    // The ordinary line feed, so scrollback capture, damage and the scrolling
+    // region all behave exactly as they do for text.
+    for (int i = 0; i < steps; ++i) {
         handleControl(m_grid, 0x0A);
     }
     m_grid.col = 0;
@@ -298,10 +314,7 @@ void Session::apcEnd(bool aborted) {
     // background or overlaying several images at chosen positions needs.
     // Without it the cursor lands below the image, as it does after a sixel.
     if (!command->cursorStays) {
-        for (int i = 0; i < placement.rows; ++i) {
-            handleControl(m_grid, 0x0A);
-        }
-        m_grid.col = 0;
+        advanceBelowImage(placement.rows);
     }
 }
 
