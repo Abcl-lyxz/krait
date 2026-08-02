@@ -9,6 +9,7 @@ add_executable(krait-core-tests
     atlas_test.cpp
     cli_test.cpp
     grid_test.cpp
+    kitty_graphics_test.cpp
     modes_test.cpp
     palette_test.cpp
     osc_test.cpp

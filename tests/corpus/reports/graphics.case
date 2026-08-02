@@ -1,0 +1,135 @@
+# Sixel (DCS q) and kitty graphics (APC _G) at the PARSER level (M5 T79/T80).
+#
+# This directory's sink is a bare ParserEvents that implements neither the DCS
+# image path nor the APC one, so what these cases assert is narrow and
+# deliberate: the parser CONSUMES all of it, finds its terminator, and sends
+# nothing back. Two things follow, and both matter.
+#
+# First, no graphics sequence may make the terminal answer by accident — the
+# kitty reply is addressed to a sender that supplied i=, and it is built in
+# Session, not here.
+#
+# Second, and the actual reason this file is worth its length:
+# tools/extract-seeds.mjs turns every IN payload below into a libFuzzer seed
+# (ADR-0010). The two image decoders are the largest attack surface M5 adds —
+# they allocate from remote-declared sizes — so the malformed forms here are
+# the seed corpus for that, not decoration.
+#
+# What each sequence MEANS is asserted in tests/unit/sixel_test.cpp and
+# tests/unit/kitty_graphics_test.cpp, where the decoded Image is visible.
+#
+# EXPECT is "-" throughout, except the last case.
+
+# ----------------------------------------------------------------- sixel ----
+IN \x1BP0;0;0q#1;2;100;0;0~\x1B\x5C
+EXPECT -
+IN \x1BPq"1;1;4;3#1;2;100;0;0!4~\x1B\x5C
+EXPECT -
+IN \x1BP0;1;0q#1;1;120;50;100@$#2;2;0;100;0_\x1B\x5C
+EXPECT -
+IN \x1BPq#0;2;0;0;0-#1~-#2~\x1B\x5C
+EXPECT -
+
+# The DCS forms that are NOT sixel and must stay silent. DECRQSS is 'q' behind
+# a '$' intermediate, and reading it as a picture would swallow a query the
+# sender is waiting on.
+IN \x1BP$qm\x1B\x5C
+EXPECT -
+IN \x1BP|17/0041\x1B\x5C
+EXPECT -
+IN \x1BP+q544e\x1B\x5C
+EXPECT -
+
+# Malformed sixel: unterminated commands, junk parameters, enormous declared
+# sizes, and a repeat count long enough to overflow anything that wraps.
+IN \x1BPq#\x1B\x5C
+EXPECT -
+IN \x1BPq#;;;;;;;;\x1B\x5C
+EXPECT -
+IN \x1BPq"\x1B\x5C
+EXPECT -
+IN \x1BPq"1;1;99999;99999~\x1B\x5C
+EXPECT -
+IN \x1BPq!99999999999999999999~\x1B\x5C
+EXPECT -
+IN \x1BPq!\x1B\x5C
+EXPECT -
+IN \x1BPq#999;9;999;999;999~\x1B\x5C
+EXPECT -
+IN \x1BPq~~~~~~~~
+EXPECT -
+IN \x1BPq#1;2;100;0;0~\x18
+EXPECT -
+IN \x1BPq#1;2;100;0;0~\x1A
+EXPECT -
+IN \x1BPq\x00\x01\x02\x7F\xFF~\x1B\x5C
+EXPECT -
+
+# ----------------------------------------------------- kitty graphics -------
+IN \x1B_Ga=T,f=32,s=1,v=1;AAAAAA==\x1B\x5C
+EXPECT -
+IN \x1B_Ga=t,f=24,s=2,v=2,i=1;AAAAAAAAAAAAAAAAAAAAAAAA\x1B\x5C
+EXPECT -
+IN \x1B_Ga=p,i=1,c=2,r=2,z=-1\x1B\x5C
+EXPECT -
+IN \x1B_Ga=d,i=1\x1B\x5C
+EXPECT -
+IN \x1B_Ga=q\x1B\x5C
+EXPECT -
+
+# Chunked: only the first escape carries the parameters.
+IN \x1B_Ga=t,f=32,s=2,v=2,i=2,m=1;AAAAAAAAAAAA\x1B\x5C\x1B_Gm=0;AAAAAAAAAAAA\x1B\x5C
+EXPECT -
+
+# The forms we DECLINE. Each must be consumed and must not throw the parser.
+IN \x1B_Ga=T,f=100,i=3;iVBORw0KGgo=\x1B\x5C
+EXPECT -
+IN \x1B_Ga=T,t=f,i=4;L2V0Yy9wYXNzd2Q=\x1B\x5C
+EXPECT -
+IN \x1B_Ga=T,o=z,s=1,v=1,i=5;AAAA\x1B\x5C
+EXPECT -
+IN \x1B_Ga=a,i=6\x1B\x5C
+EXPECT -
+
+# Malformed kitty: junk control data, lying sizes, payloads that are not
+# base64, unterminated strings, and keys nobody has heard of.
+IN \x1B_G\x1B\x5C
+EXPECT -
+IN \x1B_G;\x1B\x5C
+EXPECT -
+IN \x1B_G,,,,,=,=,=\x1B\x5C
+EXPECT -
+IN \x1B_Ga=T,s=10,v=10;AAAA\x1B\x5C
+EXPECT -
+IN \x1B_Ga=T,s=99999,v=99999,i=7;AAAA\x1B\x5C
+EXPECT -
+IN \x1B_Ga=T,s=2,v=2;not!base64!\x1B\x5C
+EXPECT -
+IN \x1B_Gzzz=1,Q=9,a=T,s=1,v=1;AAAAAA==\x1B\x5C
+EXPECT -
+IN \x1B_Ga=T,z=-99999999999999,s=1,v=1;AAAAAA==\x1B\x5C
+EXPECT -
+IN \x1B_Ga=t,m=1;AAAA\x18
+EXPECT -
+IN \x1B_Ga=t,s=1,v=1;AAAAAA==
+EXPECT -
+
+# APC that is NOT kitty graphics. iTerm2's file protocol rides APC too, so
+# anything not beginning with 'G' must be consumed and never answered.
+IN \x1B_File=name=x;AAAA\x1B\x5C
+EXPECT -
+IN \x1B_\x1B\x5C
+EXPECT -
+
+# SOS and PM stay in the ignore state — nothing implements them, and giving
+# them a payload would mean buffering remote bytes for a protocol nobody
+# speaks.
+IN \x1BXsome sos string\x1B\x5C
+EXPECT -
+IN \x1B^some pm string\x1B\x5C
+EXPECT -
+
+# And after all of that, an ordinary report still works: none of the above may
+# leave the parser wedged in a string state.
+IN \x1B_Ga=t,m=1;AAAA\x1B\x5C\x1B[c
+EXPECT reply:\x1B[?1;2c

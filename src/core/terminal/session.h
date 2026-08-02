@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/caps/caps.h"
+#include "core/graphics/kitty.h"
 #include "core/graphics/sixel.h"
 #include "core/grid/grid.h"
 #include "core/parser/events.h"
@@ -62,6 +63,9 @@ class Session final : public ParserEvents {
     void oscStart() override;
     void oscPut(std::uint8_t byte) override;
     void oscEnd(bool aborted) override;
+    void apcStart() override;
+    void apcPut(std::uint8_t byte) override;
+    void apcEnd(bool aborted) override;
 
   private:
     Grid m_grid;
@@ -73,6 +77,9 @@ class Session final : public ParserEvents {
     // Whether the DCS currently open is a sixel. Without this, dcsPut would
     // feed a DECRQSS query's bytes to the image decoder.
     bool m_inSixel = false;
+    // T80. Kitty graphics, over APC. Held across escapes because a large image
+    // arrives in chunks and only the first one carries the parameters.
+    KittyDecoder m_kitty;
     Capabilities m_caps;
     ReplyLimiter m_limiter;
     OscHandler m_osc;

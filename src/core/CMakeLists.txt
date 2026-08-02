@@ -10,6 +10,8 @@ find_package(utf8proc CONFIG REQUIRED)
 add_library(krait-core STATIC
     caps/caps.cpp
     graphics/image.h
+    graphics/kitty.cpp
+    graphics/kitty.h
     graphics/sixel.cpp
     graphics/sixel.h
     grid/cluster_pool.cpp

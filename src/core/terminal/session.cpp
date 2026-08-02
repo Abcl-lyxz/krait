@@ -151,6 +151,111 @@ void Session::dcsUnhook(bool aborted) {
     m_grid.col = 0;
 }
 
+void Session::apcStart() {
+    m_kitty.start();
+}
+
+void Session::apcPut(std::uint8_t byte) {
+    m_kitty.put(byte);
+}
+
+void Session::apcEnd(bool aborted) {
+    const std::optional<Command> command = m_kitty.end(aborted);
+    if (!command) {
+        return;  // not a graphics command, aborted, or a chunk with more to come
+    }
+
+    // The reply goes out FIRST, before anything is drawn. A sender that asked
+    // for confirmation is usually waiting on it before sending the next image,
+    // and a terminal that answered only after placing would serialise a
+    // transfer behind its own rendering.
+    if (const std::string reply = kittyReply(*command); !reply.empty() && onReply) {
+        onReply(reply);
+    }
+    if (!command->error.empty()) {
+        return;  // declined; the sender has been told and can fall back
+    }
+
+    switch (command->action) {
+    case Command::Action::Delete:
+        if (command->id != 0) {
+            m_grid.images.erase(command->id);
+        } else {
+            // A bare `a=d` deletes every placement but KEEPS the images: that
+            // is kitty's `d=a` default, and dropping the pixels too would make
+            // a later `a=p` fail for an image the sender never withdrew.
+            m_grid.images.clear();
+        }
+        return;
+    case Command::Action::Query:
+        // Answered by the reply above and nothing else. A query must not
+        // transmit, place or allocate — it exists so a sender can find out
+        // whether the protocol is spoken at all.
+        return;
+    case Command::Action::Unsupported:
+        return;
+    case Command::Action::Transmit:
+    case Command::Action::TransmitAndPut:
+    case Command::Action::Put:
+        break;
+    }
+
+    std::uint32_t id = command->id;
+    if (command->action != Command::Action::Put) {
+        if (command->image.empty()) {
+            return;
+        }
+        Image image = command->image;
+        id = m_grid.images.put(command->id, std::move(image));
+        if (id == 0) {
+            return;  // refused by the byte budget
+        }
+    }
+    if (command->action == Command::Action::Transmit) {
+        return;  // stored, not shown: the sender will place it later
+    }
+
+    if (m_grid.cellWidthPx <= 0 || m_grid.cellHeightPx <= 0) {
+        return;  // no cell size; see dcsUnhook for why this refuses to guess
+    }
+    const Image* stored = m_grid.images.find(id);
+    if (stored == nullptr) {
+        return;  // a=p naming an image that is not here
+    }
+
+    Placement placement;
+    placement.imageId = id;
+    placement.anchor =
+        m_grid.scrollback().linesEverStarted() + static_cast<std::uint64_t>(m_grid.row);
+    placement.col = m_grid.col;
+    placement.zIndex = command->zIndex;
+    // c= and r= are the sender's chosen size in CELLS and win when given; the
+    // fallback is the image's own pixel size divided by the cell size.
+    const int srcW = command->srcW > 0 ? command->srcW : stored->width;
+    const int srcH = command->srcH > 0 ? command->srcH : stored->height;
+    placement.srcX = command->srcX;
+    placement.srcY = command->srcY;
+    placement.srcW = srcW;
+    placement.srcH = srcH;
+    placement.cols =
+        command->cols > 0 ? command->cols : (srcW + m_grid.cellWidthPx - 1) / m_grid.cellWidthPx;
+    placement.rows =
+        command->rows > 0 ? command->rows : (srcH + m_grid.cellHeightPx - 1) / m_grid.cellHeightPx;
+    if (!m_grid.images.place(placement)) {
+        return;
+    }
+
+    // C=1 asks the cursor to stay put, which is what a program drawing a
+    // background or overlaying several images at chosen positions needs.
+    // Without it the cursor lands below the image, as it does after a sixel.
+    if (!command->cursorStays) {
+        for (int i = 0; i < placement.rows; ++i) {
+            handleControl(m_grid, 0x0A);
+        }
+        m_grid.col = 0;
+    }
+}
+
 void Session::oscStart() {
     m_osc.start();
 }
