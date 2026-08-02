@@ -260,6 +260,11 @@ Window {
             // silently ignored.
             switch (actionId) {
             case "settings.open": settingsPage.open(); return
+            case "themes.open": themeGallery.open(); return
+            // Straight to the file picker. Importing is the reason most people
+            // open the gallery at all, and making them open it first and find a
+            // button is a step the palette exists to remove.
+            case "themes.import": themeGallery.importScheme(); return
             case "session.new": root.addTab(); return
             case "session.close": root.closeTab(root.currentTab); return
             case "session.next": root.stepTab(1); return
@@ -352,6 +357,18 @@ Window {
             const pane = root.currentPane()
             if (pane) pane.focusCurrent()
         }
+    }
+
+    // T77. Above the settings page and below the palette, which is what OPENS
+    // this and therefore has to draw over it on the way out.
+    ThemeGallery {
+        id: themeGallery
+        z: 95
+        onDismissed: {
+            const pane = root.currentPane()
+            if (pane) pane.focusCurrent()
+        }
+        onReported: (message, detail) => root.raiseGlobalError(message, detail)
     }
 
     // A command line naming a session that is not saved. Reported once the

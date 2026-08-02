@@ -30,6 +30,7 @@ qt_add_qml_module(krait-app
         qml/Settings.qml
         qml/SnippetBar.qml
         qml/TabStrip.qml
+        qml/ThemeGallery.qml
     SOURCES
         backend_factory.cpp
         broadcast.cpp
@@ -87,6 +88,23 @@ qt_add_shaders(krait-app "krait-spike-shaders"
 
 # The generated qmltyperegistrations includes module headers by basename.
 target_include_directories(krait-app PRIVATE ../render/spike)
+
+# C4702 (unreachable code), on this target only, and reluctantly.
+#
+# It fires inside QT'S OWN HEADER, not our code: QJSEngine::fromScriptValue is
+# a chain of `if constexpr (...) return ...;` with a fallback `return` after it
+# (qjsengine.h:112), so whichever branch is taken makes the fallback
+# unreachable. qmlcachegen instantiates it for QString and bool the moment a
+# .qml file calls a C++ singleton method that returns one — which ThemeGallery
+# does four times, and which any future QML will do again.
+#
+# The alternatives were worse: contorting ThemeModel's API to return nothing
+# from saveAs()/importFile() so the instantiation never happens, or naming the
+# generated .rcc/qmlcache/*.cpp paths in this file, which are Qt's internal
+# layout and would break on a Qt update. This does NOT weaken the rest of the
+# build — krait-core, krait-render, krait-net and everything else keep /W4 /WX
+# whole, and this target is a thin shell of main() plus view-models.
+target_compile_options(krait-app PRIVATE /wd4702)
 
 # GuiPrivate: QRhi is Qt's semi-public "guaranteed within a minor series"
 # API; its headers (rhi/qrhi.h) ship under the private include umbrella.

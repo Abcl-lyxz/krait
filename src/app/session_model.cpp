@@ -45,6 +45,8 @@ constexpr const char* const kActionLabels[] = {
     QT_TR_NOOP("Import hosts from OpenSSH config"),
     QT_TR_NOOP("Import connections from mRemoteNG"),
     QT_TR_NOOP("Settings"),
+    QT_TR_NOOP("Themes"),
+    QT_TR_NOOP("Import a colour scheme"),
     QT_TR_NOOP("Reload settings from disk"),
     QT_TR_NOOP("Copy"),
     QT_TR_NOOP("Paste"),
