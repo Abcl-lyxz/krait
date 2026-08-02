@@ -691,6 +691,64 @@ Verified CORRECT, do not re-flag:
   and falls back to `imageBatches.size()` when never crossed.
 - `setImagePixels` returns BEFORE `m_images[id]`, so a short buffer creates no
   entry (gpu_resources_test.cpp:405 depends on this).
+
+## T89 — src/net 1.0 security audit (whole directory, 2026-08-02)
+
+Reported (highest first):
+1. **ProxyJump is dead code on Windows.** libssh 0.12 `client.c:624-630` wraps
+   the `ssh_socket_connect_proxyjump` branch in `#ifndef _WIN32 / #ifdef
+   HAVE_PTHREAD`; MSVC fails both. `ssh_options_set(SSH_OPTIONS_PROXYJUMP)`
+   still returns SSH_OK and stores the hop list, so `ssh_connect` falls through
+   to a DIRECT `ssh_socket_connect(opts.host, opts.port)`. Bastion silently
+   bypassed; `jumpVerifyHostKey`/`jumpAuthenticate`/`countProxyJumpHops` never
+   run. ADR-0012 verified the struct layout but not the platform guard.
+   `OPENSSH_PROXYJUMP=1` in the env makes libssh build an `ssh -W` ProxyCommand
+   (= ssh.exe subprocess, ADR-0002 banned) — Krait neither sets nor clears it.
+2. `forward_manager.cpp:218-270` remote-forward accept loop: unbounded tunnel
+   count (server-driven; ~2 MiB of buffers each) + BLOCKING `getaddrinfo` and
+   `::connect` (setNonBlocking runs after) on the ssh worker thread.
+3. `serial_backend.cpp` `closePort()` CloseHandle while reader is inside
+   ReadFile / writer about to WriteFile — non-atomic `void* m_handle`, handle
+   recycling. ConptyBackend::stop() already fixed exactly this shape
+   (join-before-close); serial did not copy it. Also: readerLoop's queued
+   lambda joins AND re-assigns `m_reconnect` on the GUI thread while
+   `stop()` (a QThreadPool thread, terminal_item.cpp:385) joins the same
+   std::thread — double-join UB, and a spawn after stop() => ~std::thread on a
+   joinable thread => std::terminate.
+4. `vault.h:75-77` `path()`/`error()` return `const std::string&` without the
+   mutex the class documents as making it thread-safe. No racing caller today
+   (main.cpp:158 is startup-only) — latent.
+5. `vault.cpp:136-170` load() accepts duplicate keys; `erase()` (277) removes
+   only the first => "forget this password" can silently not forget.
+6. `ssh_backend.cpp:279-328` every `ssh_options_set` return is discarded,
+   including the algorithm policy and PROXYJUMP. Fail-open shape.
+7. `remote_text.cpp:41` strips C0/C1/DEL but not U+202E/U+2066 bidi overrides —
+   server text in a credential prompt can be visually reordered.
+8. `forward_manager.cpp:226-234` remote-forward destPort with no matching
+   status falls back to `index = 0` (wrong forward's destHost).
+
+Verified CORRECT, do not re-flag:
+- Vault entropy scheme: `entropyFor(key) = "krait.vault.v1:" + key` genuinely
+  prevents cross-entry ciphertext swapping by a file writer. Rollback/restore
+  of an old file is NOT prevented (accepted residual).
+- `Secret`: fixed-size vector, never grown, SecureZeroMemory on clear; move
+  leaves no copy. `respondCredential` zeroes its QByteArray (QString copies are
+  a documented ceiling).
+- Host-key path: `armAnswer()` before every emit; Changed/OtherType fail before
+  any wait; `ssh_session_update_known_hosts` only after a human answered
+  (ssh_backend.cpp:462-482); `waitForAnswer` returns `woke && m_answered` so
+  stop() and timeout both fail closed.
+- telnet negotiation (RFC 1143 Q method, 256-slot option arrays indexed by
+  uint8_t, 1 KiB SB cap with overflow-consumes-rest) — clean.
+- socks5.cpp: 1 KiB buffer cap, every length re-checked against what arrived,
+  domain len is `1 + len` with no NUL. Clean.
+- sftp.cpp: `isSafeName` rejects `/ \ ` C0 DEL; listDir bounds ITERATIONS not
+  kept entries; get() deletes short/partial downloads. Clean.
+- agent_bridge: 256 KiB message cap, loopback pair verified in both directions,
+  overlapped pipe I/O with a stop event. Clean.
+- conpty, raw, forwards.cpp parser, hostkey_art, serial_ports — clean.
+- `TcpBackend::handleReadyRead` flushes the reply BEFORE emitting
+  outputReceived, so a re-entrant writeInput cannot corrupt `m_reply`.
 - `dropImage` uses `release()` + `deleteLater()`, and `imageIds()` returns a
   copy so the drop loop cannot invalidate its own iterator.
 - Image UV maths: `image->empty()` is checked first, so imgW/imgH > 0; srcX+srcW

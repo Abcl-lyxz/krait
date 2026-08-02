@@ -1,184 +1,162 @@
 # STATE
 
-Phase: M5 — beauty + protocol completeness. Feature work done on
-`t75-m5-beauty`, with one large gap named below. **PR #27 is open, CI green,
-MERGEABLE/CLEAN — it needs a human to merge it.**
+Phase: M6 — platform & 1.0. **PR #28 is open, fast-gate GREEN, MERGEABLE —
+it needs a human to merge it.** Seven commits on `t84-m6-platform`.
 
 ## Now
 
-M4 merged (`3fba78c`). M5 is nine commits on `t75-m5-beauty`, branched from it.
-**589 tests green**, up from 529. Build clean under `/W4 /WX`, clang-format
-clean on all 41 changed C++ files, clang-tidy clean on the gated
-`bugprone-*`/`concurrency-*` checks, and `tests/core-standalone` still links
-with no Qt on the path — which is what proves the two new image decoders did
-not smuggle a dependency into `src/core/`.
+M5 merged (`d31d644`). This session closed M5's one real gap and landed four
+of M6's seven tasks. **619 tests green**, up from 591. Build clean under
+`/W4 /WX`; clang-format clean under **20.1.8** (the version CI runs — local is
+22.1.2 and they disagree); clang-tidy clean on every changed source; fuzz smoke
+clean (3702 parser runs, 38370 telnet, zero crashes); `cpack -G ZIP` produces a
+populated package.
 
 | Task | What landed |
 |---|---|
-| T75 | `src/app/theme/` — the theme system. Model, 4 builtins, TOML round trip |
-| T76 | Importers: iTerm2 `.itermcolors`, Windows Terminal schemes, base16 YAML |
-| T77 | `qml/ThemeGallery.qml` — gallery + live editor; 101 QML hex literals gone |
-| T78 | Background image: `[background]` image/opacity/fit, alpha in the clear |
-| T79 | `src/core/graphics/sixel.*` — sixel decoder + `grid/images.*` placements |
-| T80 | `src/core/graphics/kitty.*` — kitty graphics over a new APC parser state |
-| T81 | OSC 66 text sizing, scale packed into `Attr::flags`' spare bits |
-| T82 | Mode 2048, in-band resize notification |
-| T83 | Mode 2031 + OSC 4/10/11/12 and 104/110/111/112 |
+| T84 | The renderer paints sixel, kitty graphics and OSC 66 sized text. M5's gap |
+| T87 | `packaging/` — portable ZIP, CPack NSIS config, winget manifests |
+| T88 | `docs/configuration.md` — syncing config, and what must never travel |
+| T86 | `src/app/crash/` — local minidumps, no Breakpad, no submission |
+| T90 | `web/index.html` — one static page, first on M6's cut line |
+
+T84 also fixed a **core** bug M5 recorded and deferred. A placement's anchor was
+`linesEverStarted() + grid.row`, which mixes logical-line space with visual-row
+space: it over-counts by one per wrapped row above the cursor and the error
+ACCUMULATES as those rows retire. M5 guessed it was a constant off-by-one at
+placement time; it is neither. `Grid::stableLineOfScreenRow`,
+`Grid::viewportTopStable` and `Scrollback::stableAtVisualFromEnd` are now the
+only conversion between the two spaces.
 
 ## Next task (exactly one)
 
-**The renderer draws no images and no scaled text.** Everything upstream of the
-GPU is done and tested: sixel and kitty both decode, placements are anchored to
-stable line indices and survive scroll/eviction/reflow, OSC 66 reserves the
-right cells and advances the cursor correctly. Nothing paints any of it. So
-today `kitty icat` and `img2sixel` transmit successfully, get an `OK` back, and
-show nothing; OSC 66 text lays out at the right size and draws at 1x.
+**Fix the three BLOCKING findings from T89's security review of `src/net/`.**
+They are all PRE-EXISTING — none came from this session's changes — and the
+first one is bad enough that it outranks finishing M6.
 
-That is M5's one real gap and it is the whole of the next task. What it needs:
+### 1. ProxyJump silently connects DIRECTLY to the target
 
-1. A `QRhiTexture` per image, cached by image id, uploaded on first use and
-   dropped with the image. `GpuResources` already owns the atlas texture and
-   the device-lost rebuild path — this rides the same lifecycle.
-2. An `ImageInstance` array and a third pipeline. The glyph pipeline is close
-   but samples an alpha-only atlas; images need an RGBA sampler, so it is a new
-   shader pair in `src/render/shaders/` rather than a reuse.
-3. `FrameBuilder` emits the quads, resolving each `Placement::anchor` through
-   `Scrollback::indexOfStable()` to a viewport row and skipping placements that
-   scrolled out. Negative `zIndex` draws BEFORE the text, everything else after.
-4. Damage: a placement's rows must be dirtied when the viewport moves, or an
-   image will smear on scroll.
-5. Then the milestone's demo gate is runnable: `notcurses-demo`, `img2sixel`,
-   `kitty icat`.
+`src/net/ssh/ssh_backend.cpp:327`. **Verified against the pinned libssh source**,
+not taken on trust: `build/fuzz-msvc/vcpkg_installed/vcpkg/blds/libssh/src/
+libssh-0-e5f4972781.clean/src/client.c:621-630` wraps the whole ProxyJump
+connect branch in `#ifndef _WIN32 / #ifdef HAVE_PTHREAD`. MSVC defines `_WIN32`
+and not `HAVE_PTHREAD`, so `ssh_socket_connect_proxyjump` is not compiled in and
+`ssh_connect` falls through to the final `else` — a plain `ssh_socket_connect`
+to the target host.
 
-`docs/conformance.md` states this gap in both the Graphics and OSC rows rather
-than implying it by silence.
+What makes it dangerous rather than merely missing: `ssh_options_set(
+SSH_OPTIONS_PROXYJUMP, …)` still SUCCEEDS and still fills `opts.proxy_jumps`,
+and `SSH_OPTIONS_PROXYJUMP_CB_LIST_APPEND` still stores our callbacks. Nothing
+reads either. The session comes up looking normal wherever the target is
+reachable without the bastion — every deployment where a jump host is an audit
+or policy control rather than a network necessity — the bastion is never
+contacted, its host key is never checked, and every guarantee ADR-0012 records
+is vacuous on the only platform Krait ships on. `ssh_config_import.cpp:323`
+imports `ProxyJump` straight out of `~/.ssh/config`, so this is a live path.
+
+**The fix was written this session and could not be landed** — see "Watchouts".
+Fail closed: replace the whole `if (!m_config.proxyJump.empty()) { … }` block
+with a `fail(ErrorCode::ConnectFailed, …)` and `return`, saying the build has no
+ProxyJump support and that connecting would bypass the jump host. Keep
+`countProxyJumpHops` and the hop callbacks — they are what the real chained
+`direct-tcpip` implementation will need. Add a backend-contract test that a
+config with `proxyJump` set never reaches `ssh_connect`.
+
+Secondary, same area: if `OPENSSH_PROXYJUMP=1` is in the environment, libssh
+builds an `ssh -W` **ProxyCommand** subprocess instead (`misc.c:2431`,
+`config.c:602`) — banned by ADR-0002. Krait neither sets nor clears it.
+
+### 2. Remote forwards are unbounded and block the SSH worker
+
+`src/net/ssh/forward_manager.cpp:218-270`. Two defects, one trigger — the server
+choosing how many `forwarded-tcpip` channels to open. `m_impl->tunnels` has no
+cap, and each tunnel holds a socket plus two 1 MiB buffers. And `getaddrinfo` +
+`connect` are synchronous with no timeout on the SSH worker thread —
+`setNonBlocking` runs at `:259`, AFTER the connect — so while that sits there the
+terminal receives nothing, no other tunnel is serviced, and `stop()`'s join waits
+with it, so closing the tab does not help. Needs the user to have configured a
+`-R` forward; the server picks when it fires.
+
+### 3. SerialBackend closes the handle under in-flight I/O
+
+`src/net/serial/serial_backend.cpp:355-361`. `stop()` runs on a `QThreadPool`
+thread and calls `closePort()` — `CloseHandle` then `m_handle = nullptr` —
+**before** joining the workers. `ConptyBackend` already fixed exactly this
+(`conpty_backend.cpp:383-398`, "closed handle values recycle"); serial did not
+copy it. Separately the device-removal path posts a lambda that joins and
+reassigns `m_reconnect` on the GUI thread with no `m_shutdown` check, racing
+`stop()`'s own join of the same `std::thread` — and if it lands after `stop()`
+completes it spawns a thread nothing will join, so `~std::thread` calls
+`std::terminate`. Trigger: unplug a USB serial adapter and close the tab.
+
+Five non-blocking findings are in the same review — vault `path()`/`error()`
+returning references without the lock, duplicate vault keys defeating "forget
+this password", every `ssh_options_set` return discarded (fail-open on the
+algorithm policy), no bidi/format-control stripping in `remote_text.cpp:41`, and
+remote-forward port mismatch routing to `statuses[0]`.
+
+## After that, to finish M6
+
+- **T85 — the Lua API (sol2).** NOT STARTED, and the largest thing left. It adds
+  a vcpkg dependency and a scripting sandbox, which is a security surface;
+  `docs/plan/01-milestones.md` cuts UI extensions before the event API, so the
+  event API is the part that must land. Deliberately not begun at the end of a
+  long session — a hastily sandboxed script engine is how you ship a hole.
+- **T89 remainder.** The audits RAN and are recorded above; the fixes are not
+  applied. Fuzz smoke and the perf A/B are done and clean.
 
 ## Open questions
 
-- **Nothing in M5 has been run by a human either.** Same as M4. The theme
-  gallery, the live editor, the file picker and the background image are all
-  verified by reading and by the model tests underneath them. **user-decides**
-  whether to do a manual pass before merge.
-- **Acrylic/blur is CUT, not forgotten.** `docs/plan/01-milestones.md` puts it
-  on M5's cut line ("CRT shader → acrylic → iTerm2 image protocol"). It is a DWM
-  backdrop attribute needing a composited desktop, and nothing in an unattended
-  session can verify it. **The CRT shader is cut for the same reason** and is
-  first on that list.
-- **M3's serial demo still has never been run** — carried over, unchanged.
-- **First-run discoverability** — carried over from M3 and M4, now slightly
-  worse: M5 adds two palette commands and no new shortcut. **user-decides**.
+- **Nothing in M5 or M6 has been run by a human.** The theme gallery, the
+  background image, the graphics renderer, the crash handler and the package all
+  pass tests and reviews and have never been looked at. **user-decides.**
+- **The WARP perf baselines are stale and now fail on this machine — for
+  everyone.** `bench/baselines/m1-wrap.json` and `m2-wrap.json` were captured
+  vsync-bound (`cpu_avg_ms` is exactly `1000/fps` in every row), so they measure
+  frame pacing rather than renderer cost. Unmodified `main` measured today is
+  36% off them. T84 itself is clean: an interleaved 11-run A/B against `main`
+  put every warm figure inside ±2.5%. **Re-record them, or every future audit
+  reads as a failure.** No baseline file was modified.
+- **The hardware D3D11 leg still cannot be measured.** `KRAIT_GPU=hardware`
+  exits 2 on the 60 s watchdog on both branches — and now does so WITH a 179 Hz
+  display attached, which was m1/m2's recorded explanation for the same failure.
+  That explanation is therefore wrong and the cause is unknown. Last real
+  hardware number is T25's 140.7 fps, four milestones stale.
+- **M3's serial demo has still never been run** — carried over, and finding 3
+  above is in that same file.
+- **First-run discoverability** — carried from M3/M4/M5. **user-decides.**
 
 ## Watchouts
 
 - **`main` is protected.** Branch + PR, always.
 - **The build shell has no dev environment.** vcvars64 (VS **18** Community)
-  plus `QT_ROOT=C:\Qt\6.10.3\msvc2022_64`; `VCPKG_ROOT` comes from vcvars.
-  A hung ctest holds `krait-qt-tests.exe` open and the next link fails LNK1168:
-  `taskkill /F /IM krait-qt-tests.exe` first.
+  plus `QT_ROOT=C:\Qt\6.10.3\msvc2022_64`; `VCPKG_ROOT` comes from vcvars. A
+  plain `cmake --build` fails with `Cannot open include file: 'type_traits'`,
+  which is that and nothing subtler.
+- **A build permission block ended this session's code work.** After the
+  security review was read, the harness's auto-mode classifier began refusing
+  the build wrapper — "blocking for safety because of earlier conversation
+  content". The ProxyJump fix above was written, then REVERTED unbuilt rather
+  than committed unverified onto a green PR. Whoever picks this up may need to
+  allow the build command explicitly, or start a fresh session.
+- **clang-format 20.1.8 vs local 22.1.2.** CI runs 20.1.8 and they disagree.
+  `pip install --target <dir> clang-format==20.1.8` and use
+  `<dir>/clang_format/data/bin/clang-format.exe` — NOT `<dir>/bin/`, which is a
+  shim that reports the local version.
+- **CI tidies CHANGED files.** Touching a file with pre-existing clang-tidy
+  errors makes them yours. Two were fixed this session for that reason
+  (`microsoft-exception-spec` on the DirectWrite overrides, a missing
+  designated-field initializer in `scrollback_test.cpp`).
 - **A failed build leaves the OLD test exe in place, and ctest then reports
-  "All tests passed" from it.** Never read a ctest result without confirming
-  the build before it exited 0.
-- **Three `krait-app.exe` exist.** `build/dev/` is current.
-- **`Read` returns only line 1** of any file the claude-mem hook has
-  observations on. Use `Grep` with pattern `^`, `output_mode: content`,
-  `head_limit: 0` — or `sed -n 'A,Bp'` for a range.
-- **Writing C++ through `node -e` from Bash eats `$` and collapses `\x1b` into
-  a raw ESC byte.** It happened three times this session. MSVC accepts the raw
-  byte and a human reading the file cannot see it. Use a `.mjs` file in the
-  scratchpad, or the Edit tool.
-- **CI's clang-format is 20.1.8; this machine's is 22.1.2, and they disagree.**
-  A locally clean tree can still fail the gate — it did once this milestone, on
-  one aligned braced list in `osc_test.cpp` that the two versions break
-  differently. Local success proves nothing on its own. Get the CI version and
-  check against it before pushing:
-  `python -m pip install --target <scratch>/cf20 clang-format==20.1.8`, then run
-  `<scratch>/cf20/clang_format/data/bin/clang-format.exe` — note the binary in
-  that package's `bin/` is a wrapper that runs whatever is on PATH, so the
-  `clang_format/data/bin` path is the one that matters. Code with nothing to
-  align (no trailing comments in a braced list) is what both versions agree on.
-- **CI runs clang-tidy over EVERY changed file with a compile command — tests
-  included.** Checking `src/*.cpp` only is how M5 burned a second 25-minute
-  cycle: four `int` multiplications widened to `size_t` in the new graphics
-  tests, the same shape that broke M4's PR in `sftp.cpp`. Use
-  `git diff --name-only <base>..HEAD -- '*.cpp'` for the list, not `src/*.cpp`.
-  Only `error:` lines ending in `warnings-as-errors` gate; Catch2's own
-  NOLINT-ed macro bodies appear as context and mean nothing.
-- **`/wd4702` is on krait-app only** (`src/app/CMakeLists.txt`), for a defect in
-  Qt's own `qjsengine.h`. It fires the moment qmlcachegen sees a .qml file call
-  a C++ singleton method returning QString or bool — which any future QML will.
-  Everything else keeps `/W4 /WX` whole.
-
-## Not covered by any automated test — M5's honest list
-
-- **Every QML surface added this milestone**: the gallery, the live editor, the
-  file picker, the background image layer. There are still no QML tests in this
-  repo. The C++ underneath them (`ThemeStore`, `ThemeModel`'s token map, the
-  importers) is tested; the bindings are not.
-- **The renderer half of graphics and OSC 66** — because it does not exist. See
-  "Next task".
-- **`ThemeStore`'s file IO**: `save()`, `importFile()` and the directory scan
-  are exercised only through `ThemeModel` by reading. The pure halves
-  (`parseToml`, `toToml`, the three importers, `themeFileName`) have 12 cases.
-- **No sixel or kitty FUZZ RUN has been done**, only seeds. 1385 seeds now
-  exist and `tests/fuzz/run-smoke.cmd` needs the clang-cl fuzz preset, which
-  this session did not build. The two decoders allocate from remote-declared
-  sizes, so this is the highest-value unrun gate in the tree.
-- **`interleaveShell()` is still entirely uncovered** — carried from M4,
-  unchanged, still the biggest structural test gap.
-
-## Known defects, deliberately not fixed in M5
-
-- **Sixel and kitty images are invisible.** See "Next task". A gap rather than a
-  defect, but it presents to a user as one.
-- **A sixel or kitty image is not erased by anything.** ED/EL clear cells and
-  OSC 133 marks; they do not drop placements covering those cells. A `clear`
-  will leave a picture on screen once the renderer draws them.
-- **A placement's anchor can be one line off on a WRAPPED row.** Both graphics
-  paths compute it as `linesEverStarted() + grid.row`, i.e. the stable index the
-  current screen row *will* have once pushed. That prediction is exact unless
-  the row carries `wrappedFromPrev`, in which case `Scrollback::push` coalesces
-  it onto the previous logical line and the real index is one lower — the same
-  off-by-one `setCommandExit` handles with its `- 1`. Left alone deliberately:
-  nothing draws placements yet, so the symptom cannot be seen or tested, and
-  guessing at a correction with no way to look at the result is how you fix it
-  in the wrong direction. **Whoever does the renderer task should settle this
-  first** — it is a two-line change and a corpus case once there is something
-  to compare against.
-- **Kitty's `a=d` has no selectors.** A bare `a=d` drops all placements and
-  keeps the images (kitty's `d=a` default); `d=i`, `d=z`, `d=p` and the
-  uppercase "also free the image" variants are not read.
-- **Unicode placeholders (`U=1`) are not implemented**, so an image placed
-  through them will not appear even once the renderer lands.
-- **Carried from M4, all unchanged**: the `D`-on-an-older-prompt case when a
-  marked line is destroyed under a scroll region; quake mode having no palette
-  entry; the mouse-only shell-integration confirmation; telnet/raw/serial
-  declaring `reconnecting` with nothing listening; `~TerminalItem` joining the
-  backend on the GUI thread; trigger highlights re-deriving per chunk.
-
-## Facts verified during M5 — do not re-derive
-
-- **Mode 2048**: enabling it MUST report the current size immediately. Reply is
-  `CSI 48 ; rows ; cols ; height_px ; width_px t` — **height before width in
-  BOTH pairs**, and the pixel figures are the TEXT AREA, excluding padding.
-- **Mode 2031**: notification is `CSI ? 997 ; 1 n` for dark, `; 2 n` for light.
-  Setting the mode sends nothing.
-- **Sixel colour components are PERCENTAGES, 0-100**, not bytes. A sixel byte's
-  **least significant bit is the TOP pixel**. DEC's HLS hue origin is 120° off
-  the usual one — 0 is BLUE.
-- **Sixel's "zero bits are set to the background" cannot be taken literally** —
-  it would make multi-colour images impossible, because overprinting with `$`
-  is how they are built. libsixel and xterm both treat P2 as deciding what an
-  UNWRITTEN pixel is instead.
-- **Kitty graphics**: `f=24` has no alpha, so it decodes OPAQUE. Chunks are
-  ≤4096 base64 bytes and a multiple of 4. Replies go only to senders that
-  supplied `i=` or `I=`; `q=1` suppresses OK, `q=2` also suppresses errors.
-  `t=f`/`t=t`/`t=s` name a path on the TERMINAL's machine — a file-disclosure
-  primitive over SSH, refused here on security grounds.
-- **OSC 66's metadata is COLON separated**, while `;` separates it from the
-  text. Payload cap 4096 bytes; `s` 1-7, `w` 0-7, `n`/`d` 0-15 with `d > n`.
-- **`Attr::flags` bit 3 and bits 8-15 were free**, which is the only reason
-  OSC 66's scale fits without growing `Cell` past its pinned 20 bytes.
-- **Qt's `qjsengine.h` has an `if constexpr` return chain with an unreachable
-  fallback return**, so C4702 fires through any qmlcachegen TU that calls a
-  singleton method returning QString or bool.
-- M4's and M3's libssh facts still hold — see `git show 385dbaa:STATE.md`.
+  "All tests passed" from it.** Never read a ctest result without confirming the
+  build before it exited 0.
+- **A hung ctest holds `krait-qt-tests.exe` open and the next link fails
+  LNK1168:** `taskkill /F /IM krait-qt-tests.exe` first.
+- **`cpack -G NSIS` is configured but has never run** — NSIS is not installed
+  here. `packaging/README.md` lists that and four other release blockers,
+  including that CPack's stock NSIS template hardcodes
+  `RequestExecutionLevel admin`, so the winget manifest's `Scope: user` is
+  currently a claim the installer does not honour.
+- **A package built without `windeployqt` contains no Qt and will not start.**
+  `qt_generate_deploy_qml_app_script()` does not work in this tree; the reason
+  and the replacement command are in `packaging/README.md`.
