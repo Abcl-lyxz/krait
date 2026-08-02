@@ -204,6 +204,9 @@ int main(int argc, char* argv[]) try {
     themes.setDirectory(ks::themesDirPath(configDir.dir));
     themes.select(QString::fromStdString(registry.text("theme.name")));
     krait::app::ThemeModel::setStore(&themes);
+    // T78. The same live registry the terminals read, so a hot-reloaded
+    // background.image reaches the QML layer and the clear alpha together.
+    krait::app::ThemeModel::setSettings(&registry);
     krait::app::TerminalItem::setThemes(&themes);
     // Both directions. Editing theme.name in the config file (or through the
     // settings page, which writes the same registry) has to reach the store, or

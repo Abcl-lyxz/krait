@@ -1,5 +1,6 @@
 #pragma once
 
+#include "settings/registry.h"
 #include "theme/store.h"
 #include "theme/theme.h"
 
@@ -62,6 +63,18 @@ class ThemeModel : public QObject {
     // Non-fatal theme-file problems, for a banner. Never a dialog.
     Q_PROPERTY(QStringList warnings READ warnings NOTIFY galleryChanged)
 
+    // The background image (T78). These are SETTINGS, not theme tokens, and
+    // they live here anyway because this is already the singleton every .qml
+    // file reads its appearance from — a second appearance singleton would mean
+    // two objects to keep in step and one of them forgotten on a hot reload.
+    Q_PROPERTY(QString backgroundImage READ backgroundImage NOTIFY backgroundChanged)
+    // 0..1, for QML. The registry stores 20..100 because a percentage is what a
+    // human edits in a config file.
+    Q_PROPERTY(qreal backgroundOpacity READ backgroundOpacity NOTIFY backgroundChanged)
+    // Already translated into Image.fillMode's enumeration, so QML does no
+    // mapping of its own and there is one place the names are decided.
+    Q_PROPERTY(int backgroundFillMode READ backgroundFillMode NOTIFY backgroundChanged)
+
   public:
     explicit ThemeModel(QObject* parent = nullptr);  // owned by parent
 
@@ -70,6 +83,16 @@ class ThemeModel : public QObject {
     // binding evaluation, so there is no later moment to inject into.
     // Borrowed; main() owns the store.
     static void setStore(theme::ThemeStore* store);
+
+    // The live registry, for the background properties. Borrowed; main() owns
+    // it. Same static-setter shape as setStore, and for the same reason: the
+    // QML engine constructs this singleton during the first binding evaluation,
+    // so there is no later moment to inject into.
+    static void setSettings(settings::Registry* registry);
+
+    QString backgroundImage() const;
+    qreal backgroundOpacity() const;
+    int backgroundFillMode() const;
 
     QString name() const;
     bool dark() const;
@@ -128,6 +151,7 @@ class ThemeModel : public QObject {
   signals:
     void changed();
     void galleryChanged();
+    void backgroundChanged();
 
   private:
     const theme::Theme& theme() const;

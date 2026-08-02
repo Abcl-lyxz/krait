@@ -945,6 +945,22 @@ void TerminalItem::applySettings() {
     if (m_settings == nullptr) {
         return;
     }
+
+    // T78. The clear alpha. 1 when there is no background image, so a default
+    // install pays nothing for this and asks the scene graph for no blending —
+    // and so the setting cannot make a terminal translucent over a window with
+    // nothing behind it, which just looks like a rendering bug.
+    const bool hasImage = !m_settings->text("background.image").empty();
+    const auto opacity = static_cast<float>(m_settings->integer("background.opacity"));
+    const float wanted = hasImage ? opacity / 100.0F : 1.0F;
+    if (wanted != m_backgroundAlpha) {
+        m_backgroundAlpha = wanted;
+        // QQuickRhiItem only composites the item's alpha when it is told to,
+        // and turning it on unconditionally would cost a blend for every
+        // terminal in the default install.
+        setAlphaBlending(m_backgroundAlpha < 1.0F);
+        update();
+    }
     const std::string family = m_settings->text("font.family");
     const int size = static_cast<int>(m_settings->integer("font.size"));
     const bool ligatures = m_settings->boolean("font.ligatures");
@@ -1541,6 +1557,7 @@ void TerminalItem::rebuildFrame() {
         m_builder->invalidate();
     }
     render::unpackColor(m_builder->theme().bg, m_frame.clearR, m_frame.clearG, m_frame.clearB);
+    m_frame.clearA = m_backgroundAlpha;
     m_atlas->clearDirty();
 }
 
@@ -2110,7 +2127,12 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb) {
     const bool ok =
         m_gpu.sync(rhi(), renderTarget()->renderPassDescriptor(), renderTarget()->sampleCount(), cb,
                    m_frame, renderTarget()->pixelSize());
-    const QColor clear = QColor::fromRgbF(m_frame.clearR, m_frame.clearG, m_frame.clearB);
+    // T78. The alpha is what lets a background image through, and it is applied
+    // HERE rather than by drawing the image on top at low opacity — that
+    // version washes out the text as well as the background, which is how this
+    // feature makes a terminal unreadable.
+    const QColor clear =
+        QColor::fromRgbF(m_frame.clearR, m_frame.clearG, m_frame.clearB, m_frame.clearA);
     if (!ok) {
         // Still clear the target: a skipped pass shows whatever the last device
         // left in it, which after a device loss is garbage.

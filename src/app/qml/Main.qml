@@ -9,6 +9,32 @@ Window {
     title: qsTr("Krait")
     color: Theme.bg
 
+    // T78. The background image sits BEHIND everything, and the terminal is
+    // what becomes translucent over it — not this. An Image drawn on top at
+    // low opacity would wash out the text as well as the background, which is
+    // the version of this feature that makes a terminal unreadable.
+    //
+    // Only created when there is a path: a Loader rather than a permanently
+    // present Image, so the default install pays nothing for a feature it is
+    // not using.
+    Loader {
+        anchors.fill: parent
+        z: -1
+        active: Theme.backgroundImage.length > 0
+        sourceComponent: Image {
+            source: Theme.backgroundImage
+            fillMode: Theme.backgroundFillMode
+            // Asynchronous: a large wallpaper decoded on the GUI thread stalls
+            // the window on startup, and rules/ui.md bans blocking work there.
+            asynchronous: true
+            // The image is drawn at full strength. What lets it through is the
+            // TERMINAL's clear alpha (background.opacity), applied in
+            // TerminalItem — so text keeps its own contrast against whatever
+            // sits behind it.
+            cache: true
+        }
+    }
+
     // The tabs. A ListModel of { title, accent } mirroring what each
     // SessionPane reports, because a Repeater delegate cannot be read back as
     // a model and the strip needs something to bind to.

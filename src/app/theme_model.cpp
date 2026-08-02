@@ -3,6 +3,7 @@
 #include "theme/theme.h"
 
 #include <QByteArray>
+#include <QUrl>
 #include <QVariantMap>
 
 #include <array>
@@ -19,6 +20,9 @@ namespace {
 // singleton, and it does so during the first binding evaluation — there is no
 // later moment at which anything could inject a dependency.
 theme::ThemeStore* g_store = nullptr;
+// The live registry, for the background-image properties. Same borrowing and
+// the same reason as g_store above.
+settings::Registry* g_settings = nullptr;
 
 QColor toColor(theme::Rgb rgb) {
     return QColor::fromRgb(static_cast<QRgb>(rgb | 0xFF000000U));
@@ -205,10 +209,66 @@ ThemeModel::ThemeModel(QObject* parent) : QObject(parent) {
     }
     connect(g_store, &theme::ThemeStore::changed, this, &ThemeModel::changed);
     connect(g_store, &theme::ThemeStore::listChanged, this, &ThemeModel::galleryChanged);
+    if (g_settings != nullptr) {
+        // One connection for the three background keys rather than three: the
+        // getters are cheap, and a settings page that edits two of them in a
+        // row should repaint after each, not batch.
+        connect(g_settings, &settings::Registry::changed, this, [this](const QString& id) {
+            if (id.startsWith(QLatin1String("background."))) {
+                emit backgroundChanged();
+            }
+        });
+        connect(g_settings, &settings::Registry::reloaded, this, &ThemeModel::backgroundChanged);
+    }
 }
 
 void ThemeModel::setStore(theme::ThemeStore* store) {
     g_store = store;
+}
+
+void ThemeModel::setSettings(settings::Registry* registry) {
+    g_settings = registry;
+}
+
+QString ThemeModel::backgroundImage() const {
+    if (g_settings == nullptr) {
+        return {};
+    }
+    const std::string path = g_settings->text("background.image");
+    if (path.empty()) {
+        return {};
+    }
+    // QML's Image wants a URL. A bare Windows path reaches it as a RELATIVE
+    // one — `C:` reads as a scheme — so it is converted here rather than in
+    // QML, where the mistake is invisible until somebody with a background
+    // image on D: reports a blank window.
+    return QUrl::fromLocalFile(QString::fromStdString(path)).toString();
+}
+
+qreal ThemeModel::backgroundOpacity() const {
+    if (g_settings == nullptr) {
+        return 1.0;
+    }
+    return static_cast<qreal>(g_settings->integer("background.opacity")) / 100.0;
+}
+
+int ThemeModel::backgroundFillMode() const {
+    // The setting's names, translated into Image.fillMode once, here, so QML
+    // does no mapping of its own and the two cannot drift.
+    const std::string fit = g_settings != nullptr ? g_settings->text("background.fit") : "cover";
+    if (fit == "contain") {
+        return 2;  // Image.PreserveAspectFit
+    }
+    if (fit == "stretch") {
+        return 0;  // Image.Stretch
+    }
+    if (fit == "tile") {
+        return 3;  // Image.Tile
+    }
+    if (fit == "center") {
+        return 6;  // Image.Pad — the image at its own size, centred by anchors
+    }
+    return 1;  // Image.PreserveAspectCrop, i.e. "cover"
 }
 
 const theme::Theme& ThemeModel::theme() const {

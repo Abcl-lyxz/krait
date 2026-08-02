@@ -334,6 +334,10 @@ class TerminalItem : public QQuickRhiItem {
     // a full rebuild. Connected to ThemeStore::changed, so it runs for a theme
     // switch, a live-editor keystroke and a theme file edited on disk alike.
     void applyTheme();
+    // T78. 0..1, from background.opacity. 1 when there is no background image,
+    // so a default install pays nothing and no alpha blending is requested.
+    float m_backgroundAlpha = 1.0F;
+
     // T82. Sends `CSI 48 ; rows ; cols ; hpx ; wpx t` when mode 2048 is on, and
     // nothing otherwise. Called after the pty resize, never before: the spec
     // says not to report until the internal resize is complete, and an
