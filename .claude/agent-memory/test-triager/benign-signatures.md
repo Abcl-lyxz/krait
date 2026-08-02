@@ -38,6 +38,23 @@ are **not** defects. Confirmed 2026-07-29 during the M0 acceptance battery.
    evidence: `ninja -C build\dev -t clean <new-targets>` then rebuild. A no-op
    build reported as "zero warnings" is a false pass.
 
+6. **`build/dev/tests/unit/krait-render-tests.exe` (and its `*_tests.cmake`),
+   frozen at 2026-07-30.** That target no longer exists in any `CMakeLists.txt`
+   and `build/dev/tests/unit/CTestTestfile.cmake` includes only the `core` and
+   `qt` test binaries, so ctest never touches it. It is an orphaned artifact of
+   the test-binary split, not a suite that stopped running. Only the two
+   binaries listed in that CTestTestfile carry signal; running the orphan by
+   hand yields days-old results.
+
+7. **`ninja: no work to do.` when the working tree has modified sources.** Not
+   automatically the stale-binary trap from
+   [[krait-stale-test-binary-false-green]] — it is genuine if the implementing
+   session already built. Distinguish by mtime: every registered test exe in
+   `build/dev/tests/unit/` must be *newer* than the newest file it compiles,
+   and each new `TEST_CASE` name must appear in the ctest log. Both true = the
+   binary is current. Note that a failed build never prints this line, since
+   the broken object stays out of date.
+
 **Why:** each of these cost real triage time to attribute; two of them look like
 toolchain breakage at a glance.
 

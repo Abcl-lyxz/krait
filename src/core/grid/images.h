@@ -25,6 +25,15 @@ struct Placement {
     // The logical line the top-left corner sits on, in Scrollback's stable
     // space. Resolved through indexOfStable() at draw time.
     std::uint64_t anchor = 0;
+    // Which VISUAL row of that logical line the top-left corner sits on.
+    //
+    // The anchor names a logical line and deliberately collapses every wrapped
+    // row of it to one index, so on its own it resolves to the line's FIRST
+    // viewport row. An image emitted after 120 columns of output at width 80
+    // would then draw one row above its own text. Reflow changes this number,
+    // which is correct: the image belongs to a point in the text, and where
+    // that point falls inside its line is exactly what rewrapping moves.
+    int rowInLine = 0;
     int col = 0;
     // Size in CELLS, not pixels: the grid speaks cells, and a placement sized
     // in pixels would need re-deriving on every font change.
@@ -65,6 +74,15 @@ class ImageStore {
 
     // Null when there is no such image.
     const Image* find(std::uint32_t id) const;
+
+    // The insertion ordinal of an image, or 0 when there is no such id.
+    //
+    // It is an IDENTITY for the pixels, which `id` alone is not: put() replaces
+    // an existing id in place, so a renderer caching by id has no way to notice
+    // that the pixels behind it changed. That is kitty's ordinary refresh path
+    // — retransmit `i=1` with the next frame of a plot — and without this the
+    // first picture is the only one that is ever shown.
+    std::uint64_t sequenceOf(std::uint32_t id) const;
 
     // Adds a placement. Refused (false) when the image is unknown, so a
     // placement can never outlive the pixels it names.

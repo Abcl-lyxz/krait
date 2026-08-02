@@ -519,6 +519,54 @@ void Grid::scrollViewToBottom() {
     }
 }
 
+std::uint64_t Grid::stableLineOfScreenRow(int screenRow) const {
+    std::uint64_t index = m_scrollback.linesEverStarted();
+    if (!m_screen.empty() && m_screen[0].wrappedFromPrev && !m_scrollback.empty()) {
+        // Screen row 0 continues the newest line ALREADY in history rather than
+        // starting the next one.
+        --index;
+    }
+    if (m_screen.empty()) {
+        return index;
+    }
+    // size() - 1, not size(): the loop reads m_screen[r] up to and including
+    // `last`, so clamping to size() walks one past the end the moment a caller
+    // passes `rows`. Today's callers cannot, because Grid::row is clamped to
+    // rows - 1 — but this is a public conversion whose whole job is to be safe
+    // about a row number.
+    const auto last =
+        std::min(static_cast<std::size_t>(std::max(0, screenRow)), m_screen.size() - 1);
+    for (std::size_t r = 1; r <= last; ++r) {
+        if (!m_screen[r].wrappedFromPrev) {
+            ++index;
+        }
+    }
+    return index;
+}
+
+int Grid::rowOffsetInLine(int screenRow) const {
+    if (m_screen.empty()) {
+        return 0;
+    }
+    auto r = std::min(static_cast<std::size_t>(std::max(0, screenRow)), m_screen.size() - 1);
+    int offset = 0;
+    while (r > 0 && m_screen[r].wrappedFromPrev) {
+        --r;
+        ++offset;
+    }
+    return offset;
+}
+
+std::uint64_t Grid::viewportTopStable() const {
+    if (m_viewOffset <= 0) {
+        return stableLineOfScreenRow(0);
+    }
+    // Mirrors viewportRows(): the window's top row is the visual row
+    // `m_viewOffset - 1` back from the newest in history. Asking past the start
+    // of history yields the oldest line, which is where the viewport clamps.
+    return m_scrollback.stableAtVisualFromEnd(cols, static_cast<std::size_t>(m_viewOffset) - 1);
+}
+
 std::vector<Line> Grid::viewportRows() const {
     if (m_viewOffset <= 0) {
         return m_screen;

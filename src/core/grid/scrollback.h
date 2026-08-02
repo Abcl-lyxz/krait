@@ -107,6 +107,18 @@ class Scrollback {
         return std::min<std::size_t>(static_cast<std::size_t>(stable - m_dropped), m_lines.size());
     }
 
+    // The stable index of the logical line that owns the visual row `fromEnd`
+    // rows before the newest, at width `cols`. The inverse of the arithmetic
+    // viewRows() does, and it exists for the same reason indexOfStable() does:
+    // a viewport offset is measured in VISUAL rows while a placement or a mark
+    // names a LOGICAL line, and converting between the two by counting lines
+    // lands short by one row for every line that wrapped.
+    //
+    // Runs off the oldest line rather than failing: a caller asking past the
+    // start of history wants the top of history, which is what the viewport
+    // clamps to as well.
+    std::uint64_t stableAtVisualFromEnd(int cols, std::size_t fromEnd) const;
+
     // Forces the next push() to start a new logical line even if the row
     // carries wrappedFromPrev. resize() retires rows from BOTH buffers back to
     // back, and a continuation flag from one buffer must never glue itself to

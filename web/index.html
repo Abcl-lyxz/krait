@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Krait — a modern terminal and SSH client for Windows</title>
+<meta name="description" content="Krait is a GPU-accelerated terminal and connection manager for Windows: SSH, local shells, telnet, raw sockets and serial.">
+<style>
+  :root {
+    --bg: #1e1e2e; --fg: #cdd6f4; --dim: #a6adc8; --line: #45475a;
+    --accent: #89b4fa; --warn: #f9e2af; --code: #181825;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #fdfdfd; --fg: #1e1e2e; --dim: #5c5f77; --line: #dcdce4;
+      --accent: #1e66f5; --warn: #df8e1d; --code: #f2f2f7;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1.25rem;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 4rem 0 6rem; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  .tag { color: var(--dim); font-size: 1.15rem; margin: 0 0 2.5rem; }
+  h2 { font-size: 1.3rem; margin: 3rem 0 .75rem; letter-spacing: -.01em; }
+  a { color: var(--accent); }
+  ul { padding-left: 1.2rem; }
+  li { margin: .4rem 0; }
+  code, pre {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    background: var(--code); border-radius: 6px;
+  }
+  code { padding: .12em .4em; font-size: .9em; }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid var(--line); }
+  .note {
+    border-left: 3px solid var(--warn); background: var(--code);
+    padding: .9rem 1.1rem; border-radius: 0 6px 6px 0; margin: 2rem 0;
+    color: var(--dim);
+  }
+  footer { border-top: 1px solid var(--line); margin-top: 4rem; padding-top: 1.5rem; color: var(--dim); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Krait</h1>
+  <p class="tag">A modern terminal and SSH client for Windows. Everything PuTTY
+  does, none of what it got stuck on.</p>
+
+  <div class="note">
+    <strong>Krait is not released yet.</strong> There is no download on this
+    page because there is no signed build to download. This page describes what
+    is being built and links to the source.
+  </div>
+
+  <h2>What it is</h2>
+  <ul>
+    <li><strong>One app for every connection</strong> — SSH, local shells over
+      ConPTY, telnet, raw sockets and serial, in tabs, with saved sessions that
+      are a real part of the product rather than a dialog you dread.</li>
+    <li><strong>GPU rendering</strong> — a custom glyph atlas and damage
+      tracking, built to hold 60&nbsp;fps under a <code>cat</code> flood.</li>
+    <li><strong>Thai, CJK and emoji as first-class text</strong> — grapheme
+      clustering and real shaping, not a <code>wcwidth</code> guess. Thai ships
+      as a first-class locale, not an afterthought.</li>
+    <li><strong>Sixel and kitty graphics</strong> — images in the terminal,
+      anchored to the text they belong to so they survive scrolling and
+      rewrapping.</li>
+    <li><strong>Security UX that guides</strong> — host keys, a paste guard, and
+      red accents on production sessions. Secrets live only in the Windows DPAPI
+      vault, never in a config file.</li>
+  </ul>
+
+  <h2>Building it</h2>
+  <pre><code>cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev</code></pre>
+  <p>You need Visual Studio with the x64 C++ toolset, Qt 6, and a vcpkg
+  checkout. <a href="https://github.com/Abcl-lyxz/krait/blob/main/SETUP.md">SETUP.md</a>
+  has the exact versions and the reasons behind them.</p>
+
+  <h2>Design notes</h2>
+  <p>Decisions are written down as ADRs rather than lost in commit messages, and
+  the terminal's escape-sequence support is tracked honestly — including what is
+  <em>not</em> implemented — in a conformance ledger.</p>
+  <ul>
+    <li><a href="https://github.com/Abcl-lyxz/krait/tree/main/docs/decisions">Architecture decisions</a></li>
+    <li><a href="https://github.com/Abcl-lyxz/krait/blob/main/docs/conformance.md">Conformance ledger</a></li>
+    <li><a href="https://github.com/Abcl-lyxz/krait/blob/main/docs/configuration.md">Configuration</a></li>
+  </ul>
+
+  <footer>
+    <p>MIT licensed. Qt and libssh are linked dynamically under the LGPL — see
+    <a href="https://github.com/Abcl-lyxz/krait/blob/main/packaging/THIRD-PARTY.md">THIRD-PARTY.md</a>.</p>
+    <p><a href="https://github.com/Abcl-lyxz/krait">github.com/Abcl-lyxz/krait</a></p>
+  </footer>
+</main>
+</body>
+</html>

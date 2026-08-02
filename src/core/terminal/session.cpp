@@ -132,8 +132,8 @@ void Session::dcsUnhook(bool aborted) {
     // the picture rides scrolling, eviction and reflow the way an OSC 133 mark
     // does. A screen row would slide onto different text the moment the window
     // was dragged — the landmine CLAUDE.md records for scrollback.
-    placement.anchor =
-        m_grid.scrollback().linesEverStarted() + static_cast<std::uint64_t>(m_grid.row);
+    placement.anchor = m_grid.stableLineOfScreenRow(m_grid.row);
+    placement.rowInLine = m_grid.rowOffsetInLine(m_grid.row);
     placement.col = m_grid.col;
     placement.cols = cols;
     placement.rows = rows;
@@ -290,8 +290,8 @@ void Session::apcEnd(bool aborted) {
 
     Placement placement;
     placement.imageId = id;
-    placement.anchor =
-        m_grid.scrollback().linesEverStarted() + static_cast<std::uint64_t>(m_grid.row);
+    placement.anchor = m_grid.stableLineOfScreenRow(m_grid.row);
+    placement.rowInLine = m_grid.rowOffsetInLine(m_grid.row);
     placement.col = m_grid.col;
     placement.zIndex = command->zIndex;
     // c= and r= are the sender's chosen size in CELLS and win when given; the

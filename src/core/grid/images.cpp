@@ -92,6 +92,11 @@ void ImageStore::clear() {
     // believes it owns.
 }
 
+std::uint64_t ImageStore::sequenceOf(std::uint32_t id) const {
+    const auto found = m_images.find(id);
+    return found == m_images.end() ? 0 : found->second.sequence;
+}
+
 void ImageStore::dropAnchorsBefore(std::uint64_t oldestStable) {
     std::erase_if(m_placements, [oldestStable](const Placement& placement) {
         return placement.anchor < oldestStable;

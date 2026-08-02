@@ -224,7 +224,8 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
         if (!rowNeedsRebuild(row, damage)) {
             continue;
         }
-        buildRow(row, viewport[static_cast<std::size_t>(row)], rowRuns(row), raster, atlas, cache);
+        buildRow(row, viewport[static_cast<std::size_t>(row)], rowRuns(row), raster, atlas,
+                 params.sizedAtlas, cache);
         cache.valid = true;
         ++m_rowsRebuilt;
     }
@@ -239,9 +240,12 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
     // costs a per-row capacity bound.
     m_solids.clear();
     m_glyphs.clear();
+    m_sizedGlyphs.clear();
     for (const RowCache& cache : m_rows) {
         m_solids.insert(m_solids.end(), cache.solids.begin(), cache.solids.end());
         m_glyphs.insert(m_glyphs.end(), cache.glyphs.begin(), cache.glyphs.end());
+        m_sizedGlyphs.insert(m_sizedGlyphs.end(), cache.sizedGlyphs.begin(),
+                             cache.sizedGlyphs.end());
     }
 
     // Selection and cursor are NOT part of the row cache: they move without the
@@ -251,6 +255,143 @@ void FrameBuilder::build(std::span<const core::vt::Line> viewport,
     appendHighlights(params, rowCount);
     appendSelection(params, rowCount);
     appendCursor(viewport, params);
+    appendImages(params);
+}
+
+void FrameBuilder::appendImages(const FrameParams& params) {
+    m_images.clear();
+    m_imageBatches.clear();
+    m_belowBatches = 0;
+    if (params.images == nullptr || params.placements.empty() || params.rowStable.empty()) {
+        return;
+    }
+
+    // Stable index -> the FIRST viewport row showing that logical line. Built
+    // once per frame rather than scanned per placement: the placement cap is
+    // 4096 and the viewport is ~63 rows, so a per-placement scan is a quarter
+    // of a million comparisons a hostile stream can ask for on every frame.
+    m_distinctImages.clear();
+    m_rowOfStable.clear();
+    for (std::size_t r = 0; r < params.rowStable.size(); ++r) {
+        m_rowOfStable.emplace(params.rowStable[r], static_cast<int>(r));
+    }
+
+    // Draw order: zIndex ascending, so a negative watermark goes under the text
+    // and a higher z sits over a lower one. stable_sort keeps transmission
+    // order among equal z, which is what kitty specifies for overlaps.
+    m_sortedPlacements.clear();
+    for (std::uint32_t i = 0; i < params.placements.size(); ++i) {
+        m_sortedPlacements.push_back(i);
+    }
+    std::stable_sort(m_sortedPlacements.begin(), m_sortedPlacements.end(),
+                     [&params](std::uint32_t lhs, std::uint32_t rhs) {
+                         return params.placements[lhs].zIndex < params.placements[rhs].zIndex;
+                     });
+
+    const float cellW = static_cast<float>(m_metrics.cellWidth);
+    const float cellH = static_cast<float>(cellHeight());
+    bool boundaryCrossed = false;
+
+    // ponytail: at most this many quads a frame. ImageStore caps placements at
+    // 4096 and they can all be anchored inside one viewport, so without a bound
+    // a hostile stream buys itself 4096 pipeline binds and draws per frame —
+    // remote input choosing the render cost (rules/net.md). A terminal showing
+    // more than this many pictures at once has nothing legible on it anyway.
+    // Upgrade path: sort by z, keep the topmost N, if anyone ever hits it.
+    constexpr std::size_t kMaxDrawnPlacements = 256;
+    // And at most this many DISTINCT textures, which is a different bound and
+    // has to match GpuResources::kMaxGpuImages. Without it a frame naming 65
+    // different ids would evict, on every single frame, the very textures that
+    // frame still needs — bounded memory, but a thrash a remote stream gets to
+    // choose. Placements are sorted by z, so what is dropped is the bottom of
+    // the stack rather than an arbitrary picture.
+    constexpr std::size_t kMaxDrawnImages = 64;
+
+    for (const std::uint32_t index : m_sortedPlacements) {
+        if (m_images.size() >= kMaxDrawnPlacements) {
+            break;
+        }
+        const core::vt::Placement& placement = params.placements[index];
+        if (placement.cols <= 0 || placement.rows <= 0) {
+            continue;
+        }
+        const core::vt::Image* image = params.images->find(placement.imageId);
+        if (image == nullptr || image->empty()) {
+            continue;  // the pixels were evicted; the placement outlived them
+        }
+        const auto found = m_rowOfStable.find(placement.anchor);
+        if (found == m_rowOfStable.end()) {
+            // Scrolled out of the viewport entirely.
+            //
+            // ponytail: a placement whose anchor line is ABOVE the top row
+            // vanishes rather than drawing clipped, because working out how far
+            // above it went costs a walk back through history this has no other
+            // reason to do. Visible effect: an image pops out as its first row
+            // leaves the top, instead of sliding off. Upgrade path: have the
+            // caller report an out-of-view anchor as a negative row and let the
+            // render pass clip the quad.
+            continue;
+        }
+
+        // The source rectangle. Zero width or height means the whole image,
+        // which is the common case and what both decoders emit.
+        const float imgW = static_cast<float>(image->width);
+        const float imgH = static_cast<float>(image->height);
+        const float srcW = placement.srcW > 0 ? static_cast<float>(placement.srcW) : imgW;
+        const float srcH = placement.srcH > 0 ? static_cast<float>(placement.srcH) : imgH;
+
+        // The anchor names a LOGICAL line, so it resolves to that line's first
+        // viewport row; rowInLine is how far into the line the image actually
+        // sat. Without it an image emitted after 120 columns of output at
+        // width 80 draws a row above its own text.
+        const int row = found->second + placement.rowInLine;
+        if (row >= static_cast<int>(params.rowStable.size())) {
+            continue;  // the continuation row it belongs to is off the bottom
+        }
+
+        ImageInstance quad;
+        quad.x = static_cast<float>(placement.col) * cellW;
+        quad.y = static_cast<float>(row) * cellH;
+        quad.w = static_cast<float>(placement.cols) * cellW;
+        quad.h = static_cast<float>(placement.rows) * cellH;
+        quad.u0 = std::clamp(static_cast<float>(placement.srcX) / imgW, 0.0F, 1.0F);
+        quad.v0 = std::clamp(static_cast<float>(placement.srcY) / imgH, 0.0F, 1.0F);
+        quad.u1 = std::clamp((static_cast<float>(placement.srcX) + srcW) / imgW, 0.0F, 1.0F);
+        quad.v1 = std::clamp((static_cast<float>(placement.srcY) + srcH) / imgH, 0.0F, 1.0F);
+        // rgb at 1 so the fragment shader's multiply is a no-op; alpha is the
+        // placement's opacity, which today is always fully opaque.
+        quad.r = 1.0F;
+        quad.g = 1.0F;
+        quad.b = 1.0F;
+        quad.a = 1.0F;
+
+        // Sorted by zIndex, so every under-text placement precedes every
+        // over-text one and the boundary is crossed at most once.
+        bool startBatch =
+            m_imageBatches.empty() || m_imageBatches.back().imageId != placement.imageId;
+        if (startBatch && m_distinctImages.size() >= kMaxDrawnImages &&
+            !m_distinctImages.contains(placement.imageId)) {
+            continue;  // a 65th texture this frame; skip it rather than thrash
+        }
+        m_distinctImages.insert(placement.imageId);
+        if (placement.zIndex >= 0 && !boundaryCrossed) {
+            boundaryCrossed = true;
+            m_belowBatches = static_cast<std::uint32_t>(m_imageBatches.size());
+            startBatch = true;  // one batch must never straddle the text
+        }
+        if (startBatch) {
+            m_imageBatches.push_back({.imageId = placement.imageId,
+                                      .first = static_cast<std::uint32_t>(m_images.size()),
+                                      .count = 1});
+        } else {
+            ++m_imageBatches.back().count;
+        }
+        m_images.push_back(quad);
+    }
+    if (!boundaryCrossed) {
+        // Every placement drew under the text (or there were none at all).
+        m_belowBatches = static_cast<std::uint32_t>(m_imageBatches.size());
+    }
 }
 
 void FrameBuilder::appendHighlights(const FrameParams& params, int rowCount) {
@@ -293,9 +434,11 @@ bool FrameBuilder::rowNeedsRebuild(int row, const core::vt::DamageList& damage) 
 }
 
 void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& runs,
-                            const RasterFn& raster, GlyphAtlas& atlas, RowCache& out) const {
+                            const RasterFn& raster, GlyphAtlas& atlas, GlyphAtlas* sizedAtlas,
+                            RowCache& out) const {
     out.solids.clear();
     out.glyphs.clear();
+    out.sizedGlyphs.clear();
 
     const float cellW = static_cast<float>(m_metrics.cellWidth);
     const float cellH = static_cast<float>(cellHeight());
@@ -389,12 +532,36 @@ void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& 
     // Glyphs. Each glyph is positioned from its CLUSTER's column with the
     // shaper's offsets on top — that is what puts a Thai mark over its base
     // instead of in the next cell.
-    const float atlasW = static_cast<float>(atlas.width());
-    const float atlasH = static_cast<float>(atlas.height());
     for (std::size_t i = 0; i < runs.shaped.size() && i < runs.runs.size(); ++i) {
         const Run& run = runs.runs[i];
         const ShapedRun& shaped = runs.shaped[i];
         const std::uint32_t faceId = i < runs.faces.size() ? runs.faces[i] : shaped.faceId;
+
+        // OSC 66 (T84). A scaled run was shaped against a face registered at
+        // scale * pxHeight, so its glyphs are that much bigger and go in the
+        // sized atlas — the main one's slots are one line tall and it rejects
+        // anything larger. With no sized atlas the run is skipped entirely
+        // rather than drawn at the wrong size.
+        //
+        // shaped.scale, NOT run.scale: the re-shape can fail (a face that will
+        // not load at that height, a batch that timed out) and then these are
+        // ordinary 1x glyphs. Routing them by what was ASKED FOR would put a
+        // 1x glyph in a scale-7 slot and draw it a whole block too low.
+        const int scale = std::max<int>(1, shaped.scale);
+        GlyphAtlas* target = scale > 1 ? sizedAtlas : &atlas;
+        if (target == nullptr) {
+            continue;
+        }
+        std::vector<GlyphInstance>& sink = scale > 1 ? out.sizedGlyphs : out.glyphs;
+        const float atlasW = static_cast<float>(target->width());
+        const float atlasH = static_cast<float>(target->height());
+        // The block is `scale` rows tall and hangs DOWN from the row the cursor
+        // was on, so the baseline is that many ascents below the row top. The
+        // spec never says "downward" in one sentence, but its overwrite rules
+        // are all phrased around "the top-left cell" and "rows after the first"
+        // (kitty text-sizing protocol), which only reads that way.
+        const float baseline =
+            top + (static_cast<float>(scale) * static_cast<float>(m_metrics.ascent));
 
         for (const ShapedGlyph& glyph : shaped.glyphs) {
             if (glyph.cluster >= run.clusters.size()) {
@@ -412,7 +579,7 @@ void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& 
                 continue;  // SGR 8, invisible: skip the draw entirely
             }
             const AtlasEntry* entry =
-                atlas.get(GlyphKey{.faceId = faceId, .glyphId = glyph.glyphId}, raster);
+                target->get(GlyphKey{.faceId = faceId, .glyphId = glyph.glyphId}, raster);
             if (entry == nullptr || entry->width == 0 || entry->height == 0) {
                 continue;  // no ink (a space), or refused by the atlas
             }
@@ -421,8 +588,7 @@ void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& 
             inst.x = (static_cast<float>(cluster.col) * cellW) +
                      (static_cast<float>(glyph.xOffset) * kFixedScale) +
                      static_cast<float>(entry->bearingX);
-            inst.y = top + static_cast<float>(m_metrics.ascent) -
-                     static_cast<float>(entry->bearingY) -
+            inst.y = baseline - static_cast<float>(entry->bearingY) -
                      (static_cast<float>(glyph.yOffset) * kFixedScale);
             inst.w = static_cast<float>(entry->width);
             inst.h = static_cast<float>(entry->height);
@@ -431,7 +597,7 @@ void FrameBuilder::buildRow(int row, const core::vt::Line& line, const RowRuns& 
             inst.u1 = static_cast<float>(entry->x + entry->width) / atlasW;
             inst.v1 = static_cast<float>(entry->y + entry->height) / atlasH;
             unpackColor(fg, inst.r, inst.g, inst.b);
-            out.glyphs.push_back(inst);
+            sink.push_back(inst);
         }
     }
 }

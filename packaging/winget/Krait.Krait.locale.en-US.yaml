@@ -1,0 +1,27 @@
+# winget defaultLocale manifest — schema 1.12.0.
+#
+# TEMPLATE. PackageVersion is substituted by the release job.
+PackageIdentifier: Krait.Krait
+PackageVersion: 0.0.0
+PackageLocale: en-US
+Publisher: Krait
+PublisherUrl: https://github.com/Abcl-lyxz/krait
+PackageName: Krait
+PackageUrl: https://github.com/Abcl-lyxz/krait
+License: MIT
+LicenseUrl: https://github.com/Abcl-lyxz/krait/blob/main/LICENSE
+ShortDescription: A GPU-accelerated SSH client and terminal for Windows.
+Description: >-
+  Krait is a terminal and connection manager for Windows: SSH, local shells over
+  ConPTY, telnet, raw sockets and serial. It renders with a custom GPU glyph
+  atlas, treats Thai, CJK and emoji as first-class text rather than an
+  afterthought, and manages saved sessions as a real part of the product.
+  Secrets are held only in the Windows DPAPI vault.
+Tags:
+  - ssh
+  - terminal
+  - console
+  - serial
+  - sftp
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0

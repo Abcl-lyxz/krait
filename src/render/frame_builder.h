@@ -2,6 +2,7 @@
 
 #include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
+#include "core/grid/images.h"
 #include "core/grid/line.h"
 #include "render/atlas/glyph_atlas.h"
 #include "render/shaper/shaped_run.h"
@@ -12,6 +13,8 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace krait::render {
@@ -44,6 +47,22 @@ struct GlyphInstance {
     float g = 1;
     float b = 1;
     float a = 1;
+};
+
+// One image quad (T84). Deliberately the SAME layout as GlyphInstance —
+// position, uv, colour — so images reuse glyph.vert and the glyph pipeline's
+// vertex input layout unchanged. Only the fragment shader differs: an RGBA
+// sample instead of the atlas's R8 coverage. `a` carries the placement's
+// opacity with rgb left at 1.
+using ImageInstance = GlyphInstance;
+
+// A run of image quads that share one texture. A terminal shows a handful of
+// images at once, so a run list beside one instance buffer is cheaper — and far
+// less code — than a vertex buffer per texture.
+struct ImageBatch {
+    std::uint32_t imageId = 0;
+    std::uint32_t first = 0;  // index into FrameBuilder::images()
+    std::uint32_t count = 0;
 };
 
 enum class CursorStyle : std::uint8_t { Block, HollowBlock, Underline, Bar };
@@ -103,6 +122,29 @@ struct FrameParams {
     CursorState cursor;
     int cols = 0;
     std::span<const HighlightSpan> highlights;
+
+    // --- Graphics placements (T84) ---
+    //
+    // `rowStable` is PARALLEL to the viewport: entry r is the stable index of
+    // the logical line viewport row r belongs to. The caller derives it by
+    // walking the rows it is about to draw, starting from
+    // Grid::viewportTopStable() — from the rows themselves, so it cannot
+    // disagree with them. A placement is drawn on the first viewport row whose
+    // entry equals its anchor.
+    std::span<const core::vt::Placement> placements;
+    std::span<const std::uint64_t> rowStable;
+    // Where the pixels live, for the source size the UVs are normalised
+    // against. Null means "draw no images", which is the pre-graphics path and
+    // every test that does not care.
+    const core::vt::ImageStore* images = nullptr;
+
+    // The atlas OSC 66's scaled glyphs go in (T84). It has to be a second
+    // atlas: a slot in the main one is sized for a two-cell glyph on one line,
+    // and GlyphAtlas REJECTS anything larger rather than clipping it — so
+    // shaping sized text at its real pixel height and then asking the main
+    // atlas for it would draw nothing at all, which is worse than the 1x it
+    // replaced. Null means no sized text is expected this frame.
+    GlyphAtlas* sizedAtlas = nullptr;
 };
 
 // Turns viewport rows plus shaped runs into the two instance arrays the GPU
@@ -138,6 +180,20 @@ class FrameBuilder {
     std::span<const SolidInstance> solids() const { return m_solids; }
 
     std::span<const GlyphInstance> glyphs() const { return m_glyphs; }
+
+    // OSC 66's scaled glyphs, which sample the SIZED atlas rather than the main
+    // one and so need their own draw (T84).
+    std::span<const GlyphInstance> sizedGlyphs() const { return m_sizedGlyphs; }
+
+    // Image quads, ordered: the zIndex < 0 ones first (they draw UNDER the
+    // text, which is what a watermark is), then the rest. `imageBatches()`
+    // slices this into per-texture runs, and the first `belowBatchCount()` of
+    // those are the under-text ones.
+    std::span<const ImageInstance> images() const { return m_images; }
+
+    std::span<const ImageBatch> imageBatches() const { return m_imageBatches; }
+
+    std::uint32_t belowBatchCount() const { return m_belowBatches; }
 
     int rowsRebuilt() const { return m_rowsRebuilt; }
 
@@ -180,21 +236,44 @@ class FrameBuilder {
     struct RowCache {
         std::vector<SolidInstance> solids;
         std::vector<GlyphInstance> glyphs;
+        std::vector<GlyphInstance> sizedGlyphs;
         bool valid = false;
     };
 
     void buildRow(int row, const core::vt::Line& line, const RowRuns& runs, const RasterFn& raster,
-                  GlyphAtlas& atlas, RowCache& out) const;
+                  GlyphAtlas& atlas, GlyphAtlas* sizedAtlas, RowCache& out) const;
 
     void appendHighlights(const FrameParams& params, int rowCount);
     void appendSelection(const FrameParams& params, int rowCount);
     void appendCursor(std::span<const core::vt::Line> viewport, const FrameParams& params);
+    void appendImages(const FrameParams& params);
 
     FaceMetrics m_metrics;
     Theme m_theme;
     std::vector<RowCache> m_rows;
     std::vector<SolidInstance> m_solids;
     std::vector<GlyphInstance> m_glyphs;
+    std::vector<GlyphInstance> m_sizedGlyphs;
+
+    // Images are NOT part of the row cache. One placement spans several rows
+    // and moves with the viewport rather than with any single row's content, so
+    // caching it per row would need an invalidation rule of its own — the same
+    // reason the cursor and the selection are rebuilt every frame. Rebuilding
+    // them also means a scrolled viewport cannot smear a stale quad, because
+    // there is no stale quad to keep.
+    std::vector<ImageInstance> m_images;
+    std::vector<ImageBatch> m_imageBatches;
+    std::uint32_t m_belowBatches = 0;
+    // Reused across frames so a frame with placements does not allocate. Maps a
+    // stable line index to the FIRST viewport row that shows it.
+    std::unordered_map<std::uint64_t, int> m_rowOfStable;
+    // The distinct image ids this frame draws, so the count can be bounded to
+    // what GpuResources will actually keep textures for.
+    std::unordered_set<std::uint32_t> m_distinctImages;
+    // Placement indices, sorted for draw order. Indices rather than copies:
+    // sorting Placements would copy nine ints each for nothing.
+    std::vector<std::uint32_t> m_sortedPlacements;
+
     int m_rowsRebuilt = 0;
     bool m_invalidated = true;
 };

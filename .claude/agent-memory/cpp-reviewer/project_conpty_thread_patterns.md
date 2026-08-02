@@ -1,6 +1,6 @@
 ---
 name: conpty-thread-patterns
-description: Recurring defect patterns in src/net threaded backends — close-before-join, start() failure leaks, un-armed prompt handshakes, unbounded joins, secret slots
+description: Recurring defect patterns in src/net threaded backends — close-before-join, start() failure leaks, un-armed prompt handshakes, unbounded joins, secret slots, upstream platform guards
 metadata:
   type: project
 ---
@@ -119,3 +119,30 @@ T64 SFTP-on-the-shell-worker added the starvation half (2026-08-01):
     each iteration is a round trip bounded only by `SSH_OPTIONS_TIMEOUT`. A cap
     is not a cancel. Every new blocking loop in src/net needs an `m_shutdown`
     read, not just a bound (rules/net.md).
+
+T89 src/net security audit (2026-08-02) — the ones that repeated:
+
+20. **Item 1 (close-before-join) regressed in `SerialBackend`.** ConptyBackend
+    fixed it in T15 and documented the order in its own stop(); serial's stop()
+    calls `closePort()` (CloseHandle) BEFORE joining, and `m_handle` is a plain
+    non-atomic `void*`. When a checklist item is fixed in one backend, grep the
+    other four for the same shape — the fix does not travel by itself.
+21. **A queued lambda posted from a worker can outlive `stop()` and re-create
+    what stop() just tore down.** `SerialBackend::readerLoop` posts a lambda
+    that joins AND re-assigns `m_reconnect`; nothing in it checks `m_shutdown`,
+    and stop() is idempotence-gated so the second stop() never joins the thread
+    that lambda spawned => `~std::thread` on a joinable thread => terminate.
+    Rule: any queued lambda that starts a thread or opens a handle needs the
+    same shutdown check its worker has.
+22. **Verify third-party platform guards, not just struct layouts.** ADR-0012
+    verified `ssh_jump_callbacks_struct`'s fields and shipped ProxyJump — but
+    libssh's whole ProxyJump connect path is `#ifndef _WIN32 / #ifdef
+    HAVE_PTHREAD` (client.c), so on the ONLY supported platform the option is
+    accepted, stored, and silently ignored, and the connection goes direct.
+    When a capability rests on an upstream feature, grep the upstream source
+    for `_WIN32` around the code that *uses* the option, not just the header
+    that declares it.
+23. **Unchecked `ssh_options_set` on a security option is fail-open.**
+    `connectSession()` discards every return. For PROXYJUMP and the algorithm
+    lists, "rejected" means the libssh DEFAULT stays in force — a policy that
+    silently did not apply. Flag any discarded return on a security setter.

@@ -229,6 +229,97 @@ TEST_CASE("grid: scrolling deeper shows different rows", "[scrollback][grid]") {
     CHECK(shallow[0].cells[0].ch != deep[0].cells[0].ch);
 }
 
+// --- T84: stable line identity for screen rows ---
+//
+// These pin the bug M5 recorded and deferred. `linesEverStarted() + row` is not
+// a logical-line index; it over-counts by one for every WRAPPED row above the
+// one asked for, and the error accumulates as those rows retire into history.
+
+TEST_CASE("grid: every row of a wrapped line has ONE stable index", "[scrollback][grid][t84]") {
+    Grid g(4, 4);
+    for (char32_t ch : {U'a', U'b', U'c', U'd', U'e', U'f', U'g', U'h'}) {
+        g.putChar(ch);  // "abcdefgh" wraps across screen rows 0 and 1
+    }
+    REQUIRE(g.lineAt(1).wrappedFromPrev);
+
+    // One logical line, so one index — the old formula gave 0 and 1 here.
+    CHECK(g.stableLineOfScreenRow(0) == g.stableLineOfScreenRow(1));
+    // The next unwrapped row does start a new one.
+    CHECK(g.stableLineOfScreenRow(2) == g.stableLineOfScreenRow(0) + 1);
+}
+
+TEST_CASE("grid: a wrapped-row anchor still names its own text after it retires",
+          "[scrollback][grid][t84]") {
+    Grid g(4, 4);
+    // Row 0-1: the wrapped line an image would be anchored to. The cursor ends
+    // on row 1, which is the row a sixel emitted here would anchor from.
+    for (char32_t ch : {U'a', U'b', U'c', U'd', U'e', U'f', U'g', U'h'}) {
+        g.putChar(ch);
+    }
+    const std::uint64_t anchor = g.stableLineOfScreenRow(g.row);
+
+    // Retire it into history, then keep going so eviction pressure is real.
+    for (int i = 0; i < 12; ++i) {
+        g.linefeed();
+        g.cursorSet(g.row, 0);
+        g.putChar(static_cast<char32_t>(U'0' + (i % 10)));
+    }
+
+    const std::size_t index = g.scrollback().indexOfStable(anchor);
+    REQUIRE(index < g.scrollbackSize());
+    // Still the line the image was drawn beside, not the one below it.
+    CHECK(lineAscii(g.scrollbackAt(index)).substr(0, 8) == "abcdefgh");
+}
+
+TEST_CASE("grid: the viewport top index walks forward to the anchored row",
+          "[scrollback][grid][t84]") {
+    Grid g(4, 8);
+    for (int i = 0; i < 20; ++i) {
+        g.cursorSet(g.row, 0);
+        g.putChar(static_cast<char32_t>(U'a' + i));
+        g.linefeed();
+    }
+    // Anchor the row currently at the top of the live screen, then scroll back
+    // so the viewport is a mix of history rows and screen rows.
+    const std::uint64_t anchor = g.stableLineOfScreenRow(0);
+    g.scrollView(2);
+
+    // The walk a renderer does: start at the top row's index, increment on each
+    // row that is not a wrap continuation.
+    const std::vector<Line> viewport = g.viewportRows();
+    std::uint64_t stable = g.viewportTopStable();
+    int foundRow = -1;
+    for (std::size_t r = 0; r < viewport.size(); ++r) {
+        if (r > 0 && !viewport[r].wrappedFromPrev) {
+            ++stable;
+        }
+        if (stable == anchor && foundRow < 0) {
+            foundRow = static_cast<int>(r);
+        }
+    }
+    // Scrolled back by 2, so what was screen row 0 is now viewport row 2.
+    CHECK(foundRow == 2);
+}
+
+TEST_CASE("scrollback: stableAtVisualFromEnd counts visual rows, not lines", "[scrollback][t84]") {
+    Scrollback sb;
+    sb.push(makeLine(U"aaaa", 4));        // line 0, one visual row at cols 4
+    sb.push(makeLine(U"bbbb", 4));        // line 1 ...
+    sb.push(makeLine(U"cccc", 4, true));  // ... continued: still line 1, 2 rows
+    sb.push(makeLine(U"dddd", 4));        // line 2
+
+    REQUIRE(sb.lineCount() == 3);
+    // Newest visual row (fromEnd 0) is line 2; the two rows above it are the
+    // wrapped line 1; above that, line 0. Counting LINES instead would put
+    // fromEnd 1 on line 1's start and miss its second row entirely.
+    CHECK(sb.stableAtVisualFromEnd(4, 0) == 2);
+    CHECK(sb.stableAtVisualFromEnd(4, 1) == 1);
+    CHECK(sb.stableAtVisualFromEnd(4, 2) == 1);
+    CHECK(sb.stableAtVisualFromEnd(4, 3) == 0);
+    // Past the oldest line clamps rather than wrapping around.
+    CHECK(sb.stableAtVisualFromEnd(4, 99) == 0);
+}
+
 TEST_CASE("scrollback: the visual row count matches what reflow produces", "[scrollback][shell]") {
     // The count is a second implementation of reflow()'s wrap rule (it walks
     // cells instead of copying them), and two implementations of one rule drift
@@ -275,12 +366,12 @@ TEST_CASE("scrollback: the visual row count matches what reflow produces", "[scr
         // MIXED narrow and wide, so a pair does not land on the same parity in
         // every row. `$ ls 日本語` is this shape, not the homogeneous one above.
         Line mixed(0);
-        mixed.cells.push_back(Cell{.ch = U'a'});
-        mixed.cells.push_back(Cell{.ch = U'b'});
+        mixed.cells.push_back(Cell{.ch = U'a', .attr = {}});
+        mixed.cells.push_back(Cell{.ch = U'b', .attr = {}});
         for (int i = 0; i < 5; ++i) {
-            mixed.cells.push_back(Cell{.ch = U'世'});
-            mixed.cells.push_back(Cell{.ch = krait::core::vt::kWideTrailing});
-            mixed.cells.push_back(Cell{.ch = U'c'});
+            mixed.cells.push_back(Cell{.ch = U'世', .attr = {}});
+            mixed.cells.push_back(Cell{.ch = krait::core::vt::kWideTrailing, .attr = {}});
+            mixed.cells.push_back(Cell{.ch = U'c', .attr = {}});
         }
         logical.push_back(mixed);
         ring.push(std::move(mixed));

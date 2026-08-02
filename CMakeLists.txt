@@ -39,6 +39,7 @@ else()
     # linked before it is defined. The REST of src/app stays last — it drags in
     # Qt Quick, which the test binaries have no business linking.
     add_subdirectory(src/app/input)
+    add_subdirectory(src/app/crash)
     add_subdirectory(src/app/settings)
     add_subdirectory(src/app/theme)
     add_subdirectory(src/app/session)
@@ -49,4 +50,9 @@ else()
     add_subdirectory(tests/unit)
     add_subdirectory(tests/corpus)
     add_subdirectory(src/app)
+
+    # LAST, and it has to be: CPack packages the install() rules that exist
+    # when include(CPack) runs, so anything added after this is silently
+    # missing from every artefact.
+    include(packaging/packaging.cmake)
 endif()

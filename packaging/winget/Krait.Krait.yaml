@@ -1,0 +1,10 @@
+# winget version manifest — schema 1.12.0 (the version microsoft/winget-pkgs
+# accepts; winget-cli ships newer schemas that a winget-pkgs PR will reject).
+#
+# TEMPLATE. PackageVersion is substituted by the release job from the CMake
+# project version; it is NOT submittable while it reads 0.0.0.
+PackageIdentifier: Krait.Krait
+PackageVersion: 0.0.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.12.0

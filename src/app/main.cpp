@@ -9,6 +9,7 @@
 #define NOMINMAX
 #include "../net/vault/vault.h"
 #include "broadcast.h"
+#include "crash/crash_handler.h"
 #include "gpu_policy.h"
 #include "notifier.h"
 #include "quake.h"
@@ -128,6 +129,18 @@ int main(int argc, char* argv[]) try {
     registry.setWatching(true);
     qInfo("settings: %s (%s)", qPrintable(ks::configFilePath(configDir.dir)),
           qPrintable(ks::describeSource(configDir.source)));
+
+    // Crash dumps (T86). After the config directory resolves, because that is
+    // where they go, and before anything that could crash — which is
+    // everything below. A failure here is logged and ignored: a diagnostic that
+    // refused to let the terminal start would be worse than the crash it exists
+    // to explain.
+    const QString crashDir = QDir(configDir.dir).filePath(QStringLiteral("crashes"));
+    if (krait::app::crash::install(crashDir)) {
+        qInfo("crash: dumps to %s", qPrintable(crashDir));
+    } else {
+        qWarning("crash: handler not installed; no dumps will be written");
+    }
 
     // The DPAPI secret store (T38), declared HERE — before the QML engine —
     // rather than beside the wiring below. Destruction runs in reverse

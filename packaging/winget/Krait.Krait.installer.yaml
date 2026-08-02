@@ -1,0 +1,25 @@
+# winget installer manifest — schema 1.12.0.
+#
+# TEMPLATE. PackageVersion, InstallerUrl and InstallerSha256 are substituted by
+# the release job; it is NOT submittable until they point at a real, SIGNED
+# release asset. See packaging/README.md for what is still missing.
+PackageIdentifier: Krait.Krait
+PackageVersion: 0.0.0
+MinimumOSVersion: 10.0.19041.0
+Installers:
+  - Architecture: x64
+    # CPack's NSIS generator. winget knows Nullsoft's switches natively, so
+    # InstallerSwitches is deliberately absent: it defaults Silent and
+    # SilentWithProgress to /S and InstallLocation to /D=, which is exactly
+    # what this installer accepts. Spelling them out would be a second copy of
+    # a fact winget already has right.
+    InstallerType: nullsoft
+    # Per-user, matching ADR-0007's "per-user default, silent-capable". This
+    # must agree with the NSIS template's RequestExecutionLevel — a manifest
+    # claiming user scope for an installer that elevates throws a UAC prompt at
+    # an unattended machine.
+    Scope: user
+    InstallerUrl: https://github.com/Abcl-lyxz/krait/releases/download/v0.0.0/krait-0.0.0-win64.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+ManifestType: installer
+ManifestVersion: 1.12.0

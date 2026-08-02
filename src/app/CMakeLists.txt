@@ -75,6 +75,7 @@ qt_add_shaders(krait-app "krait-spike-shaders"
         ../render/shaders/cell.frag
         ../render/shaders/glyph.vert
         ../render/shaders/glyph.frag
+        ../render/shaders/image.frag
     OUTPUTS
         triangle.vert.qsb
         triangle.frag.qsb
@@ -84,6 +85,7 @@ qt_add_shaders(krait-app "krait-spike-shaders"
         cell.frag.qsb
         glyph.vert.qsb
         glyph.frag.qsb
+        image.frag.qsb
 )
 
 # The generated qmltyperegistrations includes module headers by basename.
@@ -114,7 +116,7 @@ target_compile_options(krait-app PRIVATE /wd4702)
 # uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
 # user32 (RegisterHotKey/SetForegroundWindow, quake.cpp) is another MSVC default.
 target_link_libraries(krait-app
-    PRIVATE krait-core krait-render krait-input krait-settings krait-theme krait-session krait-net Qt6::Quick Qt6::GuiPrivate
+    PRIVATE krait-core krait-render krait-input krait-crash krait-settings krait-theme krait-session krait-net Qt6::Quick Qt6::GuiPrivate
             freetype ole32
             # shell32 for Shell_NotifyIconW (notifier.cpp) — the library
             # learn.microsoft.com names for it, alongside ole32's CoCreateInstance
@@ -178,3 +180,52 @@ add_custom_command(TARGET krait-app POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration/krait.ps1
         $<TARGET_FILE_DIR:krait-app>/shell-integration
 )
+
+# --- Install rules (T87, ADR-0007) ---
+#
+# These stage everything Krait needs EXCEPT the Qt DLLs and QML imports; see
+# the note at the bottom of this block for why those are a release-job step.
+install(TARGETS krait-app RUNTIME DESTINATION bin)
+
+# The shell-integration scripts are resolved relative to applicationDirPath(),
+# so they sit beside the exe in the package exactly as they do in the build dir.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../../assets/shell-integration
+        DESTINATION bin)
+
+# ADR-0011: the bundled OpenConsole rides next to the exe and the ConPTY backend
+# REFUSES to run without it. Leaving it out of the package ships a terminal that
+# cannot open a local shell — the POST_BUILD copy above only populates the build
+# tree, and a package is not a build tree.
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/conpty.dll
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/OpenConsole.exe
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/openconsole/LICENSE
+        DESTINATION bin/openconsole)
+
+# LGPL compliance (ADR-0002: libssh dynamically linked; ADR-0001: Qt likewise).
+# Shipping the licence texts is the obligation, and the release job is what
+# gathers them — see packaging/README.md, which is installed beside them so the
+# gap is visible in the package rather than only in the repo.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../../packaging/THIRD-PARTY.md
+        DESTINATION licenses)
+
+# Qt's own DLLs and the QML imports are deployed by the RELEASE JOB, not from
+# here, and that is a finding rather than a preference.
+#
+# qt_generate_deploy_qml_app_script() is the documented way and it does not work
+# in this tree: the script it writes calls qt6_deploy_qml_imports(), but the
+# generated .qt/QtDeploySupport.cmake only ever loaded Qt6CoreDeploySupport,
+# so install-time died with `Unknown CMake command "qt6_deploy_qml_imports"`.
+# Finding Qt6::Qml explicitly, in this scope and in the top-level scope, changed
+# nothing — the Qml deploy support was never registered either way. Qt's docs
+# promise only that a deployed tree is "ready to be packaged - for example by
+# cpack" and say nothing about CPack's staging prefix, so this is the untested
+# corner they leave open rather than a mistake in the call.
+#
+# The release job therefore runs windeployqt against the staged tree:
+#
+#     windeployqt --qmldir src/app/qml --release <stage>/bin/krait-app.exe
+#
+# packaging/README.md records this, and records that the packaged app has not
+# yet been launched. Do not paper over it by shipping a package that silently
+# lacks Qt.

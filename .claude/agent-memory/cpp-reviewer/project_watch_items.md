@@ -649,3 +649,114 @@ Verified CORRECT, do not re-flag:
   advancing `m_dropped` degrade a stale `m_openPrompt` to floor 0.
 - Notifier's `wcsncpy_s(..., _TRUNCATE)` sized by ARRAYSIZE bounds remote
   command output into szInfo/szInfoTitle; no format string anywhere on it.
+
+## T84 — renderer paints images + OSC 66 sized text (reviewed 2026-08-02)
+
+Reported (highest first):
+1. `terminal_item.cpp` sized atlas: NO `takeGrew() -> m_builder->invalidate()`.
+   ~43 distinct scaled glyphs fills the initial 512px height, it doubles,
+   every cached row's sized `v` is 2x wrong. Main atlas has the fix; the
+   second atlas shipped without it.
+2. `synchronize()` `if (m_gpu.hasImage(id)) continue;` — `ImageStore::put`
+   replaces an id in place, so a re-transmitted kitty image draws the OLD
+   pixels forever. Fix = expose `Entry::sequence` and compare.
+3. GPU image set drops only on `store->find(id)==nullptr`; ImageStore evicts by
+   BYTES only, so 1x1 images never evict => unbounded QRhiTexture/SRB growth.
+4. `Placement::anchor` names only the LOGICAL line, resolved to the FIRST
+   viewport row of it — an image emitted on a wrapped continuation row draws
+   N rows too high. Ledger documents the "above the viewport" gap, not this one.
+5. `setSizedAtlasPixels` called every frame with sized text => 1-8 MiB memcpy +
+   full texture upload per frame inside synchronize().
+6. `m_sizedAtlas` guarded by `if (== nullptr)`, never reset on font/DPI change.
+7. `fontdb.cpp` scaled reshape: `shapeAll(single,...)` per scaled run with a
+   fresh 8ms DURATION => frame cost O(scaled runs x 8ms) on the GUI thread.
+8. `grid.cpp stableLineOfScreenRow` clamps `last` to `m_screen.size()` and
+   loops `r <= last` => OOB at screenRow==rows. Unreachable today (row is
+   clamped to rows-1) but it is a public conversion API.
+9. `docs/configuration.md` +69 lines of config-sync docs, unrelated to T84.
+
+Verified CORRECT, do not re-flag:
+- `viewportTopStable()`'s `m_viewOffset - 1` DOES mirror `viewRows()`: the top
+  returned row is at wrapped index `have - fromEnd`, i.e. `fromEnd - 1` visual
+  rows before the newest. Checked against scrollback.cpp:124-128.
+- `stableAtVisualFromEnd` terminates in <= fromEnd+1 line steps (every logical
+  line >= 1 visual row) and its cost is the same order as the `viewRows()` call
+  that already happens in the same rebuild — not a new DoS.
+- `m_dropped` handling: returns `m_dropped` on empty/cols<1 and on running off
+  the oldest line, matching `indexOfStable`'s clamp.
+- `stableLineOfScreenRow`'s `--index` guard is correct for the normal path
+  (only decrements when scrollback is non-empty AND screen row 0 wraps).
+- `appendImages` batching: stable_sort by zIndex, `emplace` keeps the FIRST row
+  per stable index, `m_belowBatches` is set exactly once at the z>=0 boundary
+  and falls back to `imageBatches.size()` when never crossed.
+- `setImagePixels` returns BEFORE `m_images[id]`, so a short buffer creates no
+  entry (gpu_resources_test.cpp:405 depends on this).
+
+## T89 — src/net 1.0 security audit (whole directory, 2026-08-02)
+
+Reported (highest first):
+1. **ProxyJump is dead code on Windows.** libssh 0.12 `client.c:624-630` wraps
+   the `ssh_socket_connect_proxyjump` branch in `#ifndef _WIN32 / #ifdef
+   HAVE_PTHREAD`; MSVC fails both. `ssh_options_set(SSH_OPTIONS_PROXYJUMP)`
+   still returns SSH_OK and stores the hop list, so `ssh_connect` falls through
+   to a DIRECT `ssh_socket_connect(opts.host, opts.port)`. Bastion silently
+   bypassed; `jumpVerifyHostKey`/`jumpAuthenticate`/`countProxyJumpHops` never
+   run. ADR-0012 verified the struct layout but not the platform guard.
+   `OPENSSH_PROXYJUMP=1` in the env makes libssh build an `ssh -W` ProxyCommand
+   (= ssh.exe subprocess, ADR-0002 banned) — Krait neither sets nor clears it.
+2. `forward_manager.cpp:218-270` remote-forward accept loop: unbounded tunnel
+   count (server-driven; ~2 MiB of buffers each) + BLOCKING `getaddrinfo` and
+   `::connect` (setNonBlocking runs after) on the ssh worker thread.
+3. `serial_backend.cpp` `closePort()` CloseHandle while reader is inside
+   ReadFile / writer about to WriteFile — non-atomic `void* m_handle`, handle
+   recycling. ConptyBackend::stop() already fixed exactly this shape
+   (join-before-close); serial did not copy it. Also: readerLoop's queued
+   lambda joins AND re-assigns `m_reconnect` on the GUI thread while
+   `stop()` (a QThreadPool thread, terminal_item.cpp:385) joins the same
+   std::thread — double-join UB, and a spawn after stop() => ~std::thread on a
+   joinable thread => std::terminate.
+4. `vault.h:75-77` `path()`/`error()` return `const std::string&` without the
+   mutex the class documents as making it thread-safe. No racing caller today
+   (main.cpp:158 is startup-only) — latent.
+5. `vault.cpp:136-170` load() accepts duplicate keys; `erase()` (277) removes
+   only the first => "forget this password" can silently not forget.
+6. `ssh_backend.cpp:279-328` every `ssh_options_set` return is discarded,
+   including the algorithm policy and PROXYJUMP. Fail-open shape.
+7. `remote_text.cpp:41` strips C0/C1/DEL but not U+202E/U+2066 bidi overrides —
+   server text in a credential prompt can be visually reordered.
+8. `forward_manager.cpp:226-234` remote-forward destPort with no matching
+   status falls back to `index = 0` (wrong forward's destHost).
+
+Verified CORRECT, do not re-flag:
+- Vault entropy scheme: `entropyFor(key) = "krait.vault.v1:" + key` genuinely
+  prevents cross-entry ciphertext swapping by a file writer. Rollback/restore
+  of an old file is NOT prevented (accepted residual).
+- `Secret`: fixed-size vector, never grown, SecureZeroMemory on clear; move
+  leaves no copy. `respondCredential` zeroes its QByteArray (QString copies are
+  a documented ceiling).
+- Host-key path: `armAnswer()` before every emit; Changed/OtherType fail before
+  any wait; `ssh_session_update_known_hosts` only after a human answered
+  (ssh_backend.cpp:462-482); `waitForAnswer` returns `woke && m_answered` so
+  stop() and timeout both fail closed.
+- telnet negotiation (RFC 1143 Q method, 256-slot option arrays indexed by
+  uint8_t, 1 KiB SB cap with overflow-consumes-rest) — clean.
+- socks5.cpp: 1 KiB buffer cap, every length re-checked against what arrived,
+  domain len is `1 + len` with no NUL. Clean.
+- sftp.cpp: `isSafeName` rejects `/ \ ` C0 DEL; listDir bounds ITERATIONS not
+  kept entries; get() deletes short/partial downloads. Clean.
+- agent_bridge: 256 KiB message cap, loopback pair verified in both directions,
+  overlapped pipe I/O with a stop event. Clean.
+- conpty, raw, forwards.cpp parser, hostkey_art, serial_ports — clean.
+- `TcpBackend::handleReadyRead` flushes the reply BEFORE emitting
+  outputReceived, so a re-entrant writeInput cannot corrupt `m_reply`.
+- `dropImage` uses `release()` + `deleteLater()`, and `imageIds()` returns a
+  copy so the drop loop cannot invalidate its own iterator.
+- Image UV maths: `image->empty()` is checked first, so imgW/imgH > 0; srcX+srcW
+  is summed as FLOAT then clamped, so no int overflow.
+- `run_splitter` scaleBreak: `flush()` sets `open=false` and resets `cur`, and
+  the `if (!open)` branch sets `cur.scale` — no scale leaks across a run.
+- `m_glyphSrb` is created (gpu_resources.cpp:435) before the image pipeline
+  borrows it as a layout template (:545); `ensureImage` runs before
+  `cb->resourceUpdate(batch)`.
+- `params.rowStable` and the viewport cannot disagree in length: both come from
+  `m_viewport` in the same rebuild.
