@@ -149,7 +149,8 @@ TEST_CASE("an RGBA image transmits and places", "[core][kitty][session]") {
     session.onReply = [&replies](const std::string& text) { replies += text; };
 
     // 20x40 pixels at 10x20 per cell: 2 columns, 2 rows.
-    feedAll(session, apc("a=T,f=32,s=20,v=40,i=1", rgba(20 * 40, '\xff', '\x00', '\x00', '\xff')));
+    feedAll(session, apc("a=T,f=32,s=20,v=40,i=1",
+                         rgba(std::size_t{20} * 40, '\xff', '\x00', '\x00', '\xff')));
 
     REQUIRE(session.grid().images.imageCount() == 1);
     const Image* image = session.grid().images.find(1);
@@ -214,7 +215,8 @@ TEST_CASE("an aborted chunk discards the whole assembly", "[core][kitty][session
 
 TEST_CASE("a=t stores without showing, a=p shows without resending", "[core][kitty][session]") {
     Session session = sized(10, 20);
-    feedAll(session, apc("a=t,f=32,s=10,v=20,i=4", rgba(10 * 20, '\x00', '\xff', '\x00', '\xff')));
+    feedAll(session, apc("a=t,f=32,s=10,v=20,i=4",
+                         rgba(std::size_t{10} * 20, '\x00', '\xff', '\x00', '\xff')));
     CHECK(session.grid().images.imageCount() == 1);
     CHECK(session.grid().images.placements().empty());  // stored, not shown
     CHECK(session.grid().row == 0);                     // and the cursor did not move
@@ -235,15 +237,16 @@ TEST_CASE("a=t stores without showing, a=p shows without resending", "[core][kit
 
 TEST_CASE("C=1 leaves the cursor alone", "[core][kitty][session]") {
     Session session = sized(10, 20);
-    feedAll(session,
-            apc("a=T,f=32,s=20,v=40,i=5,C=1", rgba(20 * 40, '\x00', '\x00', '\xff', '\xff')));
+    feedAll(session, apc("a=T,f=32,s=20,v=40,i=5,C=1",
+                         rgba(std::size_t{20} * 40, '\x00', '\x00', '\xff', '\xff')));
     CHECK(session.grid().images.placements().size() == 1);
     CHECK(session.grid().row == 0);  // a program placing several images needs this
 }
 
 TEST_CASE("deletion drops what it names", "[core][kitty][session]") {
     Session session = sized(10, 20);
-    feedAll(session, apc("a=T,f=32,s=10,v=20,i=6", rgba(10 * 20, '\x11', '\x11', '\x11', '\xff')));
+    feedAll(session, apc("a=T,f=32,s=10,v=20,i=6",
+                         rgba(std::size_t{10} * 20, '\x11', '\x11', '\x11', '\xff')));
     REQUIRE(session.grid().images.imageCount() == 1);
 
     feedAll(session, apc("a=d,i=6"));

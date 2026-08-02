@@ -361,7 +361,7 @@ TEST_CASE("the image store is bounded in bytes and drops the oldest first", "[co
     CHECK(second != 0);
     CHECK(first != second);  // an id of 0 means "assign one", not "reuse one"
     CHECK(store.imageCount() == 2);
-    CHECK(store.byteSize() == 2 * 8 * 8 * 4);
+    CHECK(store.byteSize() == std::size_t{2} * 8 * 8 * 4);
 
     // A placement cannot outlive the pixels it names.
     Placement placement;
