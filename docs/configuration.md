@@ -557,6 +557,75 @@ Krait watches the file. Save it and the change applies — no restart. Taking a
 key out restores its default rather than keeping the last value, so you can try
 something and undo it by removing the line.
 
+## Syncing your config between machines
+
+Krait has no sync service and is not getting one. The config is plain TOML in a
+directory, so Git, Syncthing, OneDrive or a USB stick already do this better
+than a bespoke protocol would — and none of them can lose a credential Krait
+never gave them.
+
+### What is in the directory
+
+| File | Sync it? | Why |
+|---|---|---|
+| `krait.toml` | **yes** | Settings. Plain text, no secrets, portable as-is. |
+| `sessions.toml` | **yes** | Saved connections: hosts, ports, users, folders, triggers, snippets. No passwords — see below. |
+| `themes/*.toml` | **yes** | Your themes and anything you imported. |
+| `secrets.vault` | **no** | DPAPI blobs. Will not decrypt anywhere else — see below. |
+
+`known_hosts` is **not** in this directory. libssh reads and writes
+`%USERPROFILE%\.ssh\known_hosts`, the same file OpenSSH and every other tool on
+the machine uses. That is deliberate: a private copy would mean a host you had
+already verified prompting you again the first time you used Krait, which
+trains exactly the reflex host-key checking exists to prevent. Sync it with the
+rest of your `.ssh` directory or not at all.
+
+### Why `secrets.vault` cannot travel
+
+Each entry is encrypted with `CryptProtectData` under **your Windows user's**
+DPAPI key, with per-entry entropy derived from the entry's key. Copy the file to
+another machine, or to another account on the same machine, and every entry
+fails to decrypt. Krait treats that as "no secrets" and asks for the password —
+so nothing breaks, you simply gain nothing.
+
+Do not try to work around this. A vault you *could* copy would be a vault
+protected by something weaker than the OS keystore, which is the whole reason
+`rules/net.md` puts secrets there and nowhere else. Re-enter passwords once per
+machine; they are stored per machine on purpose.
+
+### The Git recipe
+
+```bash
+cd %APPDATA%\Krait
+git init
+printf 'secrets.vault\n' > .gitignore
+git add . && git commit -m "krait config"
+```
+
+The `.gitignore` line is the important one, and it is worth keeping even though
+the vault would be useless to an attacker without your DPAPI key: a credential
+store in a repository is a credential store in every clone, every backup and
+every CI cache that repository ever touches.
+
+### The portable-install recipe
+
+Put an empty `krait.portable` next to `krait-app.exe` and the whole directory
+becomes self-contained — settings travel with the executable. Combined with the
+above: the vault still will not decrypt on a machine that is not yours, so a
+portable Krait on a USB stick carries your sessions and your themes and asks for
+passwords wherever you plug it in. That is the correct behaviour for a terminal
+on a USB stick.
+
+### What sync cannot merge
+
+Krait watches the config file and reloads on save, so a synced change appears
+without a restart. It does **not** merge concurrent edits: two machines editing
+`sessions.toml` at once resolve however your sync tool resolves it, which for
+OneDrive means one of them becomes a conflict copy. If you edit sessions on two
+machines regularly, use Git and merge the conflict yourself — TOML with one
+`[[session]]` block per entry is designed to be diffable for exactly this
+reason.
+
 ## What Krait does with a broken file
 
 A config file is user input, and none of these lose your configuration:
