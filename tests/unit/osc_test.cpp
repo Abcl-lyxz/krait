@@ -2,6 +2,7 @@
 #include "core/terminal/session.h"
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -807,18 +808,22 @@ TEST_CASE("an out-of-range OSC 66 field voids the WHOLE sequence", "[core][osc][
     // Clamped would be worse. This is the one OSC that writes text onto the
     // grid, and a clamped scale lays it out at a size the sender did not choose
     // and cannot detect — whereas nothing appearing gets noticed.
-    for (const std::string_view bad : {
-             "\x1b]66;s=0;X\x1b\\",      // scale below 1
-             "\x1b]66;s=8;X\x1b\\",      // scale above 7
-             "\x1b]66;w=8;X\x1b\\",      // width above 7
-             "\x1b]66;n=16;X\x1b\\",     // numerator above 15
-             "\x1b]66;d=16;X\x1b\\",     // denominator above 15
-             "\x1b]66;n=3:d=2;X\x1b\\",  // "d must be > n when non-zero"
-             "\x1b]66;n=3:d=3;X\x1b\\",
-             "\x1b]66;v=3;X\x1b\\",
-             "\x1b]66;h=3;X\x1b\\",
-             "\x1b]66;s=x;X\x1b\\",  // not a number at all
-         }) {
+    // In declaration order: scale below 1, scale above 7, width above 7,
+    // numerator above 15, denominator above 15, two denominators that are not
+    // greater than the numerator ("d must be > n when non-zero"), both
+    // alignments above 2, and a value that is not a number at all.
+    //
+    // The reasons are here rather than as trailing comments because CI's
+    // clang-format is 20.1.8 and this machine's is 22.1.2, and the two break an
+    // aligned braced list differently — see STATE.md. A list with nothing to
+    // align is a list both versions agree on.
+    static constexpr std::array<std::string_view, 10> kBad{
+        "\x1b]66;s=0;X\x1b\\",     "\x1b]66;s=8;X\x1b\\",  "\x1b]66;w=8;X\x1b\\",
+        "\x1b]66;n=16;X\x1b\\",    "\x1b]66;d=16;X\x1b\\", "\x1b]66;n=3:d=2;X\x1b\\",
+        "\x1b]66;n=3:d=3;X\x1b\\", "\x1b]66;v=3;X\x1b\\",  "\x1b]66;h=3;X\x1b\\",
+        "\x1b]66;s=x;X\x1b\\",
+    };
+    for (const std::string_view bad : kBad) {
         Session session(4, 20);
         INFO(bad);
         feed(session, bad);

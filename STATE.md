@@ -85,6 +85,16 @@ than implying it by silence.
   a raw ESC byte.** It happened three times this session. MSVC accepts the raw
   byte and a human reading the file cannot see it. Use a `.mjs` file in the
   scratchpad, or the Edit tool.
+- **CI's clang-format is 20.1.8; this machine's is 22.1.2, and they disagree.**
+  A locally clean tree can still fail the gate — it did once this milestone, on
+  one aligned braced list in `osc_test.cpp` that the two versions break
+  differently. Local success proves nothing on its own. Get the CI version and
+  check against it before pushing:
+  `python -m pip install --target <scratch>/cf20 clang-format==20.1.8`, then run
+  `<scratch>/cf20/clang_format/data/bin/clang-format.exe` — note the binary in
+  that package's `bin/` is a wrapper that runs whatever is on PATH, so the
+  `clang_format/data/bin` path is the one that matters. Code with nothing to
+  align (no trailing comments in a braced list) is what both versions agree on.
 - **`/wd4702` is on krait-app only** (`src/app/CMakeLists.txt`), for a defect in
   Qt's own `qjsengine.h`. It fires the moment qmlcachegen sees a .qml file call
   a C++ singleton method returning QString or bool — which any future QML will.
