@@ -115,6 +115,17 @@ than implying it by silence.
 - **A sixel or kitty image is not erased by anything.** ED/EL clear cells and
   OSC 133 marks; they do not drop placements covering those cells. A `clear`
   will leave a picture on screen once the renderer draws them.
+- **A placement's anchor can be one line off on a WRAPPED row.** Both graphics
+  paths compute it as `linesEverStarted() + grid.row`, i.e. the stable index the
+  current screen row *will* have once pushed. That prediction is exact unless
+  the row carries `wrappedFromPrev`, in which case `Scrollback::push` coalesces
+  it onto the previous logical line and the real index is one lower — the same
+  off-by-one `setCommandExit` handles with its `- 1`. Left alone deliberately:
+  nothing draws placements yet, so the symptom cannot be seen or tested, and
+  guessing at a correction with no way to look at the result is how you fix it
+  in the wrong direction. **Whoever does the renderer task should settle this
+  first** — it is a two-line change and a corpus case once there is something
+  to compare against.
 - **Kitty's `a=d` has no selectors.** A bare `a=d` drops all placements and
   keeps the images (kitty's `d=a` default); `d=i`, `d=z`, `d=p` and the
   uppercase "also free the image" variants are not read.
