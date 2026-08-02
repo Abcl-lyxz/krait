@@ -14,9 +14,6 @@ int base64Value(char ch) {
     return at == std::string_view::npos ? -1 : static_cast<int>(at);
 }
 
-// Splits at the first `sep`, handing the remainder back through `rest`. OSC
-// parameter strings are positional, and a URI legitimately contains characters
-// that look like separators, so only the leading fields are split this way.
 // A palette index, 0-255. -1 for anything else — including an empty field, a
 // negative sign, and 256. Hand-rolled rather than from_chars because the whole
 // rule is "digits only, and in range": from_chars would accept "12x" by
@@ -36,6 +33,9 @@ int parseIndex(std::string_view text) {
     return value <= 255 ? value : -1;
 }
 
+// Splits at the first `sep`, handing the remainder back through `rest`. OSC
+// parameter strings are positional, and a URI legitimately contains characters
+// that look like separators, so only the leading fields are split this way.
 std::string_view upTo(std::string_view text, char sep, std::string_view* rest) {
     const std::size_t at = text.find(sep);
     if (at == std::string_view::npos) {
@@ -177,6 +177,99 @@ OscAction parseDynamicColor(OscAction::ColorSlot slot, std::string_view rest) {
     }
     action.kind = OscAction::Kind::ColorSet;
     action.text = std::string(spec);
+    return action;
+}
+
+// OSC 66 ; <metadata> ; <text> ST — kitty's text-sizing protocol (T81).
+//
+// Metadata is COLON-separated key=value pairs, which is the one thing to get
+// right here: every other OSC in this file separates with ';', and ';' is what
+// separates the metadata from the TEXT. Reading colons as semicolons would
+// truncate the payload at the first metadata field.
+//
+// Keys, with the protocol's ranges:
+//   s  1-7   scale; the text is drawn in a block s*w wide and s cells tall
+//   w  0-7   width in cells; 0 means "as many as the text measures"
+//   n  0-15  fractional-scale numerator
+//   d  0-15  denominator, which must be > n when non-zero
+//   v  0-2   vertical alignment for fractional scaling
+//   h  0-2   horizontal alignment
+//
+// A field outside its range makes the WHOLE sequence a no-op rather than being
+// clamped. This is the one OSC that writes TEXT onto the grid, and a clamped
+// scale would lay it out at a size the sender did not choose and has no way to
+// detect — worse than nothing appearing, which at least gets noticed.
+OscAction parseSizedText(std::string_view rest) {
+    std::string_view text;
+    const std::string_view metadata = upTo(rest, ';', &text);
+
+    OscAction action;
+    action.kind = OscAction::Kind::SizedText;
+    action.text = std::string(text);
+
+    std::string_view remaining = metadata;
+    while (!remaining.empty()) {
+        std::string_view tail;
+        const std::string_view field = upTo(remaining, ':', &tail);
+        remaining = tail;
+        if (field.size() < 3 || field[1] != '=') {
+            continue;  // keys are one character, and a bare key sets nothing
+        }
+        const int value = parseIndex(field.substr(2));
+        if (value < 0) {
+            return {};  // not a number at all
+        }
+        switch (field[0]) {
+        case 's':
+            if (value < 1 || value > 7) {
+                return {};
+            }
+            action.scale = value;
+            break;
+        case 'w':
+            if (value > 7) {
+                return {};
+            }
+            action.widthCells = value;
+            break;
+        case 'n':
+            if (value > 15) {
+                return {};
+            }
+            action.numerator = value;
+            break;
+        case 'd':
+            if (value > 15) {
+                return {};
+            }
+            action.denominator = value;
+            break;
+        case 'v':
+            if (value > 2) {
+                return {};
+            }
+            action.verticalAlign = value;
+            break;
+        case 'h':
+            if (value > 2) {
+                return {};
+            }
+            action.horizontalAlign = value;
+            break;
+        default:
+            break;  // an unknown key is skipped, as every other OSC here does
+        }
+    }
+    // "Must be > n when non-zero". A denominator that is not is a sender that
+    // means something the protocol cannot express.
+    if (action.denominator != 0 && action.denominator <= action.numerator) {
+        return {};
+    }
+    // Empty text is not an error and not an action: there is nothing to draw
+    // and nothing to reserve.
+    if (action.text.empty()) {
+        return {};
+    }
     return action;
 }
 
@@ -354,6 +447,10 @@ OscAction OscHandler::end(bool aborted) {
         action.kind = OscAction::Kind::ClipboardWrite;
         action.text = std::move(decoded);
         return action;
+    }
+
+    if (code == "66") {
+        return parseSizedText(rest);
     }
 
     if (code == "133") {

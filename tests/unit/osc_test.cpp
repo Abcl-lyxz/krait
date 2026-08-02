@@ -737,3 +737,124 @@ TEST_CASE("a truncated colour sequence stays open until the next ESC", "[core][o
     CHECK(actions[1].slot == OscAction::ColorSlot::Foreground);
     CHECK(actions[1].text == "#00ff00");
 }
+
+// ---------------------------------------------------------------------------
+// OSC 66 — kitty's text-sizing protocol (M5 T81).
+
+TEST_CASE("OSC 66 writes text at a scale", "[core][osc][sizing]") {
+    Session session(4, 40);
+    feed(session, "\x1b]66;s=2;Hi\x1b\\");
+
+    const Grid& grid = session.grid();
+    // The text went through the ORDINARY print path, so it is on the grid as
+    // cells — selectable, copyable, and reflowable like any other text.
+    CHECK(grid.cellAt(0, 0).ch == U'H');
+    CHECK(grid.cellAt(0, 1).ch == U'i');
+    // The scale rides in the spare bits of Attr::flags, so a sized cell costs
+    // nothing extra in scrollback.
+    CHECK(grid.cellAt(0, 0).attr.scale() == 2);
+    CHECK(grid.cellAt(0, 1).attr.scale() == 2);
+
+    // And the pen is RESTORED: text after the sequence is normal size again.
+    feed(session, "x");
+    CHECK(grid.cellAt(0, 2).attr.scale() == 1);
+}
+
+TEST_CASE("an unscaled cell reads as scale 1 without anything setting it",
+          "[core][osc][sizing]") {
+    // Every cell written before T81 existed, and every cell written by ordinary
+    // text, has zero in those bits. Reading zero as "scale 0" would make the
+    // renderer divide by it.
+    Session session(4, 10);
+    feed(session, "abc");
+    CHECK(session.grid().cellAt(0, 0).attr.scale() == 1);
+    CHECK(session.grid().cellAt(0, 0).attr.sizeWidth() == 0);
+}
+
+TEST_CASE("OSC 66 metadata is COLON separated", "[core][osc][sizing]") {
+    // The one thing to get wrong here: every other OSC in the file separates
+    // with ';', and ';' separates the metadata from the TEXT. Reading colons as
+    // semicolons truncates the payload at the first field.
+    Session session(4, 40);
+    feed(session, "\x1b]66;s=3:w=2;AB\x1b\\");
+    CHECK(session.grid().cellAt(0, 0).ch == U'A');
+    CHECK(session.grid().cellAt(0, 0).attr.scale() == 3);
+    CHECK(session.grid().cellAt(0, 0).attr.sizeWidth() == 2);
+    // w != 0 means "render all of it in s*w cells", so the cursor advances by
+    // exactly that — 3 * 2 = 6 — whatever the text measured.
+    CHECK(session.grid().col == 6);
+}
+
+TEST_CASE("OSC 66 with no metadata still writes the text", "[core][osc][sizing]") {
+    Session session(4, 20);
+    feed(session, "\x1b]66;;plain\x1b\\");
+    CHECK(session.grid().cellAt(0, 0).ch == U'p');
+    CHECK(session.grid().cellAt(0, 0).attr.scale() == 1);
+    CHECK(session.grid().col == 5);
+}
+
+TEST_CASE("OSC 66 carries Thai correctly", "[core][osc][sizing]") {
+    // The milestone's acceptance case. A Thai cluster is several codepoints
+    // that must land in ONE cell, which is exactly why the payload goes through
+    // putChar rather than through a second writer here.
+    Session session(4, 20);
+    feed(session, "\x1b]66;s=2;\xe0\xb8\x81\xe0\xb8\xb2\x1b\\");  // ก + า
+    CHECK(session.grid().cellAt(0, 0).ch == U'\u0e01');
+    CHECK(session.grid().cellAt(0, 0).attr.scale() == 2);
+    CHECK(session.grid().cellAt(0, 1).ch == U'\u0e32');
+}
+
+TEST_CASE("an out-of-range OSC 66 field voids the WHOLE sequence",
+          "[core][osc][sizing]") {
+    // Clamped would be worse. This is the one OSC that writes text onto the
+    // grid, and a clamped scale lays it out at a size the sender did not choose
+    // and cannot detect — whereas nothing appearing gets noticed.
+    for (const std::string_view bad : {
+             "\x1b]66;s=0;X\x1b\\",   // scale below 1
+             "\x1b]66;s=8;X\x1b\\",   // scale above 7
+             "\x1b]66;w=8;X\x1b\\",   // width above 7
+             "\x1b]66;n=16;X\x1b\\",  // numerator above 15
+             "\x1b]66;d=16;X\x1b\\",  // denominator above 15
+             "\x1b]66;n=3:d=2;X\x1b\\",  // "d must be > n when non-zero"
+             "\x1b]66;n=3:d=3;X\x1b\\",
+             "\x1b]66;v=3;X\x1b\\",
+             "\x1b]66;h=3;X\x1b\\",
+             "\x1b]66;s=x;X\x1b\\",  // not a number at all
+         }) {
+        Session session(4, 20);
+        INFO(bad);
+        feed(session, bad);
+        CHECK(session.grid().cellAt(0, 0).ch == 0);  // nothing written
+        CHECK(session.grid().col == 0);
+    }
+}
+
+TEST_CASE("an unknown OSC 66 key is skipped, not fatal", "[core][osc][sizing]") {
+    // Same rule as every other OSC here: the alphabet grows, and refusing over
+    // a key we have not heard of would break senders that are entirely correct.
+    Session session(4, 20);
+    feed(session, "\x1b]66;s=2:Z=9:zz=1;ok\x1b\\");
+    CHECK(session.grid().cellAt(0, 0).ch == U'o');
+    CHECK(session.grid().cellAt(0, 0).attr.scale() == 2);
+}
+
+TEST_CASE("OSC 66 with no text does nothing", "[core][osc][sizing]") {
+    Session session(4, 20);
+    feed(session, "\x1b]66;s=2;\x1b\\");
+    CHECK(session.grid().cellAt(0, 0).ch == 0);
+    CHECK(session.grid().col == 0);
+
+    // And a bare OSC 66 with no metadata section at all.
+    feed(session, "\x1b]66\x1b\\");
+    CHECK(session.grid().col == 0);
+}
+
+TEST_CASE("OSC 66 never replies", "[core][osc][sizing]") {
+    // It is an instruction, not a query. A reply would inject bytes into the
+    // input stream of a program that only asked to draw a word.
+    Session session(4, 20);
+    std::string replies;
+    session.onReply = [&replies](const std::string& text) { replies += text; };
+    feed(session, "\x1b]66;s=2:w=3;hello\x1b\\");
+    CHECK(replies.empty());
+}

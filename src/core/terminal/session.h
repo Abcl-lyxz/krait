@@ -68,6 +68,11 @@ class Session final : public ParserEvents {
     void apcEnd(bool aborted) override;
 
   private:
+    // T81. OSC 66 text, written through the ordinary print path with the
+    // scale carried in the pen. Private because it is not an event — the
+    // parser never calls it; oscEnd does, for one Kind.
+    void writeSizedText(const OscAction& action);
+
     Grid m_grid;
     Parser m_parser;
     // T79. One decoder reused across images rather than one per DCS: begin()

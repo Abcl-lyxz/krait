@@ -6,6 +6,9 @@
 #include "core/parser/kitty_keys.h"
 #include "core/parser/sgr.h"
 
+#include <algorithm>
+#include <optional>
+
 namespace krait::core::vt {
 
 Session::Session(int rows, int cols) : m_grid(rows, cols), m_parser(*this) {}
@@ -151,6 +154,50 @@ void Session::dcsUnhook(bool aborted) {
     m_grid.col = 0;
 }
 
+void Session::writeSizedText(const OscAction& action) {
+    // OSC 66's text goes through the ORDINARY print path, one decoded codepoint
+    // at a time, with the scale carried in the pen. Everything that makes text
+    // work — grapheme clustering, the width tables, wrap, damage, scrollback
+    // capture — is in putChar, and a second writer here would be a second set
+    // of answers to all of it that could disagree with the first.
+    //
+    // The scale rides in Attr's spare flag bits (cell.h), so a sized cell costs
+    // nothing extra in scrollback and survives reflow like any other.
+    const Attr saved = m_grid.pen;
+    m_grid.pen.setScale(action.scale);
+    m_grid.pen.setSizeWidth(action.widthCells);
+
+    const int startCol = m_grid.col;
+    // The SAME decoder the ground path uses. A lone continuation byte or a
+    // truncated sequence yields U+FFFD rather than being dropped: the payload
+    // is remote text, and silently losing a byte is how a Thai cluster comes
+    // apart into something that still renders and is no longer the word.
+    Utf8Decoder decoder;
+    char32_t decoded[2] = {};
+    for (const char ch : action.text) {
+        const int count = decoder.feed(static_cast<std::uint8_t>(ch), decoded);
+        for (int i = 0; i < count; ++i) {
+            m_grid.putChar(decoded[i]);
+        }
+    }
+    // Flush: a payload ending mid-sequence must still produce its replacement
+    // character, or the cell count the cursor was advanced by would be a lie.
+    char32_t trailing[1] = {};
+    if (decoder.finish(trailing) == 1) {
+        m_grid.putChar(trailing[0]);
+    }
+
+    // w != 0 means "render all of this in s*w cells", so the cursor advances by
+    // exactly that regardless of what the text measured. Clamped to the row:
+    // the protocol lets a sender ask for more cells than the line has, and
+    // putChar's wrap has already moved us if the text itself ran out of room.
+    if (action.widthCells > 0) {
+        const int wanted = action.scale * action.widthCells;
+        m_grid.col = std::min(startCol + wanted, m_grid.cols - 1);
+    }
+    m_grid.pen = saved;
+}
+
 void Session::apcStart() {
     m_kitty.start();
 }
@@ -281,6 +328,13 @@ void Session::oscEnd(bool aborted) {
         if (action.promptMark == kMarkCommandEnd) {
             m_grid.setCommandExit(action.exitCode);
         }
+    }
+    if (action.kind == OscAction::Kind::SizedText) {
+        // Handled entirely in the core and NOT forwarded. Unlike a prompt mark,
+        // where the app adds a notification the core cannot, there is nothing
+        // above this layer that could contribute to drawing text on a grid.
+        writeSizedText(action);
+        return;
     }
     if (action.kind == OscAction::Kind::ClipboardRead && !m_clipboardReadAllowed) {
         // Silence, not a refusal reply. Answering "no" still tells a remote
