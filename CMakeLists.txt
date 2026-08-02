@@ -39,6 +39,7 @@ else()
     # linked before it is defined. The REST of src/app stays last — it drags in
     # Qt Quick, which the test binaries have no business linking.
     add_subdirectory(src/app/input)
+    add_subdirectory(src/app/crash)
     add_subdirectory(src/app/settings)
     add_subdirectory(src/app/theme)
     add_subdirectory(src/app/session)

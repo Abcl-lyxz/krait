@@ -77,6 +77,7 @@ add_executable(krait-qt-tests
     broadcast_test.cpp
     ../../src/app/quake.cpp
     quake_test.cpp
+    crash_test.cpp
     forwards_test.cpp
     socks5_test.cpp
     raw_contract_test.cpp
@@ -105,7 +106,7 @@ target_include_directories(krait-qt-tests PRIVATE
 # compiled in for the aggregation test the same way session_model.cpp is.
 target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32 ole32)
 target_link_libraries(krait-qt-tests
-    PRIVATE krait-render krait-input krait-settings krait-theme krait-session krait-net Qt6::Test
+    PRIVATE krait-render krait-input krait-crash krait-settings krait-theme krait-session krait-net Qt6::Test
             Qt6::Qml Qt6::Xml Catch2::Catch2WithMain)
 # On this target only. backend_contract_test.cpp declares a Q_OBJECT subclass of
 # IBackend and needs moc; krait-core-tests deliberately links no Qt at all, so a

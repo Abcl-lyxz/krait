@@ -116,7 +116,7 @@ target_compile_options(krait-app PRIVATE /wd4702)
 # uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
 # user32 (RegisterHotKey/SetForegroundWindow, quake.cpp) is another MSVC default.
 target_link_libraries(krait-app
-    PRIVATE krait-core krait-render krait-input krait-settings krait-theme krait-session krait-net Qt6::Quick Qt6::GuiPrivate
+    PRIVATE krait-core krait-render krait-input krait-crash krait-settings krait-theme krait-session krait-net Qt6::Quick Qt6::GuiPrivate
             freetype ole32
             # shell32 for Shell_NotifyIconW (notifier.cpp) — the library
             # learn.microsoft.com names for it, alongside ole32's CoCreateInstance
