@@ -55,6 +55,8 @@ qt_add_qml_module(krait-app
         taskbar_progress.h
         terminal_item.cpp
         terminal_item.h
+        theme_model.cpp
+        theme_model.h
         ../render/spike/grid_item.cpp
         ../render/spike/grid_item.h
         ../render/spike/triangle_item.cpp
@@ -94,7 +96,7 @@ target_include_directories(krait-app PRIVATE ../render/spike)
 # uuid.lib, which carries the CLSID/IID symbols, is one of MSVC's defaults.
 # user32 (RegisterHotKey/SetForegroundWindow, quake.cpp) is another MSVC default.
 target_link_libraries(krait-app
-    PRIVATE krait-core krait-render krait-input krait-settings krait-session krait-net Qt6::Quick Qt6::GuiPrivate
+    PRIVATE krait-core krait-render krait-input krait-settings krait-theme krait-session krait-net Qt6::Quick Qt6::GuiPrivate
             freetype ole32
             # shell32 for Shell_NotifyIconW (notifier.cpp) — the library
             # learn.microsoft.com names for it, alongside ole32's CoCreateInstance
@@ -112,7 +114,7 @@ target_link_libraries(krait-app
 # The .qm files are embedded under ":/i18n", so a portable copy carries its own
 # translations instead of depending on files next to the exe.
 qt_add_translations(krait-app
-    SOURCE_TARGETS krait-app krait-input krait-settings krait-session krait-net
+    SOURCE_TARGETS krait-app krait-input krait-settings krait-theme krait-session krait-net
     TS_FILES
         i18n/krait_en.ts
         i18n/krait_th.ts

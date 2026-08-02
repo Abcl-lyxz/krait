@@ -41,6 +41,12 @@ namespace krait::app {
 // headers where possible).
 class Notifier;
 
+namespace theme {
+// Same reason as Notifier above: only a pointer crosses this header, and
+// theme/store.h reaches QtCore containers this file has no use for.
+class ThemeStore;
+}  // namespace theme
+
 // The real terminal view (plan T25): ConPTY -> core Session -> run splitting ->
 // the HarfBuzz shaper pool -> the glyph atlas -> two instanced QRhi draws.
 // Replaces the M0 spike path, which rendered ASCII from a fixed 95-cell strip
@@ -127,6 +133,11 @@ class TerminalItem : public QQuickRhiItem {
     // writes to the same vault, and sees the same session list.
     static void setServices(settings::Registry* registry, net::Vault* vault,
                             session::ProfileStore* store);
+
+    // T75. Borrowed; main() owns it. Same argument as setServices: QML builds
+    // terminals on demand, so a theme handed over once at startup would only
+    // reach the tabs that existed then.
+    static void setThemes(theme::ThemeStore* themes);
 
     // The one taskbar button every tab's OSC 9;4 reports collapse onto (T67).
     // Borrowed and owned by main(), like the three above; null in the tests and
@@ -319,6 +330,10 @@ class TerminalItem : public QQuickRhiItem {
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 
   private:
+    // T75. Pushes the store's current palette into the frame builder and forces
+    // a full rebuild. Connected to ThemeStore::changed, so it runs for a theme
+    // switch, a live-editor keystroke and a theme file edited on disk alike.
+    void applyTheme();
     void handleOutput(const QByteArray& bytes);
     // T68. Runs the profile's triggers over one chunk of output and carries out
     // whatever fired. Called from handleOutput, after the parser has seen the

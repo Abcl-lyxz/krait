@@ -14,6 +14,7 @@
 #include "render/shaper/run_splitter.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
+#include "theme/store.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -89,6 +90,27 @@ net::Vault* g_vault = nullptr;
 session::ProfileStore* g_store = nullptr;
 TaskbarProgress* g_taskbar = nullptr;
 Notifier* g_notifier = nullptr;
+theme::ThemeStore* g_themes = nullptr;
+
+// The theme, translated for the renderer. render::Theme is a flat block of
+// 0xRRGGBB and app::theme::Theme carries the same numbers plus a name and the
+// chrome, so this is a copy rather than a conversion — which is the whole
+// reason both sides agreed on that representation.
+render::Theme renderTheme() {
+    render::Theme out;
+    if (g_themes == nullptr) {
+        return out;
+    }
+    const theme::Theme& live = g_themes->current();
+    out.ansi = live.ansi;
+    out.fg = live.fg;
+    out.bg = live.bg;
+    out.cursor = live.cursor;
+    out.cursorText = live.cursorText;
+    out.selectionBg = live.selectionBg;
+    out.highlightBg = live.highlightBg;
+    return out;
+}
 
 }  // namespace
 
@@ -111,6 +133,24 @@ void TerminalItem::setNotifier(Notifier* notifier) {
     g_notifier = notifier;
 }
 
+void TerminalItem::setThemes(theme::ThemeStore* themes) {
+    g_themes = themes;
+}
+
+void TerminalItem::applyTheme() {
+    if (!m_builder) {
+        return;  // no renderer yet; ensureRenderer() reads the live theme itself
+    }
+    m_builder->setTheme(renderTheme());
+    // rules/render.md names a theme change as one of the three cases where a
+    // full-frame redraw is correct — the other two being resize and a font
+    // change. Every cached row holds resolved colours, so a partial repaint
+    // would leave the untouched rows in the previous palette.
+    m_builder->invalidate();
+    rebuildFrame();
+    update();
+}
+
 TerminalItem::TerminalItem() {
     m_vault = g_vault;
     m_store = g_store;
@@ -122,6 +162,12 @@ TerminalItem::TerminalItem() {
     // reloads and applies the current values, and a tab opened after startup
     // needs both exactly as much as the first one did.
     setSettings(g_registry);
+    // T75. Every tab repaints on a theme change, including tabs opened long
+    // after startup — which is why this is per-instance rather than a sweep
+    // main() does once over whatever existed then.
+    if (g_themes != nullptr) {
+        connect(g_themes, &theme::ThemeStore::changed, this, &TerminalItem::applyTheme);
+    }
     // Claimed, not copied: the SECOND terminal (a new tab) must open a default
     // shell rather than a second copy of whatever was on the command line.
     if (g_launchProfile) {
@@ -772,7 +818,7 @@ bool TerminalItem::ensureFont() {
         return false;
     }
     m_atlas = std::make_unique<render::GlyphAtlas>(metrics->cellWidth, metrics->lineHeight);
-    m_builder = std::make_unique<render::FrameBuilder>(*metrics, render::Theme{});
+    m_builder = std::make_unique<render::FrameBuilder>(*metrics, renderTheme());
     m_raster = [this](std::uint32_t face, std::uint32_t glyph, render::GlyphBitmap& out) {
         return m_pool->rasterize(face, glyph, out);
     };

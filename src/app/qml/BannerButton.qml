@@ -1,4 +1,5 @@
 import QtQuick
+import Krait
 
 // A flat button for Banner.qml. Hand-rolled rather than QtQuick.Controls: the
 // banner needs two buttons and nothing else, and Controls would pull a whole
@@ -7,7 +8,7 @@ Rectangle {
     id: button
 
     property alias text: label.text
-    property color accent: "#cdd6f4"
+    property color accent: Theme.text
 
     signal clicked
 

@@ -64,6 +64,7 @@ add_executable(krait-qt-tests
     reconnect_test.cpp
     remote_text_test.cpp
     settings_test.cpp
+    theme_test.cpp
     ../../src/app/taskbar_progress.cpp
     taskbar_progress_test.cpp
     # T74. Compiled straight in for the same reason taskbar_progress.cpp is:
@@ -102,8 +103,8 @@ target_include_directories(krait-qt-tests PRIVATE
 # compiled in for the aggregation test the same way session_model.cpp is.
 target_link_libraries(krait-qt-tests PRIVATE ssh ws2_32 ole32)
 target_link_libraries(krait-qt-tests
-    PRIVATE krait-render krait-input krait-settings krait-session krait-net Qt6::Test Qt6::Qml Qt6::Xml
-            Catch2::Catch2WithMain)
+    PRIVATE krait-render krait-input krait-settings krait-theme krait-session krait-net Qt6::Test
+            Qt6::Qml Qt6::Xml Catch2::Catch2WithMain)
 # On this target only. backend_contract_test.cpp declares a Q_OBJECT subclass of
 # IBackend and needs moc; krait-core-tests deliberately links no Qt at all, so a
 # directory-wide set(CMAKE_AUTOMOC ON) would be aimed at the wrong binary.

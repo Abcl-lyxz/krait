@@ -19,6 +19,8 @@
 #include "settings_model.h"
 #include "taskbar_progress.h"
 #include "terminal_item.h"
+#include "theme/store.h"
+#include "theme_model.h"
 #include <windows.h>
 // Same guards as src/render/shaper/fontdb.cpp: without NOMINMAX the min/max
 // macros land in scope for the whole translation unit.
@@ -190,6 +192,40 @@ int main(int argc, char* argv[]) try {
     // that existed when main() ran.
     krait::app::TerminalItem::setServices(&registry, &vault, &store);
     krait::app::SessionModel::setStore(&store);
+
+    // T75, the theme system. Declared HERE — before the engine — for the same
+    // reason the vault is: every terminal and the whole QML chrome borrow it,
+    // and reverse declaration order means it outlives all of them.
+    //
+    // Nothing creates the directory at startup. A themes folder that only
+    // appears once you save one is fine; a settings FILE that only appears then
+    // is not, which is why that one is written above and this one is not.
+    krait::app::theme::ThemeStore themes;
+    themes.setDirectory(ks::themesDirPath(configDir.dir));
+    themes.select(QString::fromStdString(registry.text("theme.name")));
+    krait::app::ThemeModel::setStore(&themes);
+    krait::app::TerminalItem::setThemes(&themes);
+    // Both directions. Editing theme.name in the config file (or through the
+    // settings page, which writes the same registry) has to reach the store, or
+    // the setting is the dead thing it was through all of M4; picking a theme
+    // in the gallery has to reach the file, or it is forgotten on restart.
+    QObject::connect(&registry, &ks::Registry::changed, &themes, [&](const QString& id) {
+        if (id == QLatin1String("theme.name")) {
+            themes.select(QString::fromStdString(registry.text("theme.name")));
+        }
+    });
+    QObject::connect(&themes, &krait::app::theme::ThemeStore::changed, &registry, [&] {
+        // Only the committed NAME is persisted. A live-editor preview is not a
+        // theme yet — writing it would leave a config naming something with no
+        // file behind it the moment the editor is closed without saving.
+        if (!themes.hasPreview() &&
+            registry.text("theme.name") != themes.currentName().toStdString()) {
+            registry.set("theme.name", themes.currentName().toStdString());
+            registry.save();
+        }
+    });
+    qInfo("themes: %s (%zu available, '%s' selected)", qPrintable(themes.directory()),
+          themes.themes().size(), qPrintable(themes.currentName()));
 
     // T67, OSC 9;4. Declared here — before the engine — for the same reason the
     // vault is: it installs a native event filter on the application and holds

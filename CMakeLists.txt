@@ -40,6 +40,7 @@ else()
     # Qt Quick, which the test binaries have no business linking.
     add_subdirectory(src/app/input)
     add_subdirectory(src/app/settings)
+    add_subdirectory(src/app/theme)
     add_subdirectory(src/app/session)
     # krait-net before tests/unit for the same reason as krait-input: the
     # IBackend contract suite links it, and a target cannot be linked before it

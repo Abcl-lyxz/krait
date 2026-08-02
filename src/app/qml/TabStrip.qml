@@ -1,4 +1,5 @@
 import QtQuick
+import Krait
 
 // The tab bar (plan T53). Hand-rolled for the same reason BannerButton is:
 // this needs a row of labels and a close box, and QtQuick.Controls would pull a
@@ -27,10 +28,10 @@ Item {
     height: visible ? implicitHeight : 0
 
     // TODO(theme): tokens once the theme system exists (same debt as Banner).
-    readonly property color barBg: "#12141c"
-    readonly property color tabBg: "#1b1f2b"
-    readonly property color tabFg: "#e6e9f0"
-    readonly property color idleFg: "#7c869e"
+    readonly property color barBg: Theme.surface
+    readonly property color tabBg: Theme.surfaceAlt
+    readonly property color tabFg: Theme.text
+    readonly property color idleFg: Theme.textDim
 
     Rectangle {
         anchors.fill: parent
@@ -93,7 +94,7 @@ Item {
                     x: 3
                     visible: item.broadcasting
                     text: "»"
-                    color: "#f38ba8"
+                    color: Theme.danger
                     font.bold: true
                 }
 

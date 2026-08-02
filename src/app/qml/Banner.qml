@@ -1,4 +1,5 @@
 import QtQuick
+import Krait
 
 // The per-tab banner (plan T28). rules/ui.md: "Errors are per-tab banners with
 // error-taxonomy codes from the backend layer. QMessageBox and any app-modal
@@ -58,15 +59,15 @@ Rectangle {
     // TODO(T31): these come from the theme system once it exists. rules/ui.md
     // makes hex literals in QML a defect, and this is the debt that buys the
     // banner before the theme lands.
-    readonly property color warningBg: "#3a2f1a"
-    readonly property color warningFg: "#f9e2af"
-    readonly property color errorBg: "#3a1f26"
-    readonly property color errorFg: "#f38ba8"
+    readonly property color warningBg: Theme.wash(Theme.warning, 0.82)
+    readonly property color warningFg: Theme.warning
+    readonly property color errorBg: Theme.wash(Theme.danger, 0.82)
+    readonly property color errorFg: Theme.danger
     // Louder than error on purpose: a changed host key is the only banner in
     // the app that says "stop", and it must not look like the one that says
     // "the shell exited".
-    readonly property color dangerBg: "#4a1420"
-    readonly property color dangerFg: "#ffb3c1"
+    readonly property color dangerBg: Theme.wash(Theme.danger, 0.72)
+    readonly property color dangerFg: Qt.lighter(Theme.danger, 1.3)
     readonly property color foreground: severity === "danger"
                                         ? dangerFg
                                         : severity === "error" ? errorFg : warningFg

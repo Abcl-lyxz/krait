@@ -24,6 +24,10 @@ QString sessionsFilePath(const QString& dir) {
     return QDir(dir).filePath(QStringLiteral("sessions.toml"));
 }
 
+QString themesDirPath(const QString& dir) {
+    return QDir(dir).filePath(QStringLiteral("themes"));
+}
+
 Resolution resolveConfigDir(const PathInputs& inputs,
                             const std::function<bool(const QString&)>& exists) {
     if (!inputs.envOverride.isEmpty()) {

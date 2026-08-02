@@ -7,7 +7,7 @@ Window {
     height: 540
     visible: false  // shown from main() after the graphics configuration
     title: qsTr("Krait")
-    color: "#0d0f17"
+    color: Theme.bg
 
     // The tabs. A ListModel of { title, accent } mirroring what each
     // SessionPane reports, because a Repeater delegate cannot be read back as

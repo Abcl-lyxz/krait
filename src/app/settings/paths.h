@@ -59,6 +59,12 @@ QString configFilePath(const QString& dir);
 // settings but not the sessions is a surprise nobody wants twice.
 QString sessionsFilePath(const QString& dir);
 
+// Where user themes live: one *.toml per theme (M5 T75). A DIRECTORY rather
+// than one file with every theme in it, because the thing people do with themes
+// is send each other one — and "paste this fragment into the middle of your
+// config" is how a theme ends up corrupting a settings file.
+QString themesDirPath(const QString& dir);
+
 // The marker filename that turns portable mode on.
 QString portableMarkerName();
 
