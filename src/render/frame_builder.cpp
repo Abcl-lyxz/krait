@@ -270,6 +270,7 @@ void FrameBuilder::appendImages(const FrameParams& params) {
     // once per frame rather than scanned per placement: the placement cap is
     // 4096 and the viewport is ~63 rows, so a per-placement scan is a quarter
     // of a million comparisons a hostile stream can ask for on every frame.
+    m_distinctImages.clear();
     m_rowOfStable.clear();
     for (std::size_t r = 0; r < params.rowStable.size(); ++r) {
         m_rowOfStable.emplace(params.rowStable[r], static_cast<int>(r));
@@ -298,6 +299,13 @@ void FrameBuilder::appendImages(const FrameParams& params) {
     // more than this many pictures at once has nothing legible on it anyway.
     // Upgrade path: sort by z, keep the topmost N, if anyone ever hits it.
     constexpr std::size_t kMaxDrawnPlacements = 256;
+    // And at most this many DISTINCT textures, which is a different bound and
+    // has to match GpuResources::kMaxGpuImages. Without it a frame naming 65
+    // different ids would evict, on every single frame, the very textures that
+    // frame still needs — bounded memory, but a thrash a remote stream gets to
+    // choose. Placements are sorted by z, so what is dropped is the bottom of
+    // the stack rather than an arbitrary picture.
+    constexpr std::size_t kMaxDrawnImages = 64;
 
     for (const std::uint32_t index : m_sortedPlacements) {
         if (m_images.size() >= kMaxDrawnPlacements) {
@@ -361,6 +369,11 @@ void FrameBuilder::appendImages(const FrameParams& params) {
         // over-text one and the boundary is crossed at most once.
         bool startBatch =
             m_imageBatches.empty() || m_imageBatches.back().imageId != placement.imageId;
+        if (startBatch && m_distinctImages.size() >= kMaxDrawnImages &&
+            !m_distinctImages.contains(placement.imageId)) {
+            continue;  // a 65th texture this frame; skip it rather than thrash
+        }
+        m_distinctImages.insert(placement.imageId);
         if (placement.zIndex >= 0 && !boundaryCrossed) {
             boundaryCrossed = true;
             m_belowBatches = static_cast<std::uint32_t>(m_imageBatches.size());

@@ -14,6 +14,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace krait::render {
@@ -266,6 +267,9 @@ class FrameBuilder {
     // Reused across frames so a frame with placements does not allocate. Maps a
     // stable line index to the FIRST viewport row that shows it.
     std::unordered_map<std::uint64_t, int> m_rowOfStable;
+    // The distinct image ids this frame draws, so the count can be bounded to
+    // what GpuResources will actually keep textures for.
+    std::unordered_set<std::uint32_t> m_distinctImages;
     // Placement indices, sorted for draw order. Indices rather than copies:
     // sorting Placements would copy nine ints each for nothing.
     std::vector<std::uint32_t> m_sortedPlacements;

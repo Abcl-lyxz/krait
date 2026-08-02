@@ -590,6 +590,31 @@ TEST_CASE("frame: several placements of one image share a batch", "[frame][t84]"
     CHECK(builder.belowBatchCount() == 0);  // zIndex 0 draws over the text
 }
 
+TEST_CASE("frame: the number of distinct textures a frame draws is bounded", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    // 200 distinct images, all anchored inside the viewport. ImageStore evicts
+    // by BYTES and these are 4x4, so nothing there evicts them — the shape a
+    // hostile stream produces with transmit-then-place in a loop.
+    ImageFixture fixture(4, 8, 0);
+    for (std::uint32_t id = 1; id <= 200; ++id) {
+        fixture.addImage(id);
+        REQUIRE(fixture.store.place({.imageId = id, .anchor = id % 4, .cols = 1, .rows = 1}));
+    }
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    // Must not exceed what GpuResources will hold textures for, or every frame
+    // evicts the textures that same frame still needs.
+    CHECK(builder.imageBatches().size() <= 64);
+    CHECK(builder.images().size() <= 256);
+}
+
 TEST_CASE("frame: a placement whose pixels were evicted draws nothing", "[frame][t84]") {
     FrameBuilder builder(kMetrics, Theme{});
     GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
