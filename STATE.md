@@ -1,7 +1,8 @@
 # STATE
 
 Phase: M5 — beauty + protocol completeness. Feature work done on
-`t75-m5-beauty`, with one large gap named below. In review.
+`t75-m5-beauty`, with one large gap named below. **PR #27 is open, CI green,
+MERGEABLE/CLEAN — it needs a human to merge it.**
 
 ## Now
 
@@ -95,6 +96,13 @@ than implying it by silence.
   that package's `bin/` is a wrapper that runs whatever is on PATH, so the
   `clang_format/data/bin` path is the one that matters. Code with nothing to
   align (no trailing comments in a braced list) is what both versions agree on.
+- **CI runs clang-tidy over EVERY changed file with a compile command — tests
+  included.** Checking `src/*.cpp` only is how M5 burned a second 25-minute
+  cycle: four `int` multiplications widened to `size_t` in the new graphics
+  tests, the same shape that broke M4's PR in `sftp.cpp`. Use
+  `git diff --name-only <base>..HEAD -- '*.cpp'` for the list, not `src/*.cpp`.
+  Only `error:` lines ending in `warnings-as-errors` gate; Catch2's own
+  NOLINT-ed macro bodies appear as context and mean nothing.
 - **`/wd4702` is on krait-app only** (`src/app/CMakeLists.txt`), for a defect in
   Qt's own `qjsengine.h`. It fires the moment qmlcachegen sees a .qml file call
   a C++ singleton method returning QString or bool — which any future QML will.
