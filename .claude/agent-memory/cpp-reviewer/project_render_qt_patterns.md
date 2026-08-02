@@ -45,6 +45,30 @@ comments in this codebase are long and persuasive and will anchor you.
    caches per-row `GlyphInstance`s and nothing calls `invalidate()` on grew.
    Also `atlasW/atlasH` are captured BEFORE the `atlas.get()` loop that can
    grow. Check both on any frame_builder/atlas diff.
+   **RECURRED at T84** for the second (OSC 66 sized) atlas: the main atlas got
+   the `takeGrew() -> invalidate()` fix, the new one shipped without it. Rule:
+   every GlyphAtlas instance needs its own takeGrew/clearDirty handling, and
+   the count of atlases is now >1.
+8. **GPU-side content cache keyed on "have I seen this id" instead of on
+   content identity.** T84 skipped re-upload with `hasImage(id)`, but
+   `ImageStore::put` REPLACES an id in place — so a re-transmitted kitty image
+   drew the old pixels forever. Any id-keyed GPU cache needs a generation/
+   sequence from the owning store (`ImageStore::Entry::sequence` already exists).
+9. **Lazily-built render resource never rebuilt on a font/DPI change.** The
+   font-init path recreates `m_atlas` + `m_builder`; anything else built from
+   `metrics()` (T84's `m_sizedAtlas`, guarded by `if (ptr == nullptr)`) keeps
+   the old cell pitch and then silently draws nothing, because `GlyphAtlas::get`
+   REFUSES a glyph larger than a slot rather than clipping. Grep for every
+   `make_unique<...>(metrics...)` and check it is reset alongside `m_atlas`.
+10. **Whole-buffer upload where a dirty-range protocol already exists.**
+    `GlyphAtlas::width()` is a constant 2048 and height is 512..4096, so
+    "just hand the whole atlas over each frame" is a 1-8 MiB memcpy + full
+    texture upload per frame inside `synchronize()` (GUI thread blocked).
+    Reject "at this volume it costs nothing" claims about atlas pixels.
+11. **GPU resource set whose eviction rule is the CORE store's, not "drawn
+    recently".** T84 dropped a texture only when `ImageStore::find(id)==nullptr`,
+    but that store evicts by BYTES only — 1x1 images never evict, so the
+    texture/SRB count grew without bound under a hostile stream.
 7. **Dirty state overwritten, not accumulated, across multiple rebuildFrame()
    per presented frame.** `handleOutput` rebuilds per pty chunk; the last
    rebuild's (empty) dirty range is what `synchronize()` sees. Only the

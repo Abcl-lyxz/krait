@@ -5,9 +5,15 @@ metadata:
   type: project
 ---
 
-**No flaky tests known.** Through 2026-07-30 (branch `t23-shaper`) no Krait test
-has been observed failing intermittently. If one does, record it here with
+**No flaky tests known.** Through 2026-08-02 (branch `t84-m6-platform`) no Krait
+test has been observed failing intermittently. If one does, record it here with
 evidence and a ticket rather than re-running until green.
+
+**Verify the count against tags, not against the exe timestamp.** The reliable
+proof that a branch's new tests actually ran is
+`grep -rc "\[tNN\]" tests/unit/*.cpp` summed against the delta from the previous
+row of the table, plus a name-by-name check that each new `TEST_CASE` string
+appears in the ctest log. At T84 that was 591 + 18 `[t84]` = 609 exactly.
 
 ## ctest `dev` count history
 
@@ -18,6 +24,9 @@ evidence and a ticket rather than re-running until green.
 | T23 (`t23-shaper`, 2026-07-30) | 100 | 44.01 s |
 | T36 (`t36-backend-seam`) | 278 | — |
 | T52 (`t52-backend-factory`, 2026-07-31) | 284 | 38.00 s |
+| T74 (M4 complete, 2026-08-01) | 525 | — |
+| main before T84 (2026-08-02) | 591 | — |
+| T84 (`t84-m6-platform`, 2026-08-02) | 609 | 55.14 s |
 
 T52 added exactly 5 `[factory]` tests; the 6th of the 278→284 delta came from
 commits landed between t36 and HEAD, not from T52 — don't attribute the whole
