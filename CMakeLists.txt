@@ -49,4 +49,9 @@ else()
     add_subdirectory(tests/unit)
     add_subdirectory(tests/corpus)
     add_subdirectory(src/app)
+
+    # LAST, and it has to be: CPack packages the install() rules that exist
+    # when include(CPack) runs, so anything added after this is silently
+    # missing from every artefact.
+    include(packaging/packaging.cmake)
 endif()
