@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core/grid/cell.h"
-#include "core/grid/images.h"
 #include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
+#include "core/grid/images.h"
 #include "core/grid/line.h"
 #include "core/grid/scrollback.h"
 #include "core/grid/sync_output.h"

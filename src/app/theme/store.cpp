@@ -166,7 +166,7 @@ QString ThemeStore::importFile(const QString& path, QStringList* imported) {
     // 4 MiB. A colour scheme is kilobytes; anything past this is a file that
     // was picked by mistake, and reading it whole first is how a file picker
     // aimed at a disk image freezes the UI thread.
-    constexpr qint64 kMaxBytes = 4 * 1024 * 1024;
+    constexpr qint64 kMaxBytes = 4LL * 1024 * 1024;
     if (handle.size() > kMaxBytes) {
         return tr("%1 is too large to be a colour scheme.").arg(QFileInfo(path).fileName());
     }

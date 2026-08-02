@@ -32,11 +32,14 @@ namespace krait::core::vt {
 // out-parameter rather than a return value that would almost always mean
 // "nothing". May be null when the caller has nowhere to send a reply.
 //
-// Still noexcept, and the string is the reason to say why: it is thirty bytes,
-// built once per DECSET 2048, and a failed allocation of thirty bytes is a
-// process that is already over. The alternative — dropping noexcept from one of
-// three handlers that share a contract — costs more than it buys.
+// NOT noexcept, unlike handleErase and handleScroll, and the reply is why:
+// building it allocates. The first draft kept noexcept and argued that a failed
+// thirty-byte allocation is a dead process anyway — clang-tidy's
+// bugprone-exception-escape is a GATED check here and disagreed, correctly. A
+// noexcept function that can throw does not report the failure, it calls
+// terminate, and that is not a trade worth making to keep three signatures
+// looking alike.
 bool handleMode(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
-                std::uint8_t final, std::string* reply = nullptr) noexcept;
+                std::uint8_t final, std::string* reply = nullptr);
 
 }  // namespace krait::core::vt

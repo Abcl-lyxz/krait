@@ -760,8 +760,7 @@ TEST_CASE("OSC 66 writes text at a scale", "[core][osc][sizing]") {
     CHECK(grid.cellAt(0, 2).attr.scale() == 1);
 }
 
-TEST_CASE("an unscaled cell reads as scale 1 without anything setting it",
-          "[core][osc][sizing]") {
+TEST_CASE("an unscaled cell reads as scale 1 without anything setting it", "[core][osc][sizing]") {
     // Every cell written before T81 existed, and every cell written by ordinary
     // text, has zero in those bits. Reading zero as "scale 0" would make the
     // renderer divide by it.
@@ -804,17 +803,16 @@ TEST_CASE("OSC 66 carries Thai correctly", "[core][osc][sizing]") {
     CHECK(session.grid().cellAt(0, 1).ch == U'\u0e32');
 }
 
-TEST_CASE("an out-of-range OSC 66 field voids the WHOLE sequence",
-          "[core][osc][sizing]") {
+TEST_CASE("an out-of-range OSC 66 field voids the WHOLE sequence", "[core][osc][sizing]") {
     // Clamped would be worse. This is the one OSC that writes text onto the
     // grid, and a clamped scale lays it out at a size the sender did not choose
     // and cannot detect — whereas nothing appearing gets noticed.
     for (const std::string_view bad : {
-             "\x1b]66;s=0;X\x1b\\",   // scale below 1
-             "\x1b]66;s=8;X\x1b\\",   // scale above 7
-             "\x1b]66;w=8;X\x1b\\",   // width above 7
-             "\x1b]66;n=16;X\x1b\\",  // numerator above 15
-             "\x1b]66;d=16;X\x1b\\",  // denominator above 15
+             "\x1b]66;s=0;X\x1b\\",      // scale below 1
+             "\x1b]66;s=8;X\x1b\\",      // scale above 7
+             "\x1b]66;w=8;X\x1b\\",      // width above 7
+             "\x1b]66;n=16;X\x1b\\",     // numerator above 15
+             "\x1b]66;d=16;X\x1b\\",     // denominator above 15
              "\x1b]66;n=3:d=2;X\x1b\\",  // "d must be > n when non-zero"
              "\x1b]66;n=3:d=3;X\x1b\\",
              "\x1b]66;v=3;X\x1b\\",

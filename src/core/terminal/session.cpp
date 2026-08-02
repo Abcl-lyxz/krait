@@ -235,11 +235,13 @@ void Session::apcEnd(bool aborted) {
         }
         return;
     case Command::Action::Query:
-        // Answered by the reply above and nothing else. A query must not
-        // transmit, place or allocate — it exists so a sender can find out
-        // whether the protocol is spoken at all.
-        return;
     case Command::Action::Unsupported:
+        // Both are already finished by the reply above. A QUERY must not
+        // transmit, place or allocate — it exists so a sender can find out
+        // whether the protocol is spoken at all — and an UNSUPPORTED action has
+        // been declined out loud, so there is nothing left to do for either.
+        // Shared branch on purpose: bugprone-branch-clone gates this build,
+        // exactly as it does for DECAWM and DECTCEM in caps.cpp.
         return;
     case Command::Action::Transmit:
     case Command::Action::TransmitAndPut:

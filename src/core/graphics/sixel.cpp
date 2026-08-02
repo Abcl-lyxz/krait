@@ -1,6 +1,7 @@
 #include "core/graphics/sixel.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <utility>
 
@@ -71,7 +72,7 @@ std::uint32_t sixelHlsToRgb(int hue, int lightness, int saturation) {
     const double s = std::clamp(saturation, 0, 100) / 100.0;
 
     if (s <= 0.0) {
-        const auto grey = static_cast<std::uint32_t>(l * 255.0 + 0.5);
+        const auto grey = static_cast<std::uint32_t>(std::lround(l * 255.0));
         return pack(grey, grey, grey);
     }
     const double m2 = l <= 0.5 ? l * (1.0 + s) : l + s - l * s;
@@ -91,7 +92,7 @@ std::uint32_t sixelHlsToRgb(int hue, int lightness, int saturation) {
         } else if (t < 4.0) {
             value = m1 + (m2 - m1) * (4.0 - t);
         }
-        return static_cast<std::uint32_t>(std::clamp(value, 0.0, 1.0) * 255.0 + 0.5);
+        return static_cast<std::uint32_t>(std::lround(std::clamp(value, 0.0, 1.0) * 255.0));
     };
     return pack(channel(h + 2.0), channel(h), channel(h - 2.0));
 }

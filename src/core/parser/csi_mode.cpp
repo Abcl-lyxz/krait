@@ -21,11 +21,11 @@ std::string resizeReport(const Grid& grid) {
     const int rows = grid.rows;
     const int cols = grid.cols;
     return "\x1b[48;" + std::to_string(rows) + ";" + std::to_string(cols) + ";" +
-           std::to_string(rows * grid.cellHeightPx) + ";" + std::to_string(cols * grid.cellWidthPx) +
-           "t";
+           std::to_string(rows * grid.cellHeightPx) + ";" +
+           std::to_string(cols * grid.cellWidthPx) + "t";
 }
 
-void applyMode(Grid& grid, std::uint16_t mode, bool on, std::string* reply) noexcept {
+void applyMode(Grid& grid, std::uint16_t mode, bool on, std::string* reply) {
     switch (mode) {
     case 6:  // DECOM
         grid.originMode = on;
@@ -150,7 +150,7 @@ void applyMode(Grid& grid, std::uint16_t mode, bool on, std::string* reply) noex
 }  // namespace
 
 bool handleMode(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
-                std::uint8_t final, std::string* reply) noexcept {
+                std::uint8_t final, std::string* reply) {
     if (final != 'h' && final != 'l') {
         return false;
     }

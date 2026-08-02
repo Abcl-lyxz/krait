@@ -52,7 +52,9 @@ class ParserEvents {
     // pure would force three empty overrides into every existing sink — the
     // corpus harness, the fuzz target — purely to express "unchanged".
     virtual void apcStart() {}
+
     virtual void apcPut(std::uint8_t) {}
+
     virtual void apcEnd(bool /*aborted*/) {}
 };
 

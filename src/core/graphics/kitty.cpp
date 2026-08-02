@@ -211,7 +211,7 @@ void KittyDecoder::put(std::uint8_t byte) {
     // ASSEMBLED total is bounded in finish(). This cap is the per-escape one,
     // generous enough for kitty's 4096-byte chunk and for a sender that ignores
     // the chunk guidance and puts a whole small image in one string.
-    constexpr std::size_t kMaxOneString = 1024 * 1024;
+    constexpr std::size_t kMaxOneString = std::size_t{1024} * 1024;
     if (m_buffer.size() >= kMaxOneString) {
         m_overflowed = true;
         return;
