@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/caps/caps.h"
+#include "core/graphics/sixel.h"
 #include "core/grid/grid.h"
 #include "core/parser/events.h"
 #include "core/parser/machine.h"
@@ -65,6 +66,13 @@ class Session final : public ParserEvents {
   private:
     Grid m_grid;
     Parser m_parser;
+    // T79. One decoder reused across images rather than one per DCS: begin()
+    // resets it completely, and a fresh decoder per sixel would reallocate the
+    // 256-entry palette for every frame of an animation.
+    SixelDecoder m_sixel;
+    // Whether the DCS currently open is a sixel. Without this, dcsPut would
+    // feed a DECRQSS query's bytes to the image decoder.
+    bool m_inSixel = false;
     Capabilities m_caps;
     ReplyLimiter m_limiter;
     OscHandler m_osc;

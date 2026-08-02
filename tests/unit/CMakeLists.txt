@@ -22,6 +22,7 @@ add_executable(krait-core-tests
     frame_builder_test.cpp
     session_test.cpp
     shaper_test.cpp
+    sixel_test.cpp
     smoke_test.cpp
     triggers_test.cpp
     width_test.cpp

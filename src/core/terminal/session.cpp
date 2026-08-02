@@ -76,11 +76,80 @@ void Session::csiDispatch(const Params& params, std::span<const std::uint8_t> in
     }
 }
 
-void Session::dcsHook(const Params&, std::span<const std::uint8_t>, std::uint8_t) {}
+void Session::dcsHook(const Params& params, std::span<const std::uint8_t> intermediates,
+                      std::uint8_t final) {
+    // Sixel is DCS P1;P2;P3 q with NO intermediates (T79). Everything else —
+    // DECRQSS (a '$' intermediate before 'q'), DECUDK ('|'), XTGETTCAP ('+q') —
+    // falls through to honest silence, and the intermediates check is what
+    // keeps them there: 'q' preceded by '$' is DECRQSS asking about a setting,
+    // and reading it as a picture would swallow a query somebody is waiting on.
+    m_inSixel = final == 'q' && intermediates.empty();
+    if (m_inSixel) {
+        m_sixel.begin(params);
+    }
+}
 
-void Session::dcsPut(std::uint8_t) {}
+void Session::dcsPut(std::uint8_t byte) {
+    if (m_inSixel) {
+        m_sixel.put(byte);
+    }
+}
 
-void Session::dcsUnhook(bool) {}
+void Session::dcsUnhook(bool aborted) {
+    if (!m_inSixel) {
+        return;
+    }
+    m_inSixel = false;
+    std::optional<Image> image = m_sixel.end(aborted);
+    if (!image) {
+        return;
+    }
+
+    // Cell size comes from the renderer (grid.h). Without it there is no honest
+    // way to say how many cells the picture covers, so the image is dropped
+    // rather than placed at a guessed size — a picture in the wrong place is
+    // worse than one that never appeared, and the only way to be here without a
+    // cell size is a headless test or a bench run.
+    if (m_grid.cellWidthPx <= 0 || m_grid.cellHeightPx <= 0) {
+        return;
+    }
+    const int cols = (image->width + m_grid.cellWidthPx - 1) / m_grid.cellWidthPx;
+    const int rows = (image->height + m_grid.cellHeightPx - 1) / m_grid.cellHeightPx;
+    const int width = image->width;
+    const int height = image->height;
+
+    const std::uint32_t id = m_grid.images.put(0, std::move(*image));
+    if (id == 0) {
+        return;  // refused by the byte budget; nothing to place
+    }
+
+    Placement placement;
+    placement.imageId = id;
+    // Anchored to the LINE the cursor is on, in scrollback's stable space, so
+    // the picture rides scrolling, eviction and reflow the way an OSC 133 mark
+    // does. A screen row would slide onto different text the moment the window
+    // was dragged — the landmine CLAUDE.md records for scrollback.
+    placement.anchor =
+        m_grid.scrollback().linesEverStarted() + static_cast<std::uint64_t>(m_grid.row);
+    placement.col = m_grid.col;
+    placement.cols = cols;
+    placement.rows = rows;
+    placement.srcW = width;
+    placement.srcH = height;
+    if (!m_grid.images.place(placement)) {
+        m_grid.images.erase(id);
+        return;
+    }
+
+    // DEC leaves the cursor at the start of the line BELOW the image, which is
+    // what makes a run of sixels stack instead of overprint. Done with the
+    // ordinary line feed so scrollback capture, damage and the scrolling region
+    // all behave exactly as they do for text.
+    for (int i = 0; i < rows; ++i) {
+        handleControl(m_grid, 0x0A);
+    }
+    m_grid.col = 0;
+}
 
 void Session::oscStart() {
     m_osc.start();

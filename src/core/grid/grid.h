@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/grid/cell.h"
+#include "core/grid/images.h"
 #include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
 #include "core/grid/line.h"
@@ -105,6 +106,12 @@ class Grid {
     // light-versus-dark when the THEME changes, which is a fact only the app
     // layer has — so the core owns the switch and never the notification.
     bool paletteUpdates = false;
+
+    // Sixel and kitty graphics (M5 T79/T80). On the Grid rather than beside it
+    // for the same reason OSC 133's marks are on the Line: placements are
+    // anchored into scrollback's stable index space, and the only thing that
+    // knows when a line is evicted is the thing that evicted it.
+    ImageStore images;
 
     // Cell size in device pixels, supplied by the renderer. src/core/ has no
     // font and no window (rules/vt-core.md), so this is the only way a reply
