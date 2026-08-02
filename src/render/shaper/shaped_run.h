@@ -45,6 +45,13 @@ struct Run {
     std::uint16_t shaping = 0;
     ScriptTag script = 0;
     bool rightToLeft = false;
+    // OSC 66's scale, 1-7 (T84). NOT part of `shaping`: those bits pick a
+    // different FACE VARIANT (bold, italic) at one size, while scale picks a
+    // different SIZE of the same face — and pxHeight is part of a face's
+    // identity (shaper.h), so a scaled run shapes against a different faceId
+    // entirely. Keeping it separate is also what keeps the shaped-run cache
+    // correct for free: its key already carries faceId.
+    std::uint8_t scale = 1;
 };
 
 // One positioned glyph. Units are 26.6 fixed point (pixels * 64), which is what
@@ -68,6 +75,13 @@ struct ShapedRun {
     // text and T24's fallback chain has to re-shape it. Recorded at shape time
     // because scanning for it later would mean walking every glyph again.
     bool missingGlyphs = false;
+    // The scale these glyphs were ACTUALLY shaped at, which stays 1 whenever
+    // the scaled re-shape did not happen — a face that would not load at that
+    // pixel height, or a batch that timed out. The renderer routes on THIS and
+    // not on Run::scale: 1x glyphs sent down the sized path would each occupy a
+    // whole scale-7 atlas slot, evicting real sized glyphs, and then draw a
+    // full block below the line they belong to.
+    std::uint8_t scale = 1;
 };
 
 }  // namespace krait::render

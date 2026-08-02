@@ -96,12 +96,19 @@ void splitRow(std::span<const core::vt::Cell> cells, const core::vt::ClusterPool
 
         const std::uint16_t bits = shapingBits(cell.attr);
         const ScriptTag script = clusterScript(cps);
+        const auto scale = static_cast<std::uint8_t>(cell.attr.scale());
 
         if (open) {
             const bool attrBreak = bits != cur.shaping;
             const bool scriptBreak =
                 !isWeakScript(script) && !isWeakScript(cur.script) && script != cur.script;
-            if (attrBreak || scriptBreak) {
+            // A scale change ends the run for the same reason a bold change
+            // does: pxHeight is part of a face's identity (shaper.h), so the
+            // two sides shape against different faces and their glyph ids are
+            // not comparable. Without this, OSC 66 text merged into the
+            // surrounding line and every character of it drew at 1x.
+            const bool scaleBreak = scale != cur.scale;
+            if (attrBreak || scriptBreak || scaleBreak) {
                 flush();
             }
         }
@@ -110,6 +117,7 @@ void splitRow(std::span<const core::vt::Cell> cells, const core::vt::ClusterPool
             cur.col = col;
             cur.shaping = bits;
             cur.script = script;
+            cur.scale = scale;
             open = true;
         } else if (isWeakScript(cur.script) && !isWeakScript(script)) {
             // Leading digits or spaces joined a run with no script yet; the

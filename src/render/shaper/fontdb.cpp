@@ -96,7 +96,7 @@ class SingleRunSource final : public IDWriteTextAnalysisSource {
     ULONG STDMETHODCALLTYPE Release() override { return --m_refs; }
 
     HRESULT STDMETHODCALLTYPE GetTextAtPosition(UINT32 position, WCHAR const** text,
-                                                UINT32* length) override {
+                                                UINT32* length) noexcept override {
         if (position >= m_text.size()) {
             *text = nullptr;  // documented end-of-text answer
             *length = 0;
@@ -108,7 +108,7 @@ class SingleRunSource final : public IDWriteTextAnalysisSource {
     }
 
     HRESULT STDMETHODCALLTYPE GetTextBeforePosition(UINT32 position, WCHAR const** text,
-                                                    UINT32* length) override {
+                                                    UINT32* length) noexcept override {
         if (position == 0 || position > m_text.size()) {
             *text = nullptr;
             *length = 0;
@@ -119,19 +119,20 @@ class SingleRunSource final : public IDWriteTextAnalysisSource {
         return S_OK;
     }
 
-    DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() override {
+    DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() noexcept override {
         return DWRITE_READING_DIRECTION_LEFT_TO_RIGHT;
     }
 
     HRESULT STDMETHODCALLTYPE GetLocaleName(UINT32 position, UINT32* length,
-                                            WCHAR const** localeName) override {
+                                            WCHAR const** localeName) noexcept override {
         *length = position < m_text.size() ? static_cast<UINT32>(m_text.size() - position) : 0;
         *localeName = nullptr;  // no locale preference; DirectWrite uses its default
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE GetNumberSubstitution(
-        UINT32 position, UINT32* length, IDWriteNumberSubstitution** substitution) override {
+    HRESULT STDMETHODCALLTYPE
+    GetNumberSubstitution(UINT32 position, UINT32* length,
+                          IDWriteNumberSubstitution** substitution) noexcept override {
         *length = position < m_text.size() ? static_cast<UINT32>(m_text.size() - position) : 0;
         // Documented: "rather than return E_NOTIMPL, an application should stub
         // the method and return a constant/null and S_OK".
@@ -410,13 +411,69 @@ std::vector<std::uint32_t> shapeWithFallback(ShapePool& pool, const FontDb& font
         return faces;  // timed out; the frame draws what it has
     }
 
+    // OSC 66 scale (T84). A scaled run re-shapes against the SAME font at a
+    // larger pixel height — the only way to get crisp big text, because
+    // stretching a 1x raster is what makes scaled text look like a screenshot
+    // of scaled text.
+    //
+    // Grouped BY SCALE, one shapeAll per distinct scale, not one per run.
+    // shapeAll's timeout is a duration rather than a shared deadline, and
+    // run_splitter now breaks a run at every scale change — so a line of
+    // alternating sizes yields a run per cell, and a per-run call would spend
+    // the whole 8 ms budget on each of them, on the GUI thread. Scale is 1-7,
+    // so this is at most six calls however pathological the line.
+    std::array<std::vector<std::size_t>, 8> byScale;
+    for (std::size_t i = 0; i < runs.size(); ++i) {
+        const std::uint8_t scale = runs[i].scale;
+        if (scale > 1 && scale < byScale.size()) {
+            byScale[scale].push_back(i);
+        }
+    }
+    std::vector<Run> group;
+    std::vector<ShapedRun> scaledOut;
+    for (std::size_t scale = 2; scale < byScale.size(); ++scale) {
+        const std::vector<std::size_t>& indices = byScale[scale];
+        if (indices.empty()) {
+            continue;
+        }
+        auto scaledSpec = pool.spec(primaryFaceId);
+        if (!scaledSpec.has_value()) {
+            continue;
+        }
+        scaledSpec->pxHeight = pxHeight * static_cast<int>(scale);
+        const auto scaledId = pool.registerFace(*scaledSpec);
+        if (!scaledId.has_value()) {
+            continue;  // will not load at that size; 1x is the honest fallback
+        }
+        group.clear();
+        for (const std::size_t index : indices) {
+            group.push_back(runs[index]);
+        }
+        if (!pool.shapeAll(group, *scaledId, ligatures, scaledOut, timeout)) {
+            continue;  // timed out; these runs stay 1x and the next frame finds them cached
+        }
+        for (std::size_t k = 0; k < indices.size() && k < scaledOut.size(); ++k) {
+            if (scaledOut[k].glyphs.empty()) {
+                continue;  // nothing came back; leave the 1x shaping in place
+            }
+            out[indices[k]] = std::move(scaledOut[k]);
+            faces[indices[k]] = *scaledId;
+            // The scale that ACTUALLY happened, which is what the renderer
+            // routes on — everything that fell through above keeps 1.
+            out[indices[k]].scale = static_cast<std::uint8_t>(scale);
+        }
+    }
+
     for (std::size_t i = 0; i < runs.size(); ++i) {
         if (!out[i].missingGlyphs) {
             continue;
         }
         const bool bold = (runs[i].shaping & core::vt::Attr::kBold) != 0;
         const bool italic = (runs[i].shaping & core::vt::Attr::kItalic) != 0;
-        const auto spec = fonts.fallbackFor(runs[i].text, primaryFamily, bold, italic, pxHeight);
+        // At the run's own size, so a CJK fallback inside OSC 66 text is as big
+        // as the Latin around it rather than snapping back to 1x.
+        const int runPx = pxHeight * runs[i].scale;
+        const auto spec = fonts.fallbackFor(runs[i].text, primaryFamily, bold, italic, runPx);
         if (!spec.has_value()) {
             continue;  // nothing covers it; the .notdef boxes are the honest answer
         }

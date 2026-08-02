@@ -156,6 +156,14 @@ std::optional<std::uint32_t> ShapePool::registerFace(const FaceSpec& spec) {
     return faceId;
 }
 
+std::optional<FaceSpec> ShapePool::spec(std::uint32_t faceId) const {
+    const std::lock_guard lock(m_mutex);
+    if (faceId >= m_specs.size()) {
+        return std::nullopt;
+    }
+    return m_specs[faceId];
+}
+
 std::optional<FaceMetrics> ShapePool::metrics(std::uint32_t faceId) const {
     const std::lock_guard lock(m_mutex);
     return m_local.metrics(faceId);

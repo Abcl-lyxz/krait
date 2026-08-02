@@ -160,6 +160,25 @@ std::size_t Scrollback::visualRowsOfLine(std::size_t i, int cols) const {
     return rows;
 }
 
+std::uint64_t Scrollback::stableAtVisualFromEnd(int cols, std::size_t fromEnd) const {
+    if (m_lines.empty() || cols < 1) {
+        return m_dropped;
+    }
+    // Backwards, and bounded by `fromEnd` rather than by the line count: every
+    // logical line yields at least one visual row, so this returns within
+    // fromEnd + 1 steps. That is the same bound viewRows() walks for the same
+    // window, which is what keeps a scrolled-back frame from costing a full
+    // scan of history.
+    std::size_t rows = 0;
+    for (std::size_t i = m_lines.size(); i-- > 0;) {
+        rows += visualRowsOfLine(i, cols);
+        if (rows > fromEnd) {
+            return m_dropped + i;
+        }
+    }
+    return m_dropped;
+}
+
 std::size_t Scrollback::visualRowsFrom(std::size_t first, int cols) const {
     std::size_t rows = 0;
     for (std::size_t i = first; i < m_lines.size(); ++i) {

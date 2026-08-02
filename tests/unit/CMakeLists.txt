@@ -123,11 +123,13 @@ qt_add_shaders(krait-qt-tests "krait-qt-test-shaders"
         ../../src/render/shaders/cell.frag
         ../../src/render/shaders/glyph.vert
         ../../src/render/shaders/glyph.frag
+        ../../src/render/shaders/image.frag
     OUTPUTS
         cell.vert.qsb
         cell.frag.qsb
         glyph.vert.qsb
         glyph.frag.qsb
+        image.frag.qsb
 )
 # DL_PATHS, not a PATH set on the tests: Catch2 RUNS the binary at build time to
 # enumerate cases, so without Qt6Gui.dll findable then, the build fails with

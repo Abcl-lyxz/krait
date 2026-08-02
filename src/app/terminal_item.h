@@ -108,6 +108,22 @@ class TerminalItem : public QQuickRhiItem {
     // where touching item state from the render thread is safe.
     void clearAtlasDirty();
 
+    // The decoded images, for the renderer to upload the ones it does not yet
+    // hold (T84). Borrowed under the same rule as atlasPixels(): valid only
+    // while synchronize() has the GUI thread blocked. Null before a session
+    // exists.
+    const core::vt::ImageStore* imageStore() const;
+
+    // The sized-glyph atlas, or null until some OSC 66 text has asked for one.
+    const render::GlyphAtlas* sizedAtlas() const { return m_sizedAtlas.get(); }
+
+    // Whether the sized atlas gained pixels since the last handover, CONSUMING
+    // the flag. Without it a line of OSC 66 text would re-copy and re-upload
+    // the whole sized atlas every frame it stayed on screen — a megabyte a
+    // frame to say nothing changed. Called from synchronize(), which runs with
+    // the GUI thread blocked, exactly like clearAtlasDirty().
+    bool takeSizedAtlasDirty();
+
     int benchFrames() const { return m_benchFrames; }
 
     // Called (queued) from the renderer when a flood bench completes.
@@ -494,6 +510,18 @@ class TerminalItem : public QQuickRhiItem {
     std::vector<render::ShapedRun> m_shaped;
     std::vector<std::uint32_t> m_faces;
     std::vector<core::vt::Line> m_viewport;
+    // Parallel to m_viewport: the stable logical-line index each row belongs
+    // to, walked forward from Grid::viewportTopStable(). A graphics placement
+    // is resolved against this (T84).
+    std::vector<std::uint64_t> m_rowStable;
+    // OSC 66's glyphs, which are up to kMaxTextScale times the cell and so do
+    // not fit a slot in the main atlas (T84). Built lazily and sized for the
+    // LARGEST scale the protocol allows rather than for the one in use: a
+    // slot-size change would invalidate every coordinate already handed out, so
+    // one atlas that fits everything beats rebuilding on each new scale. A
+    // session that never sees sized text never allocates it.
+    std::unique_ptr<render::GlyphAtlas> m_sizedAtlas;
+    bool m_sizedAtlasDirty = false;
     // Which slice of m_runs belongs to each viewport row: {offset, count}. Rows
     // that were not rebuilt this frame keep {0, 0}.
     std::vector<std::pair<std::size_t, std::size_t>> m_rowRanges;

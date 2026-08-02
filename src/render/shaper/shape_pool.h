@@ -113,6 +113,12 @@ class ShapePool {
 
     std::optional<FaceMetrics> metrics(std::uint32_t faceId) const;
 
+    // The spec a face was registered with. Needed to register the SAME font at
+    // a different pixel height, which is exactly what OSC 66's scale asks for
+    // (T84) — and pxHeight is part of a face's identity, so that is a second
+    // registration rather than a mutation.
+    std::optional<FaceSpec> spec(std::uint32_t faceId) const;
+
     // Shapes every run in order; `out` is resized to runs.size().
     //
     // Returns false if the timeout expired, in which case the unfinished slots

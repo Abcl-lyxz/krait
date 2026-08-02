@@ -821,6 +821,14 @@ bool TerminalItem::ensureFont() {
         return false;
     }
     m_atlas = std::make_unique<render::GlyphAtlas>(metrics->cellWidth, metrics->lineHeight);
+    // Dropped with the main atlas, not kept: its SLOT PITCH is fixed at
+    // construction from the old cell size, and GlyphAtlas refuses a glyph that
+    // no longer fits rather than clipping it. Keeping it across a font or
+    // per-monitor DPI change would make OSC 66 text vanish outright — worse
+    // than stale, and render.md requires a DPI change mid-session to just work.
+    // rebuildFrame() builds a fresh one the next time sized text appears.
+    m_sizedAtlas.reset();
+    m_sizedAtlasDirty = false;
     m_builder = std::make_unique<render::FrameBuilder>(*metrics, renderTheme());
     m_raster = [this](std::uint32_t face, std::uint32_t glyph, render::GlyphBitmap& out) {
         return m_pool->rasterize(face, glyph, out);
@@ -1485,9 +1493,28 @@ void TerminalItem::rebuildFrame() {
         }
     }
 
+    // The stable logical-line index of each viewport row, walked forward from
+    // the top row's. Derived from the rows about to be drawn rather than from a
+    // second model of the viewport — the same rule the highlights above follow,
+    // and the reason a placement cannot land one row off from its text.
+    m_rowStable.assign(m_viewport.size(), 0);
+    if (!m_viewport.empty()) {
+        std::uint64_t stable = grid.viewportTopStable();
+        m_rowStable[0] = stable;
+        for (std::size_t row = 1; row < m_viewport.size(); ++row) {
+            if (!m_viewport[row].wrappedFromPrev) {
+                ++stable;
+            }
+            m_rowStable[row] = stable;
+        }
+    }
+
     render::FrameParams params;
     params.cols = grid.cols;
     params.highlights = m_highlights;
+    params.placements = grid.images.placements();
+    params.rowStable = m_rowStable;
+    params.images = &grid.images;
     params.selection = m_selection;
     params.cursor.visible = grid.viewOffset() == 0;  // hidden while scrolled back
     params.cursor.focused = hasActiveFocus();
@@ -1526,6 +1553,22 @@ void TerminalItem::rebuildFrame() {
     m_faces = render::shapeWithFallback(*m_pool, *m_fonts, m_runs, m_primaryFace, m_family,
                                         m_pxHeight, m_ligatures, m_shaped, shapeTimeout);
 
+    // OSC 66 (T84). Built on first sight of sized text and sized for the
+    // protocol's LARGEST scale, not the one that just arrived: the slot pitch
+    // is fixed at construction, so growing it later would invalidate every
+    // atlas coordinate already cached in a row.
+    if (m_sizedAtlas == nullptr) {
+        constexpr int kMaxTextScale = 7;  // OSC 66's s is 1-7 (cell.h)
+        const bool anySized =
+            std::ranges::any_of(m_runs, [](const render::Run& run) { return run.scale > 1; });
+        if (anySized) {
+            m_sizedAtlas =
+                std::make_unique<render::GlyphAtlas>(m_builder->metrics().cellWidth * kMaxTextScale,
+                                                     m_builder->cellHeight() * kMaxTextScale);
+        }
+    }
+    params.sizedAtlas = m_sizedAtlas.get();
+
     m_builder->build(m_viewport, grid.damage, params, m_raster, *m_atlas, [&](int row) {
         const auto range = m_rowRanges[static_cast<std::size_t>(row)];
         return render::FrameBuilder::RowRuns{
@@ -1538,6 +1581,29 @@ void TerminalItem::rebuildFrame() {
 
     m_frame.solids.assign(m_builder->solids().begin(), m_builder->solids().end());
     m_frame.glyphs.assign(m_builder->glyphs().begin(), m_builder->glyphs().end());
+    m_frame.images.assign(m_builder->images().begin(), m_builder->images().end());
+    m_frame.imageBatches.assign(m_builder->imageBatches().begin(), m_builder->imageBatches().end());
+    m_frame.belowBatchCount = m_builder->belowBatchCount();
+    m_frame.sizedGlyphs.assign(m_builder->sizedGlyphs().begin(), m_builder->sizedGlyphs().end());
+    if (m_sizedAtlas) {
+        m_frame.sizedAtlasWidth = m_sizedAtlas->width();
+        m_frame.sizedAtlasHeight = m_sizedAtlas->height();
+        // ACCUMULATE across rebuilds, like the main atlas range above: several
+        // rebuilds land per presented frame, and only the last one's flag would
+        // otherwise survive to synchronize().
+        if (m_sizedAtlas->dirty()) {
+            m_sizedAtlasDirty = true;
+            m_sizedAtlas->clearDirty();
+        }
+        // Growth DOUBLES the height, so every normalised v coordinate already
+        // cached in a row now points at half the texture it did. The main atlas
+        // does the same thing a few lines below and for the same reason; the
+        // sized one needs it just as much, because a row that is not rebuilt
+        // keeps sampling the wrong half for the rest of the session.
+        if (m_sizedAtlas->takeGrew()) {
+            m_builder->invalidate();
+        }
+    }
     appendComposition();
     m_frame.atlasWidth = m_atlas->width();
     m_frame.atlasHeight = m_atlas->height();
@@ -1563,6 +1629,16 @@ void TerminalItem::rebuildFrame() {
 
 const std::vector<std::uint8_t>* TerminalItem::atlasPixels() const {
     return m_atlas ? &m_atlas->pixels() : nullptr;
+}
+
+bool TerminalItem::takeSizedAtlasDirty() {
+    const bool was = m_sizedAtlasDirty;
+    m_sizedAtlasDirty = false;
+    return was;
+}
+
+const core::vt::ImageStore* TerminalItem::imageStore() const {
+    return m_session ? &m_session->grid().images : nullptr;
 }
 
 void TerminalItem::clearAtlasDirty() {
@@ -2101,6 +2177,46 @@ void TerminalRenderer::synchronize(QQuickRhiItem* item) {
         // rebuild is what lost the ranges of every rebuild but the last.
         term->clearAtlasDirty();
     }
+
+    // The sized-glyph atlas (T84). Handed over WHOLE, but only when a glyph was
+    // actually added: sized text is rare enough that a dirty-RANGE protocol
+    // would be more bookkeeping than the upload it saves, while re-sending it
+    // every frame would cost a megabyte a frame for a header line that never
+    // changes. A lost device does not need a re-handover — GpuResources keeps
+    // its own copy for exactly that, as it does for the main atlas.
+    if (const render::GlyphAtlas* sized = term->sizedAtlas();
+        sized != nullptr && term->takeSizedAtlasDirty()) {
+        m_gpu.setSizedAtlasPixels(sized->pixels(), sized->width(), sized->height());
+    }
+
+    // Images (T84). Handed over HERE for the same reason the atlas is: this is
+    // the one phase Qt runs with the GUI thread blocked, so the store cannot be
+    // mutated underneath us while we copy out of it.
+    if (const core::vt::ImageStore* store = term->imageStore()) {
+        // Upload only what this frame actually draws. Uploading the whole store
+        // would spend a texture on every picture that has scrolled out of view.
+        for (const render::ImageBatch& batch : m_frame.imageBatches) {
+            // Compared by SEQUENCE, not by "do we have this id". ImageStore's
+            // put() replaces an image in place, so an id we already hold can
+            // name completely different pixels — which is what kitty does every
+            // time it refreshes a plot under the same `i=`.
+            const std::uint64_t sequence = store->sequenceOf(batch.imageId);
+            if (sequence != 0 && m_gpu.imageSequence(batch.imageId) == sequence) {
+                continue;
+            }
+            if (const core::vt::Image* image = store->find(batch.imageId)) {
+                m_gpu.setImagePixels(batch.imageId, image->width, image->height, image->pixels,
+                                     sequence);
+            }
+        }
+        // Release what the store has evicted, so a long session does not hold a
+        // texture for every picture it has ever been sent.
+        for (const std::uint32_t id : m_gpu.imageIds()) {
+            if (store->find(id) == nullptr) {
+                m_gpu.dropImage(id);
+            }
+        }
+    }
 }
 
 void TerminalRenderer::initialize(QRhiCommandBuffer* cb) {
@@ -2112,6 +2228,7 @@ void TerminalRenderer::initialize(QRhiCommandBuffer* cb) {
             .solidFrag = loadShader(":/shaders/cell.frag.qsb"),
             .glyphVert = loadShader(":/shaders/glyph.vert.qsb"),
             .glyphFrag = loadShader(":/shaders/glyph.frag.qsb"),
+            .imageFrag = loadShader(":/shaders/image.frag.qsb"),
         });
         m_shadersLoaded = true;
     }

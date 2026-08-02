@@ -241,6 +241,38 @@ class Grid {
     // then as much of the live screen as still fits.
     std::vector<Line> viewportRows() const;
 
+    // --- Stable line identity for screen rows (T84) ---
+    //
+    // A graphics placement names a LOGICAL line, but it is created at a screen
+    // ROW and drawn at a viewport ROW, and the two spaces differ by one for
+    // every wrapped row between them. These two functions are the only
+    // conversion between them; anything computing it inline drifts.
+
+    // The stable index of the logical line that screen row `row` belongs to.
+    //
+    // NOT `linesEverStarted() + row`. That was the M5 formula and it is wrong
+    // whenever a row on screen carries wrappedFromPrev, because push()
+    // coalesces such a row onto the previous logical line instead of starting
+    // one — so the prediction over-counts by one per wrapped row, and the error
+    // ACCUMULATES as those rows retire. An image anchored that way slid one row
+    // further from its text every time a long line scrolled off.
+    std::uint64_t stableLineOfScreenRow(int screenRow) const;
+
+    // How many WRAPPED rows of that logical line sit above `screenRow` — 0 when
+    // the row starts its line. The companion to the above: the stable index
+    // says WHICH line, this says how far into it, and a graphics placement
+    // needs both or it draws at the top of a line it is in the middle of.
+    int rowOffsetInLine(int screenRow) const;
+
+    // The stable index of the logical line the TOP viewport row belongs to.
+    //
+    // Callers walk forward from here through the rows viewportRows() gave them,
+    // incrementing on each row that is not a wrap continuation. Deriving it
+    // from those rows rather than from a second model of the viewport is what
+    // keeps the two from disagreeing — the same rule the trigger highlights
+    // follow.
+    std::uint64_t viewportTopStable() const;
+
     // --- OSC 133 shell integration (T66) ---
     //
     // Marks live on the Line (line.h), never in a table keyed by row number.

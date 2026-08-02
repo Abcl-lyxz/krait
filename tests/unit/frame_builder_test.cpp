@@ -453,3 +453,336 @@ TEST_CASE("underline and strike emit decoration rects inside the row", "[frame]"
         CHECK(rect.y + rect.h <= 20.0F);  // never bleeds into the next row
     }
 }
+
+// --- T84: graphics placements ---
+
+namespace {
+
+// A viewport of blank lines plus the parallel stable-index vector a real caller
+// derives by walking them. No wrapped rows here, so it is one index per row.
+struct ImageFixture {
+    std::vector<Line> viewport;
+    std::vector<std::uint64_t> rowStable;
+    krait::core::vt::ImageStore store;
+
+    ImageFixture(int rows, int cols, std::uint64_t topStable) {
+        for (int r = 0; r < rows; ++r) {
+            viewport.emplace_back(cols);
+            rowStable.push_back(topStable + static_cast<std::uint64_t>(r));
+        }
+    }
+
+    void addImage(std::uint32_t id) {
+        krait::core::vt::Image image;
+        image.width = 4;
+        image.height = 4;
+        image.pixels.assign(16, 0xFF0000FFU);
+        store.put(id, std::move(image));
+    }
+
+    FrameParams params() const {
+        FrameParams out;
+        out.cols = 8;
+        out.cursor.visible = false;
+        out.placements = store.placements();
+        out.rowStable = rowStable;
+        out.images = &store;
+        return out;
+    }
+};
+
+}  // namespace
+
+TEST_CASE("frame: a placement draws at the viewport row its anchor names", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    ImageFixture fixture(4, 8, 100);
+    fixture.addImage(7);
+    REQUIRE(fixture.store.place({.imageId = 7, .anchor = 102, .col = 3, .cols = 2, .rows = 2}));
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    REQUIRE(builder.images().size() == 1);
+    const auto& quad = builder.images()[0];
+    // anchor 102 is viewport row 2 -> y = 2 * lineHeight; col 3 -> x = 3 * cellWidth.
+    CHECK(quad.x == 30.0F);
+    CHECK(quad.y == 40.0F);
+    CHECK(quad.w == 20.0F);  // 2 cells wide
+    CHECK(quad.h == 40.0F);  // 2 rows tall
+    // srcW/srcH left at 0 means the whole image, so the full uv range.
+    CHECK(quad.u0 == 0.0F);
+    CHECK(quad.v0 == 0.0F);
+    CHECK(quad.u1 == 1.0F);
+    CHECK(quad.v1 == 1.0F);
+}
+
+TEST_CASE("frame: a placement scrolled out of the viewport draws nothing", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    ImageFixture fixture(4, 8, 100);
+    fixture.addImage(1);
+    // Anchored above the viewport, whose rows are 100..103.
+    REQUIRE(fixture.store.place({.imageId = 1, .anchor = 40, .cols = 2, .rows = 2}));
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    CHECK(builder.images().empty());
+    CHECK(builder.imageBatches().empty());
+}
+
+TEST_CASE("frame: a negative zIndex batches before the text and a positive one after",
+          "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    ImageFixture fixture(4, 8, 0);
+    fixture.addImage(1);
+    fixture.addImage(2);
+    // Transmitted over-first, so the sort has something to do.
+    REQUIRE(fixture.store.place({.imageId = 2, .anchor = 1, .cols = 1, .rows = 1, .zIndex = 5}));
+    REQUIRE(fixture.store.place({.imageId = 1, .anchor = 0, .cols = 1, .rows = 1, .zIndex = -1}));
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    REQUIRE(builder.images().size() == 2);
+    REQUIRE(builder.imageBatches().size() == 2);
+    // The watermark sorts first and is the only batch drawn under the glyphs.
+    CHECK(builder.belowBatchCount() == 1);
+    CHECK(builder.imageBatches()[0].imageId == 1);
+    CHECK(builder.imageBatches()[1].imageId == 2);
+}
+
+TEST_CASE("frame: several placements of one image share a batch", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    ImageFixture fixture(4, 8, 0);
+    fixture.addImage(9);
+    // The kitty a=p case: one transmission, placed three times.
+    for (std::uint64_t row = 0; row < 3; ++row) {
+        REQUIRE(fixture.store.place({.imageId = 9, .anchor = row, .cols = 1, .rows = 1}));
+    }
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    CHECK(builder.images().size() == 3);
+    // One texture, so one draw call rather than three.
+    REQUIRE(builder.imageBatches().size() == 1);
+    CHECK(builder.imageBatches()[0].count == 3);
+    CHECK(builder.belowBatchCount() == 0);  // zIndex 0 draws over the text
+}
+
+TEST_CASE("frame: a placement whose pixels were evicted draws nothing", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    ImageFixture fixture(4, 8, 0);
+    fixture.addImage(3);
+    REQUIRE(fixture.store.place({.imageId = 3, .anchor = 1, .cols = 2, .rows = 2}));
+    fixture.store.erase(3);  // the image goes, and its placements with it
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    CHECK(builder.images().empty());
+}
+
+TEST_CASE("frame: a source rectangle normalises against the image size", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    ImageFixture fixture(4, 8, 0);
+    fixture.addImage(5);  // 4x4 pixels
+    // The bottom-right quadrant of it.
+    REQUIRE(fixture.store.place({.imageId = 5,
+                                 .anchor = 0,
+                                 .cols = 1,
+                                 .rows = 1,
+                                 .srcX = 2,
+                                 .srcY = 2,
+                                 .srcW = 2,
+                                 .srcH = 2}));
+
+    DamageList damage(4);
+    damage.markAll();
+    const FrameParams params = fixture.params();
+    builder.build(fixture.viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+
+    REQUIRE(builder.images().size() == 1);
+    const auto& quad = builder.images()[0];
+    CHECK(quad.u0 == 0.5F);
+    CHECK(quad.v0 == 0.5F);
+    CHECK(quad.u1 == 1.0F);
+    CHECK(quad.v1 == 1.0F);
+}
+
+TEST_CASE("frame: a scaled run draws from the SIZED atlas, not the main one", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    // What terminal_item builds: sized for the protocol's largest scale.
+    GlyphAtlas sized(kMetrics.cellWidth * 7, kMetrics.lineHeight * 7);
+    const auto raster = inkRaster();
+
+    std::vector<Line> viewport;
+    viewport.emplace_back(4);
+    viewport[0].cells[0].ch = U'A';
+    viewport[0].cells[0].attr.setScale(2);
+
+    std::vector<krait::render::Run> runs(1);
+    runs[0].row = 0;
+    runs[0].col = 0;
+    runs[0].scale = 2;
+    runs[0].text = U"A";
+    runs[0].clusters.push_back(krait::render::ClusterRef{.col = 0, .cells = 1, .len = 1});
+    std::vector<krait::render::ShapedRun> shaped(1);
+    shaped[0].glyphs.push_back(krait::render::ShapedGlyph{.glyphId = 42, .cluster = 0});
+    // What shapeWithFallback sets once the scaled re-shape actually succeeded.
+    shaped[0].scale = 2;
+    const std::vector<std::uint32_t> faces{0};
+
+    DamageList damage(1);
+    damage.markAll();
+    FrameParams params;
+    params.cols = 4;
+    params.cursor.visible = false;
+    params.sizedAtlas = &sized;
+
+    builder.build(viewport, damage, params, raster, atlas, [&](int) {
+        return FrameBuilder::RowRuns{.runs = runs, .shaped = shaped, .faces = faces};
+    });
+
+    // The glyph went to the sized list, and the main atlas was never asked.
+    CHECK(builder.glyphs().empty());
+    REQUIRE(builder.sizedGlyphs().size() == 1);
+    CHECK(atlas.residentGlyphs() == 0);
+    CHECK(sized.residentGlyphs() == 1);
+
+    // The block hangs DOWN from its row: the baseline is `scale` ascents below
+    // the row top, so a 2x glyph sits lower than a 1x one would.
+    const auto& inst = builder.sizedGlyphs()[0];
+    CHECK(inst.y > static_cast<float>(kMetrics.ascent));
+}
+
+TEST_CASE("frame: a scaled run with no sized atlas draws nothing rather than the wrong size",
+          "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    std::vector<Line> viewport;
+    viewport.emplace_back(4);
+    viewport[0].cells[0].ch = U'A';
+    viewport[0].cells[0].attr.setScale(3);
+
+    std::vector<krait::render::Run> runs(1);
+    runs[0].row = 0;
+    runs[0].scale = 3;
+    runs[0].text = U"A";
+    runs[0].clusters.push_back(krait::render::ClusterRef{.col = 0, .cells = 1, .len = 1});
+    std::vector<krait::render::ShapedRun> shaped(1);
+    shaped[0].glyphs.push_back(krait::render::ShapedGlyph{.glyphId = 42, .cluster = 0});
+    shaped[0].scale = 3;  // the re-shape succeeded; only the atlas is missing
+    const std::vector<std::uint32_t> faces{0};
+
+    DamageList damage(1);
+    damage.markAll();
+    FrameParams params;
+    params.cols = 4;
+    params.cursor.visible = false;
+    params.sizedAtlas = nullptr;  // no sized text was expected
+
+    builder.build(viewport, damage, params, raster, atlas, [&](int) {
+        return FrameBuilder::RowRuns{.runs = runs, .shaped = shaped, .faces = faces};
+    });
+
+    // Drawing it at 1x out of the main atlas would put a normal-sized glyph
+    // where the layout reserved a 3x block, which is worse than a gap.
+    CHECK(builder.glyphs().empty());
+    CHECK(builder.sizedGlyphs().empty());
+}
+
+TEST_CASE("frame: a scaled run whose reshape FAILED draws at 1x from the main atlas",
+          "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    GlyphAtlas sized(kMetrics.cellWidth * 7, kMetrics.lineHeight * 7);
+    const auto raster = inkRaster();
+
+    std::vector<Line> viewport;
+    viewport.emplace_back(4);
+    viewport[0].cells[0].ch = U'A';
+    viewport[0].cells[0].attr.setScale(4);
+
+    std::vector<krait::render::Run> runs(1);
+    runs[0].row = 0;
+    runs[0].scale = 4;  // what the cell ASKED for
+    runs[0].text = U"A";
+    runs[0].clusters.push_back(krait::render::ClusterRef{.col = 0, .cells = 1, .len = 1});
+    std::vector<krait::render::ShapedRun> shaped(1);
+    shaped[0].glyphs.push_back(krait::render::ShapedGlyph{.glyphId = 42, .cluster = 0});
+    // ...and 1 is what actually happened: the face would not load at 4x, or the
+    // batch timed out, so shapeWithFallback left the 1x shaping in place.
+    shaped[0].scale = 1;
+    const std::vector<std::uint32_t> faces{0};
+
+    DamageList damage(1);
+    damage.markAll();
+    FrameParams params;
+    params.cols = 4;
+    params.cursor.visible = false;
+    params.sizedAtlas = &sized;
+
+    builder.build(viewport, damage, params, raster, atlas, [&](int) {
+        return FrameBuilder::RowRuns{.runs = runs, .shaped = shaped, .faces = faces};
+    });
+
+    // Routing on run.scale would put this 1x glyph in a scale-7 slot — evicting
+    // real sized glyphs — and draw it four rows too low.
+    REQUIRE(builder.glyphs().size() == 1);
+    CHECK(builder.sizedGlyphs().empty());
+    CHECK(atlas.residentGlyphs() == 1);
+    CHECK(sized.residentGlyphs() == 0);
+    // On the ordinary baseline, not a scaled one.
+    CHECK(builder.glyphs()[0].y < static_cast<float>(kMetrics.ascent));
+}
+
+TEST_CASE("frame: no image store means no image work at all", "[frame][t84]") {
+    FrameBuilder builder(kMetrics, Theme{});
+    GlyphAtlas atlas(kMetrics.cellWidth, kMetrics.lineHeight);
+    const auto raster = inkRaster();
+
+    std::vector<Line> viewport;
+    viewport.emplace_back(4);
+    DamageList damage(1);
+    damage.markAll();
+    FrameParams params;
+    params.cols = 4;
+    params.cursor.visible = false;
+
+    builder.build(viewport, damage, params, raster, atlas, [](int) { return noRuns(); });
+    CHECK(builder.images().empty());
+    CHECK(builder.imageBatches().empty());
+    CHECK(builder.belowBatchCount() == 0);
+}

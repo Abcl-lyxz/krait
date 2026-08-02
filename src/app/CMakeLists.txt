@@ -75,6 +75,7 @@ qt_add_shaders(krait-app "krait-spike-shaders"
         ../render/shaders/cell.frag
         ../render/shaders/glyph.vert
         ../render/shaders/glyph.frag
+        ../render/shaders/image.frag
     OUTPUTS
         triangle.vert.qsb
         triangle.frag.qsb
@@ -84,6 +85,7 @@ qt_add_shaders(krait-app "krait-spike-shaders"
         cell.frag.qsb
         glyph.vert.qsb
         glyph.frag.qsb
+        image.frag.qsb
 )
 
 # The generated qmltyperegistrations includes module headers by basename.
