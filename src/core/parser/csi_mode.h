@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 
 namespace krait::core::vt {
 
@@ -25,7 +26,20 @@ namespace krait::core::vt {
 // Modes 47 and 1047 (the older alt-screen spellings, which differ in clear and
 // save-cursor behavior) are deliberately not implemented — nothing modern emits
 // them without 1049.
+// `reply` receives a sequence to send back, and is only ever written by mode
+// 2048 — whose spec requires the current size to be reported the moment the
+// mode is enabled. Every other mode here is silent, so this stays an
+// out-parameter rather than a return value that would almost always mean
+// "nothing". May be null when the caller has nowhere to send a reply.
+//
+// NOT noexcept, unlike handleErase and handleScroll, and the reply is why:
+// building it allocates. The first draft kept noexcept and argued that a failed
+// thirty-byte allocation is a dead process anyway — clang-tidy's
+// bugprone-exception-escape is a GATED check here and disagreed, correctly. A
+// noexcept function that can throw does not report the failure, it calls
+// terminate, and that is not a trade worth making to keep three signatures
+// looking alike.
 bool handleMode(Grid& grid, const Params& params, std::span<const std::uint8_t> intermediates,
-                std::uint8_t final) noexcept;
+                std::uint8_t final, std::string* reply = nullptr);
 
 }  // namespace krait::core::vt

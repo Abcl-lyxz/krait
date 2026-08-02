@@ -356,6 +356,240 @@
     </message>
 </context>
 <context>
+    <name>ThemeGallery</name>
+    <message>
+        <source> copy</source>
+        <translation> สำเนา</translation>
+    </message>
+    <message>
+        <source>Give the theme a name before saving it.</source>
+        <translation>ตั้งชื่อธีมก่อนบันทึก</translation>
+    </message>
+    <message>
+        <source>That theme could not be saved.</source>
+        <translation>บันทึกธีมนี้ไม่ได้</translation>
+    </message>
+    <message>
+        <source>Saved %1.</source>
+        <translation>บันทึก %1 แล้ว</translation>
+    </message>
+    <message>
+        <source>Import a colour scheme</source>
+        <translation>นำเข้าชุดสี</translation>
+    </message>
+    <message>
+        <source>Colour schemes (*.itermcolors *.json *.yaml *.yml *.toml)</source>
+        <translation>ชุดสี (*.itermcolors *.json *.yaml *.yml *.toml)</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>ไฟล์ทั้งหมด (*)</translation>
+    </message>
+    <message>
+        <source>That colour scheme could not be imported.</source>
+        <translation>นำเข้าชุดสีนี้ไม่ได้</translation>
+    </message>
+    <message>
+        <source>Imported %1.</source>
+        <translation>นำเข้า %1 แล้ว</translation>
+    </message>
+    <message>
+        <source>Themes</source>
+        <translation>ธีม</translation>
+    </message>
+    <message>
+        <source>· edited, not saved</source>
+        <translation>· แก้ไขแล้ว ยังไม่ได้บันทึก</translation>
+    </message>
+    <message>
+        <source>Built in · dark</source>
+        <translation>มากับโปรแกรม · มืด</translation>
+    </message>
+    <message>
+        <source>Built in · light</source>
+        <translation>มากับโปรแกรม · สว่าง</translation>
+    </message>
+    <message>
+        <source>in use</source>
+        <translation>กำลังใช้</translation>
+    </message>
+    <message>
+        <source>Save as…</source>
+        <translation>บันทึกเป็น…</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>บันทึก</translation>
+    </message>
+    <message>
+        <source>Revert</source>
+        <translation>ย้อนกลับ</translation>
+    </message>
+    <message>
+        <source>Import…</source>
+        <translation>นำเข้า…</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>ปิด</translation>
+    </message>
+</context>
+<context>
+    <name>ThemeModel</name>
+    <message>
+        <source>Background</source>
+        <translation>พื้นหลัง</translation>
+    </message>
+    <message>
+        <source>Terminal</source>
+        <translation>เทอร์มินัล</translation>
+    </message>
+    <message>
+        <source>Foreground</source>
+        <translation>สีตัวอักษร</translation>
+    </message>
+    <message>
+        <source>Cursor</source>
+        <translation>เคอร์เซอร์</translation>
+    </message>
+    <message>
+        <source>Cursor text</source>
+        <translation>ตัวอักษรใต้เคอร์เซอร์</translation>
+    </message>
+    <message>
+        <source>Selection</source>
+        <translation>ส่วนที่เลือก</translation>
+    </message>
+    <message>
+        <source>Search highlight</source>
+        <translation>เน้นผลค้นหา</translation>
+    </message>
+    <message>
+        <source>Black</source>
+        <translation>ดำ</translation>
+    </message>
+    <message>
+        <source>Red</source>
+        <translation>แดง</translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation>เขียว</translation>
+    </message>
+    <message>
+        <source>Yellow</source>
+        <translation>เหลือง</translation>
+    </message>
+    <message>
+        <source>Blue</source>
+        <translation>น้ำเงิน</translation>
+    </message>
+    <message>
+        <source>Magenta</source>
+        <translation>ม่วงแดง</translation>
+    </message>
+    <message>
+        <source>Cyan</source>
+        <translation>ฟ้าน้ำทะเล</translation>
+    </message>
+    <message>
+        <source>White</source>
+        <translation>ขาว</translation>
+    </message>
+    <message>
+        <source>Bright black</source>
+        <translation>ดำสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright red</source>
+        <translation>แดงสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright green</source>
+        <translation>เขียวสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright yellow</source>
+        <translation>เหลืองสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright blue</source>
+        <translation>น้ำเงินสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright magenta</source>
+        <translation>ม่วงแดงสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright cyan</source>
+        <translation>ฟ้าน้ำทะเลสว่าง</translation>
+    </message>
+    <message>
+        <source>Bright white</source>
+        <translation>ขาวสว่าง</translation>
+    </message>
+    <message>
+        <source>Window</source>
+        <translation>หน้าต่าง</translation>
+    </message>
+    <message>
+        <source>Interface</source>
+        <translation>ส่วนติดต่อผู้ใช้</translation>
+    </message>
+    <message>
+        <source>Bars and panels</source>
+        <translation>แถบและแผง</translation>
+    </message>
+    <message>
+        <source>Buttons and tabs</source>
+        <translation>ปุ่มและแท็บ</translation>
+    </message>
+    <message>
+        <source>Popups</source>
+        <translation>หน้าต่างลอย</translation>
+    </message>
+    <message>
+        <source>Borders</source>
+        <translation>เส้นขอบ</translation>
+    </message>
+    <message>
+        <source>Selected row</source>
+        <translation>แถวที่เลือก</translation>
+    </message>
+    <message>
+        <source>Text</source>
+        <translation>ข้อความ</translation>
+    </message>
+    <message>
+        <source>Secondary text</source>
+        <translation>ข้อความรอง</translation>
+    </message>
+    <message>
+        <source>Hint text</source>
+        <translation>ข้อความคำใบ้</translation>
+    </message>
+    <message>
+        <source>Accent</source>
+        <translation>สีเน้น</translation>
+    </message>
+    <message>
+        <source>Success</source>
+        <translation>สำเร็จ</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation>คำเตือน</translation>
+    </message>
+    <message>
+        <source>Danger</source>
+        <translation>อันตราย</translation>
+    </message>
+    <message>
+        <source>Dimming</source>
+        <translation>การหรี่แสง</translation>
+    </message>
+</context>
+<context>
     <name>krait::app</name>
     <message>
         <source>New session</source>
@@ -452,6 +686,14 @@
     <message>
         <source>Settings</source>
         <translation>การตั้งค่า</translation>
+    </message>
+    <message>
+        <source>Themes</source>
+        <translation>ธีม</translation>
+    </message>
+    <message>
+        <source>Import a colour scheme</source>
+        <translation>นำเข้าชุดสี</translation>
     </message>
     <message>
         <source>Reload settings from disk</source>
@@ -819,6 +1061,48 @@
     <message>
         <source>A command finished after %1 s.</source>
         <translation>คำสั่งทำงานเสร็จหลังผ่านไป %1 วินาที</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::ThemeModel</name>
+    <message>
+        <source>Palette</source>
+        <translation>ชุดสี</translation>
+    </message>
+    <message>
+        <source>The theme system is not running.</source>
+        <translation>ระบบธีมไม่ทำงาน</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::theme::ThemeStore</name>
+    <message>
+        <source>%1: %2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>No themes directory is configured.</source>
+        <translation>ยังไม่ได้ตั้งค่าโฟลเดอร์ธีม</translation>
+    </message>
+    <message>
+        <source>A theme needs a name.</source>
+        <translation>ธีมต้องมีชื่อ</translation>
+    </message>
+    <message>
+        <source>&quot;%1&quot; is a built-in theme. Save it under a different name.</source>
+        <translation>&quot;%1&quot; เป็นธีมที่มากับโปรแกรม บันทึกด้วยชื่ออื่น</translation>
+    </message>
+    <message>
+        <source>Could not create %1.</source>
+        <translation>สร้าง %1 ไม่ได้</translation>
+    </message>
+    <message>
+        <source>%1 is too large to be a colour scheme.</source>
+        <translation>%1 ใหญ่เกินกว่าจะเป็นชุดสี</translation>
+    </message>
+    <message>
+        <source>No colour scheme in this file.</source>
+        <translation>ไม่พบชุดสีในไฟล์นี้</translation>
     </message>
 </context>
 <context>

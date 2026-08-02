@@ -3,6 +3,7 @@
 #include "core/grid/cell.h"
 #include "core/grid/cluster_pool.h"
 #include "core/grid/damage.h"
+#include "core/grid/images.h"
 #include "core/grid/line.h"
 #include "core/grid/scrollback.h"
 #include "core/grid/sync_output.h"
@@ -92,6 +93,33 @@ class Grid {
     // Mode 2026, synchronized output. See sync_output.h for why the guard's
     // clock is supplied by the caller rather than read here.
     SyncOutput sync;
+
+    // Mode 2048, in-band resize notification (T82). Same shape as the input
+    // modes above: state the core owns, read by whoever handles the resize.
+    //
+    // The spec is explicit that enabling it MUST immediately report the current
+    // size — an application turns it on precisely so it can stop guessing, and
+    // making it wait for the next resize means it guesses once more.
+    bool inBandResize = false;
+
+    // Mode 2031, colour-palette update notification (T83). The terminal reports
+    // light-versus-dark when the THEME changes, which is a fact only the app
+    // layer has — so the core owns the switch and never the notification.
+    bool paletteUpdates = false;
+
+    // Sixel and kitty graphics (M5 T79/T80). On the Grid rather than beside it
+    // for the same reason OSC 133's marks are on the Line: placements are
+    // anchored into scrollback's stable index space, and the only thing that
+    // knows when a line is evicted is the thing that evicted it.
+    ImageStore images;
+
+    // Cell size in device pixels, supplied by the renderer. src/core/ has no
+    // font and no window (rules/vt-core.md), so this is the only way a reply
+    // that must carry pixels can carry honest ones — mode 2048's report is the
+    // first. Left at 0 the pixel fields report 0, which the spec allows in as
+    // many words ("or 0 if not supported").
+    int cellWidthPx = 0;
+    int cellHeightPx = 0;
 
     // The integrator's monotonic millisecond stamp, refreshed before each fed
     // chunk. src/core/ reads no clock (rules/vt-core.md: zero OS deps, and

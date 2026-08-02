@@ -39,7 +39,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "#0d0f17"
+        color: Theme.bg
     }
 
     Column {
@@ -52,7 +52,7 @@ Item {
             spacing: 12
 
             Text {
-                color: "#e6e9f0"
+                color: Theme.text
                 font.pixelSize: 18
                 text: qsTr("Settings")
             }
@@ -60,7 +60,7 @@ Item {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - 200
-                color: "#5b6478"
+                color: Theme.textFaint
                 text: settings.path
                 elide: Text.ElideMiddle
             }
@@ -71,7 +71,7 @@ Item {
         Text {
             width: parent.width
             visible: settings.readOnly
-            color: "#e5a13a"
+            color: Theme.warning
             wrapMode: Text.Wrap
             text: qsTr("This file was written by a newer version of Krait, so changes will not be saved. Update Krait, or edit the file by hand.")
         }
@@ -79,7 +79,7 @@ Item {
         TextInput {
             id: field
             width: parent.width
-            color: "#e6e9f0"
+            color: Theme.text
             font.pixelSize: 15
             selectByMouse: true
             onTextChanged: settings.query = text
@@ -88,7 +88,7 @@ Item {
             Text {
                 anchors.fill: parent
                 visible: field.text.length === 0
-                color: "#5b6478"
+                color: Theme.textFaint
                 font: field.font
                 // Thai ships as a first-class locale and the schema carries
                 // Thai keywords, so searching in Thai genuinely works.
@@ -99,7 +99,7 @@ Item {
         Rectangle {
             width: parent.width
             height: 1
-            color: "#2c3242"
+            color: Theme.border
         }
 
         ListView {
@@ -117,14 +117,14 @@ Item {
                 spacing: 2
 
                 Text {
-                    color: "#e6e9f0"
+                    color: Theme.text
                     font.pixelSize: 14
                     text: row.modelData.id
                 }
 
                 Text {
                     width: row.width
-                    color: "#5b6478"
+                    color: Theme.textFaint
                     wrapMode: Text.Wrap
                     text: row.modelData.doc
                 }
@@ -146,7 +146,7 @@ Item {
     Component {
         id: boolEditor
         Text {
-            color: "#9ecbff"
+            color: Theme.accent
             text: rowData.value ? qsTr("on") : qsTr("off")
             MouseArea {
                 anchors.fill: parent
@@ -163,7 +163,7 @@ Item {
                 model: rowData.choices
                 delegate: Text {
                     required property string modelData
-                    color: modelData === String(rowData.value) ? "#9ecbff" : "#5b6478"
+                    color: modelData === String(rowData.value) ? Theme.accent : Theme.textFaint
                     text: modelData
                     MouseArea {
                         anchors.fill: parent
@@ -177,7 +177,7 @@ Item {
     Component {
         id: textEditor
         TextInput {
-            color: "#9ecbff"
+            color: Theme.accent
             text: String(rowData.value)
             selectByMouse: true
             // On editing finished, not on every keystroke: the registry

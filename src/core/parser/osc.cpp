@@ -14,6 +14,25 @@ int base64Value(char ch) {
     return at == std::string_view::npos ? -1 : static_cast<int>(at);
 }
 
+// A palette index, 0-255. -1 for anything else — including an empty field, a
+// negative sign, and 256. Hand-rolled rather than from_chars because the whole
+// rule is "digits only, and in range": from_chars would accept "12x" by
+// stopping at the x, and a colour applied to entry 12 because the sender meant
+// something else is worse than one not applied at all.
+int parseIndex(std::string_view text) {
+    if (text.empty() || text.size() > 3) {
+        return -1;
+    }
+    int value = 0;
+    for (const char ch : text) {
+        if (ch < '0' || ch > '9') {
+            return -1;
+        }
+        value = value * 10 + (ch - '0');
+    }
+    return value <= 255 ? value : -1;
+}
+
 // Splits at the first `sep`, handing the remainder back through `rest`. OSC
 // parameter strings are positional, and a URI legitimately contains characters
 // that look like separators, so only the leading fields are split this way.
@@ -88,6 +107,172 @@ bool isSecondaryPrompt(std::string_view params) {
 // that adds an extension, and losing a prompt boundary the user can see because
 // a shell learned a new key is the worse failure. `k=` is NOT in that category
 // and is read above; it changes what the command means.
+// OSC 4 ; index ; spec  and  OSC 104 [; index ...]  (T83).
+//
+// The wire form takes a LIST of index/spec pairs — `OSC 4;1;red;2;green` is
+// legal and xterm honours all of it. This reports only the FIRST pair, because
+// OscAction carries one action and growing it into a list would cost every
+// other OSC a vector it never fills. Nothing in the wild sends more than one
+// pair per sequence; if something does, the rest is dropped rather than
+// misapplied, which is the safe direction for a colour.
+OscAction parsePaletteColor(std::string_view rest, bool reset) {
+    OscAction action;
+    action.slot = OscAction::ColorSlot::Palette;
+
+    if (reset) {
+        action.kind = OscAction::Kind::ColorReset;
+        // A BARE OSC 104 resets the whole palette; with an index it resets one.
+        // -1 already means "all", so an empty payload needs nothing done to it.
+        if (!rest.empty()) {
+            std::string_view tail;
+            const std::string_view first = upTo(rest, ';', &tail);
+            const int index = parseIndex(first);
+            if (index < 0) {
+                return {};  // "OSC 104 ; garbage" names nothing; do nothing
+            }
+            action.colorIndex = index;
+        }
+        return action;
+    }
+
+    std::string_view spec;
+    const std::string_view indexText = upTo(rest, ';', &spec);
+    const int index = parseIndex(indexText);
+    if (index < 0) {
+        return {};
+    }
+    action.colorIndex = index;
+    // A second `;` would begin the next pair, which is dropped — see above.
+    std::string_view ignored;
+    spec = upTo(spec, ';', &ignored);
+    if (spec == "?") {
+        action.kind = OscAction::Kind::ColorQuery;
+        return action;
+    }
+    if (spec.empty()) {
+        return {};
+    }
+    action.kind = OscAction::Kind::ColorSet;
+    action.text = std::string(spec);
+    return action;
+}
+
+// OSC 10/11/12 ; spec — the foreground, background and cursor colours.
+//
+// xterm reads these as a LIST too, where a second value means the NEXT dynamic
+// colour (so `OSC 10;fg;bg` sets both). Same call as above: one action per
+// sequence, remainder dropped rather than half-applied.
+OscAction parseDynamicColor(OscAction::ColorSlot slot, std::string_view rest) {
+    std::string_view ignored;
+    const std::string_view spec = upTo(rest, ';', &ignored);
+
+    OscAction action;
+    action.slot = slot;
+    if (spec == "?") {
+        action.kind = OscAction::Kind::ColorQuery;
+        return action;
+    }
+    if (spec.empty()) {
+        return {};
+    }
+    action.kind = OscAction::Kind::ColorSet;
+    action.text = std::string(spec);
+    return action;
+}
+
+// OSC 66 ; <metadata> ; <text> ST — kitty's text-sizing protocol (T81).
+//
+// Metadata is COLON-separated key=value pairs, which is the one thing to get
+// right here: every other OSC in this file separates with ';', and ';' is what
+// separates the metadata from the TEXT. Reading colons as semicolons would
+// truncate the payload at the first metadata field.
+//
+// Keys, with the protocol's ranges:
+//   s  1-7   scale; the text is drawn in a block s*w wide and s cells tall
+//   w  0-7   width in cells; 0 means "as many as the text measures"
+//   n  0-15  fractional-scale numerator
+//   d  0-15  denominator, which must be > n when non-zero
+//   v  0-2   vertical alignment for fractional scaling
+//   h  0-2   horizontal alignment
+//
+// A field outside its range makes the WHOLE sequence a no-op rather than being
+// clamped. This is the one OSC that writes TEXT onto the grid, and a clamped
+// scale would lay it out at a size the sender did not choose and has no way to
+// detect — worse than nothing appearing, which at least gets noticed.
+OscAction parseSizedText(std::string_view rest) {
+    std::string_view text;
+    const std::string_view metadata = upTo(rest, ';', &text);
+
+    OscAction action;
+    action.kind = OscAction::Kind::SizedText;
+    action.text = std::string(text);
+
+    std::string_view remaining = metadata;
+    while (!remaining.empty()) {
+        std::string_view tail;
+        const std::string_view field = upTo(remaining, ':', &tail);
+        remaining = tail;
+        if (field.size() < 3 || field[1] != '=') {
+            continue;  // keys are one character, and a bare key sets nothing
+        }
+        const int value = parseIndex(field.substr(2));
+        if (value < 0) {
+            return {};  // not a number at all
+        }
+        switch (field[0]) {
+        case 's':
+            if (value < 1 || value > 7) {
+                return {};
+            }
+            action.scale = value;
+            break;
+        case 'w':
+            if (value > 7) {
+                return {};
+            }
+            action.widthCells = value;
+            break;
+        case 'n':
+            if (value > 15) {
+                return {};
+            }
+            action.numerator = value;
+            break;
+        case 'd':
+            if (value > 15) {
+                return {};
+            }
+            action.denominator = value;
+            break;
+        case 'v':
+            if (value > 2) {
+                return {};
+            }
+            action.verticalAlign = value;
+            break;
+        case 'h':
+            if (value > 2) {
+                return {};
+            }
+            action.horizontalAlign = value;
+            break;
+        default:
+            break;  // an unknown key is skipped, as every other OSC here does
+        }
+    }
+    // "Must be > n when non-zero". A denominator that is not is a sender that
+    // means something the protocol cannot express.
+    if (action.denominator != 0 && action.denominator <= action.numerator) {
+        return {};
+    }
+    // Empty text is not an error and not an action: there is nothing to draw
+    // and nothing to reserve.
+    if (action.text.empty()) {
+        return {};
+    }
+    return action;
+}
+
 OscAction parseShellIntegration(std::string_view rest) {
     std::string_view params;
     const std::string_view command = upTo(rest, ';', &params);
@@ -264,6 +449,10 @@ OscAction OscHandler::end(bool aborted) {
         return action;
     }
 
+    if (code == "66") {
+        return parseSizedText(rest);
+    }
+
     if (code == "133") {
         return parseShellIntegration(rest);
     }
@@ -272,9 +461,26 @@ OscAction OscHandler::end(bool aborted) {
         return parseProgress(rest);
     }
 
-    // Everything else is honest silence. OSC 4 (palette), 10/11 (fg/bg) and 7
-    // (cwd) are later milestones, and acting on them now would claim behavior
-    // that does not exist.
+    if (code == "4" || code == "104") {
+        return parsePaletteColor(rest, code == "104");
+    }
+    if (code == "10" || code == "11" || code == "12") {
+        const auto slot = code == "10"   ? OscAction::ColorSlot::Foreground
+                          : code == "11" ? OscAction::ColorSlot::Background
+                                         : OscAction::ColorSlot::Cursor;
+        return parseDynamicColor(slot, rest);
+    }
+    if (code == "110" || code == "111" || code == "112") {
+        OscAction action;
+        action.kind = OscAction::Kind::ColorReset;
+        action.slot = code == "110"   ? OscAction::ColorSlot::Foreground
+                      : code == "111" ? OscAction::ColorSlot::Background
+                                      : OscAction::ColorSlot::Cursor;
+        return action;
+    }
+
+    // Everything else is honest silence. OSC 7 (cwd) is a later milestone, and
+    // acting on it now would claim behavior that does not exist.
     return {};
 }
 

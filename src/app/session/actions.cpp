@@ -71,6 +71,15 @@ constexpr std::array kActions = {
     Action{"sessions.import.mremoteng", "Import connections from mRemoteNG", "",
            "migrate confcons xml"},
     Action{"settings.open", "Settings", "Ctrl+,", "preferences options config"},
+    // T77. Palette-only, deliberately. rules/ui.md allows that ("an action may
+    // be palette-only, but never mouse-only") and every mnemonic key here is
+    // already spoken for — Ctrl+Shift+T is a new tab, which is what every
+    // browser on the machine trained. Taking a key from a daily action to give
+    // it to one people use twice a year is the wrong trade.
+    Action{"themes.open", "Themes", "",
+           "theme themes colour color scheme palette dark light appearance gallery"},
+    Action{"themes.import", "Import a colour scheme", "",
+           "theme import iterm2 itermcolors windows terminal base16 yaml json scheme"},
     Action{"settings.reload", "Reload settings from disk", "", "refresh config"},
     Action{"edit.copy", "Copy", "Ctrl+Shift+C", "clipboard selection"},
     Action{"edit.paste", "Paste", "Ctrl+Shift+V", "clipboard insert"},

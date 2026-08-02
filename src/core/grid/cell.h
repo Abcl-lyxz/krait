@@ -72,6 +72,20 @@ struct Attr {
         kStrike = 1U << 7,
     };
 
+    // Text sizing (OSC 66, M5 T81) lives in the SPARE BITS of `flags` rather
+    // than in a field of its own, and that is the whole reason it fits: Cell is
+    // the scrollback storage unit, its size IS the memory bound, and the
+    // static_assert below pins it at 20 bytes. Bit 3 came free when underline
+    // became a style in T17, and bits 8-15 were never used — nine spare bits
+    // for six bits of need, at the 10k-line cap without one byte more.
+    //
+    // scale is 1-7 (0 means unset, which reads as 1); width is 0-7, where 0
+    // means "as many cells as the text measures", per the protocol.
+    static constexpr std::uint16_t kScaleShift = 8;
+    static constexpr std::uint16_t kScaleMask = 0x0700;  // bits 8-10
+    static constexpr std::uint16_t kWidthShift = 11;
+    static constexpr std::uint16_t kWidthMask = 0x3800;  // bits 11-13
+
     std::uint16_t flags = 0;
     Underline underline = Underline::None;
     Color fg;
@@ -80,6 +94,30 @@ struct Attr {
     // requires a SET underline color to survive reverse video unchanged, and
     // only an unset one to track fg — so this cannot collapse into fg.
     Color ul;
+
+    // OSC 66's scale, 1-7. Reads 1 when unset, so every cell written before
+    // T81 and every cell written by ordinary text answers "normal size"
+    // without anything having to set it.
+    constexpr int scale() const noexcept {
+        const int stored = (flags & kScaleMask) >> kScaleShift;
+        return stored == 0 ? 1 : stored;
+    }
+
+    constexpr void setScale(int value) noexcept {
+        flags = static_cast<std::uint16_t>(
+            (flags & ~kScaleMask) |
+            ((static_cast<std::uint16_t>(value) << kScaleShift) & kScaleMask));
+    }
+
+    // OSC 66's w, 0-7. 0 means the text takes as many cells as it measures,
+    // which is the default and the common case.
+    constexpr int sizeWidth() const noexcept { return (flags & kWidthMask) >> kWidthShift; }
+
+    constexpr void setSizeWidth(int value) noexcept {
+        flags = static_cast<std::uint16_t>(
+            (flags & ~kWidthMask) |
+            ((static_cast<std::uint16_t>(value) << kWidthShift) & kWidthMask));
+    }
 
     friend bool operator==(const Attr&, const Attr&) = default;
 };

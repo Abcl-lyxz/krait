@@ -22,6 +22,7 @@ enum class State : std::uint8_t {
     DcsIgnore,
     OscString,
     SosPmApcString,
+    ApcString,
 };
 
 // The 14 actions of the same spec. None marks a pure transition; entry/exit
@@ -42,6 +43,9 @@ enum class Action : std::uint8_t {
     OscStart,
     OscPut,
     OscEnd,
+    ApcStart,
+    ApcPut,
+    ApcEnd,
 };
 
 struct Entry {
@@ -49,7 +53,7 @@ struct Entry {
     State next;  // == current state for "stay" entries
 };
 
-inline constexpr std::size_t kStateCount = 14;
+inline constexpr std::size_t kStateCount = 15;
 using Row = std::array<Entry, 256>;
 
 // Table generated at compile time from the spec's byte-range rules — the
@@ -113,7 +117,11 @@ constexpr std::array<Row, kStateCount> build() {
         r[0x5B] = {Action::None, State::CsiEntry};
         r[0x5D] = {Action::None, State::OscString};
         r[0x5E] = {Action::None, State::SosPmApcString};
-        r[0x5F] = {Action::None, State::SosPmApcString};
+        // ESC _ is APC, which kitty's graphics protocol rides (T80). SOS
+        // (0x58) and PM (0x5E) above stay in the ignore state: nothing
+        // implements them, and giving them a payload would mean buffering
+        // remote bytes for a protocol nobody speaks.
+        r[0x5F] = {Action::None, State::ApcString};
         r[0x7F] = {Action::Ignore, State::Escape};
     }
     {
@@ -190,6 +198,12 @@ constexpr std::array<Row, kStateCount> build() {
         fill(r, 0x20, 0x7E, Action::Put, State::DcsPassthrough);
         r[0x7F] = {Action::Ignore, State::DcsPassthrough};
         fill(r, 0x80, 0xFF, Action::Put, State::DcsPassthrough);  // raw UTF-8
+    }
+    {
+        Row& r = row(State::ApcString);           // entry: apc_start, exit: apc_end
+        r[0x07] = {Action::None, State::Ground};  // same BEL deviation as OSC
+        fill(r, 0x20, 0x7F, Action::ApcPut, State::ApcString);
+        fill(r, 0x80, 0xFF, Action::ApcPut, State::ApcString);  // raw base64/UTF-8
     }
     {
         Row& r = row(State::OscString);           // entry: osc_start, exit: osc_end

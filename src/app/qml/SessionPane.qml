@@ -378,7 +378,7 @@ Item {
             width: parent.width
             visible: tab.showTunnels && tab.terminal && tab.terminal.tunnels.length > 0
             height: visible ? tunnelRows.implicitHeight + 12 : 0
-            color: "#12141c"
+            color: Theme.surface
 
             Column {
                 id: tunnelRows
@@ -398,13 +398,13 @@ Item {
                             // TunnelState in forward_manager.h. A dot rather
                             // than a word so the row stays scannable.
                             text: "●"
-                            color: modelData.state === 3 ? "#f38ba8"
-                                 : modelData.state === 2 ? "#a6e3a1"
-                                 : modelData.state === 1 ? "#7c869e" : "#f9e2af"
+                            color: modelData.state === 3 ? Theme.danger
+                                 : modelData.state === 2 ? Theme.success
+                                 : modelData.state === 1 ? Theme.textDim : Theme.warning
                         }
                         Text {
                             text: modelData.label
-                            color: "#e6e9f0"
+                            color: Theme.text
                             font.family: "Cascadia Mono"
                             textFormat: Text.PlainText
                         }
@@ -415,7 +415,7 @@ Item {
                                   ? modelData.detail
                                   : qsTr("%1 open, %2 total").arg(modelData.connections)
                                                              .arg(modelData.total)
-                            color: modelData.state === 3 ? "#f38ba8" : "#7c869e"
+                            color: modelData.state === 3 ? Theme.danger : Theme.textDim
                             textFormat: Text.PlainText
                         }
                     }
@@ -476,7 +476,7 @@ Item {
                      && (tab.terminal.logging || tab.terminal.copyMode)
             // TODO(theme): tokens once the theme system exists (M5). Matched to
             // the snippet and tunnel strips so they read as one application.
-            color: "#12141c"
+            color: Theme.surface
             height: visible ? statusRow.implicitHeight + 10 : 0
 
             Row {
@@ -492,7 +492,7 @@ Item {
                     // terminal whose mode you have to look up is one people
                     // press Escape out of and never use again.
                     text: qsTr("COPY MODE — hjkl move, w/b/e words, v select, y yank, Esc leave")
-                    color: "#f9e2af"
+                    color: Theme.warning
                     textFormat: Text.PlainText
                 }
 
@@ -501,7 +501,7 @@ Item {
                     // The path, every time. "Logging" alone does not answer the
                     // question anyone actually has, which is WHICH file.
                     text: qsTr("● Logging to %1").arg(tab.terminal ? tab.terminal.logPath : "")
-                    color: "#f38ba8"
+                    color: Theme.danger
                     textFormat: Text.PlainText
                     elide: Text.ElideMiddle
                     width: Math.min(implicitWidth, statusStrip.width - 24)
@@ -678,7 +678,7 @@ Item {
 
                     readonly property real edge: tab.offsetOf(divider.index + 1)
                     // TODO(theme): a token once the theme system exists.
-                    color: drag.pressed ? "#4c5470" : "#2c3242"
+                    color: drag.pressed ? Qt.lighter(Theme.border, 1.6) : Theme.border
                     width: tab.stacked ? area.width : 4
                     height: tab.stacked ? 4 : area.height
                     x: tab.stacked ? 0 : divider.edge * area.width - 2

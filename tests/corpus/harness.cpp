@@ -246,7 +246,19 @@ class CursorSink final : public krait::core::vt::ParserEvents {
         } else if (final == 'r' || final == 'L' || final == 'M' || final == 'S' || final == 'T') {
             krait::core::vt::handleScroll(grid, params, intermediates, final);
         } else if (final == 'h' || final == 'l') {
-            krait::core::vt::handleMode(grid, params, intermediates, final);
+            // Mode 2048 replies with the current size the moment it is enabled
+            // (T82), so this branch collects a reply exactly as Session does.
+            // Routed identically on purpose: a corpus that dispatched
+            // differently from the product would prove nothing about it.
+            std::string out;
+            krait::core::vt::handleMode(grid, params, intermediates, final, &out);
+            if (!out.empty()) {
+                std::string tok = "reply:";
+                for (const char ch : out) {
+                    tok += escapeByte(static_cast<std::uint8_t>(ch));
+                }
+                replyTokens.push_back(tok);
+            }
         } else if (final == 'u') {
             // Kitty keyboard (T48), routed exactly as Session::csiDispatch does
             // — the corpus is only worth anything if it exercises the same

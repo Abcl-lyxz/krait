@@ -14,6 +14,7 @@
 #include "render/shaper/run_splitter.h"
 #include "settings/paths.h"
 #include "settings/registry.h"
+#include "theme/store.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -89,6 +90,27 @@ net::Vault* g_vault = nullptr;
 session::ProfileStore* g_store = nullptr;
 TaskbarProgress* g_taskbar = nullptr;
 Notifier* g_notifier = nullptr;
+theme::ThemeStore* g_themes = nullptr;
+
+// The theme, translated for the renderer. render::Theme is a flat block of
+// 0xRRGGBB and app::theme::Theme carries the same numbers plus a name and the
+// chrome, so this is a copy rather than a conversion — which is the whole
+// reason both sides agreed on that representation.
+render::Theme renderTheme() {
+    render::Theme out;
+    if (g_themes == nullptr) {
+        return out;
+    }
+    const theme::Theme& live = g_themes->current();
+    out.ansi = live.ansi;
+    out.fg = live.fg;
+    out.bg = live.bg;
+    out.cursor = live.cursor;
+    out.cursorText = live.cursorText;
+    out.selectionBg = live.selectionBg;
+    out.highlightBg = live.highlightBg;
+    return out;
+}
 
 }  // namespace
 
@@ -111,6 +133,27 @@ void TerminalItem::setNotifier(Notifier* notifier) {
     g_notifier = notifier;
 }
 
+void TerminalItem::setThemes(theme::ThemeStore* themes) {
+    g_themes = themes;
+}
+
+void TerminalItem::applyTheme() {
+    if (!m_builder) {
+        return;  // no renderer yet; ensureRenderer() reads the live theme itself
+    }
+    m_builder->setTheme(renderTheme());
+    // rules/render.md names a theme change as one of the three cases where a
+    // full-frame redraw is correct — the other two being resize and a font
+    // change. Every cached row holds resolved colours, so a partial repaint
+    // would leave the untouched rows in the previous palette.
+    m_builder->invalidate();
+    rebuildFrame();
+    update();
+    // T83. AFTER the repaint, so an application that redraws on the
+    // notification draws over a window already wearing the new colours.
+    reportColorScheme();
+}
+
 TerminalItem::TerminalItem() {
     m_vault = g_vault;
     m_store = g_store;
@@ -122,6 +165,12 @@ TerminalItem::TerminalItem() {
     // reloads and applies the current values, and a tab opened after startup
     // needs both exactly as much as the first one did.
     setSettings(g_registry);
+    // T75. Every tab repaints on a theme change, including tabs opened long
+    // after startup — which is why this is per-instance rather than a sweep
+    // main() does once over whatever existed then.
+    if (g_themes != nullptr) {
+        connect(g_themes, &theme::ThemeStore::changed, this, &TerminalItem::applyTheme);
+    }
     // Claimed, not copied: the SECOND terminal (a new tab) must open a default
     // shell rather than a second copy of whatever was on the command line.
     if (g_launchProfile) {
@@ -772,7 +821,7 @@ bool TerminalItem::ensureFont() {
         return false;
     }
     m_atlas = std::make_unique<render::GlyphAtlas>(metrics->cellWidth, metrics->lineHeight);
-    m_builder = std::make_unique<render::FrameBuilder>(*metrics, render::Theme{});
+    m_builder = std::make_unique<render::FrameBuilder>(*metrics, renderTheme());
     m_raster = [this](std::uint32_t face, std::uint32_t glyph, render::GlyphBitmap& out) {
         return m_pool->rasterize(face, glyph, out);
     };
@@ -895,6 +944,22 @@ void TerminalItem::setSettings(settings::Registry* registry) {
 void TerminalItem::applySettings() {
     if (m_settings == nullptr) {
         return;
+    }
+
+    // T78. The clear alpha. 1 when there is no background image, so a default
+    // install pays nothing for this and asks the scene graph for no blending —
+    // and so the setting cannot make a terminal translucent over a window with
+    // nothing behind it, which just looks like a rendering bug.
+    const bool hasImage = !m_settings->text("background.image").empty();
+    const auto opacity = static_cast<float>(m_settings->integer("background.opacity"));
+    const float wanted = hasImage ? opacity / 100.0F : 1.0F;
+    if (wanted != m_backgroundAlpha) {
+        m_backgroundAlpha = wanted;
+        // QQuickRhiItem only composites the item's alpha when it is told to,
+        // and turning it on unconditionally would cost a blend for every
+        // terminal in the default install.
+        setAlphaBlending(m_backgroundAlpha < 1.0F);
+        update();
     }
     const std::string family = m_settings->text("font.family");
     const int size = static_cast<int>(m_settings->integer("font.size"));
@@ -1026,10 +1091,20 @@ void TerminalItem::updateGrid() {
     m_cols = cols;
     m_rows = rows;
     if (m_started) {
+        // Before resize(), so a mode-2048 report built from the new size cannot
+        // be built from a stale cell size — a font change and a window change
+        // both arrive here, and the second one changes these.
+        m_session->grid().cellWidthPx = metrics.cellWidth;
+        m_session->grid().cellHeightPx = m_builder->cellHeight();
         m_session->grid().resize(rows, cols);
         if (m_benchFrames == 0) {
             m_backend->resize(cols, rows);
         }
+        // T82. AFTER the pty resize, not before: the spec says a terminal
+        // should not report until "the internal resize is complete", and an
+        // application that reads the report before SIGWINCH lands would size
+        // itself against a pty that has not moved yet.
+        reportResize();
         // A resize is one of the three cases where a full rebuild is correct.
         m_builder->invalidate();
     } else {
@@ -1088,6 +1163,149 @@ void TerminalItem::handleOutput(const QByteArray& bytes) {
 // it. And an STA COM call pumps window messages, which can deliver a socket
 // read and start a second feed(). The decision is made here, where the sequence
 // order is known; the effect runs once the chunk is done.
+// T82/T83. The two notifications an application subscribes to with a mode.
+//
+// Both are built here rather than in the core for the same reason: one needs a
+// pixel size and the other needs a theme, and src/core/ has neither. The core
+// owns the SWITCH — grid.inBandResize and grid.paletteUpdates — so an
+// application that never asked can never be sent one.
+
+void TerminalItem::reportResize() {
+    if (!m_session || !m_session->grid().inBandResize) {
+        return;
+    }
+    const core::vt::Grid& grid = m_session->grid();
+    // Height before width in BOTH pairs. See resizeReport() in csi_mode.cpp,
+    // which builds the identical string for the enable-time report — the two
+    // exist separately because that one has no window and this one has no
+    // parser, and a shared helper would have to live in whichever of them the
+    // other cannot reach.
+    const std::string report = "\x1b[48;" + std::to_string(grid.rows) + ";" +
+                               std::to_string(grid.cols) + ";" +
+                               std::to_string(grid.rows * grid.cellHeightPx) + ";" +
+                               std::to_string(grid.cols * grid.cellWidthPx) + "t";
+    sendInput(QByteArray(report.data(), static_cast<qsizetype>(report.size())));
+}
+
+void TerminalItem::reportColorScheme() {
+    if (!m_session || !m_session->grid().paletteUpdates || g_themes == nullptr) {
+        return;
+    }
+    // CSI ? 997 ; 1 n for dark, ; 2 n for light (contour's spec). The light or
+    // dark reading comes from the background's luminance rather than from
+    // anything the theme file claims, so a hand-edited file cannot tell an
+    // application to pick the unreadable palette.
+    const bool dark = theme::isDark(g_themes->current());
+    const QByteArray report =
+        dark ? QByteArrayLiteral("\x1b[?997;1n") : QByteArrayLiteral("\x1b[?997;2n");
+    sendInput(report);
+}
+
+// OSC 4/10/11/12 and their resets (T83).
+//
+// Session-local, always: a remote host changing a colour must not rewrite the
+// user's theme file, and the next tab must not inherit what this one was told.
+// resetSession() drops the overrides with everything else.
+//
+// Indices 16-255 are NOT settable, and that is a documented limit rather than
+// an oversight. They are the fixed xterm cube — every terminal agrees on them
+// and programs COMPUTE a colour from an index there rather than redefining one
+// — so honouring them would mean carrying a 256-entry table through every
+// frame's theme for a case with no known emitter. A set is ignored and a query
+// is answered from the cube, which is the true current value either way.
+void TerminalItem::handleColorOsc(const core::vt::OscAction& action) {
+    using Kind = core::vt::OscAction::Kind;
+    using Slot = core::vt::OscAction::ColorSlot;
+    if (!m_builder) {
+        return;
+    }
+
+    render::Theme live = m_builder->theme();
+    const auto slotOf = [&live](Slot slot, int index) -> std::uint32_t* {
+        switch (slot) {
+        case Slot::Foreground:
+            return &live.fg;
+        case Slot::Background:
+            return &live.bg;
+        case Slot::Cursor:
+            return &live.cursor;
+        case Slot::Palette:
+            return index >= 0 && index < 16 ? &live.ansi[static_cast<std::size_t>(index)] : nullptr;
+        }
+        return nullptr;
+    };
+
+    if (action.kind == Kind::ColorQuery) {
+        // xterm answers in the same OSC it was asked in, with XParseColor's
+        // 16-bit form. Each component is doubled rather than left-shifted:
+        // 0xff must answer ffff and not ff00, or white reads as 99.6% white.
+        std::uint32_t value = 0;
+        if (action.slot == Slot::Palette) {
+            value = render::paletteColor(static_cast<std::uint8_t>(action.colorIndex), live);
+        } else {
+            const std::uint32_t* found = slotOf(action.slot, action.colorIndex);
+            value = found != nullptr ? *found : 0;
+        }
+        char buffer[64];
+        const int code = action.slot == Slot::Palette      ? 4
+                         : action.slot == Slot::Foreground ? 10
+                         : action.slot == Slot::Background ? 11
+                                                           : 12;
+        const unsigned r = (value >> 16) & 0xFFU;
+        const unsigned g = (value >> 8) & 0xFFU;
+        const unsigned b = value & 0xFFU;
+        const int written = action.slot == Slot::Palette
+                                ? std::snprintf(buffer, sizeof(buffer),
+                                                "\x1b]4;%d;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\",
+                                                action.colorIndex, r, r, g, g, b, b)
+                                : std::snprintf(buffer, sizeof(buffer),
+                                                "\x1b]%d;rgb:%02x%02x/%02x%02x/%02x%02x\x1b\\",
+                                                code, r, r, g, g, b, b);
+        if (written > 0) {
+            sendInput(QByteArray(buffer, written));
+        }
+        return;
+    }
+
+    if (action.kind == Kind::ColorReset) {
+        // Back to the THEME's value, not to a hardcoded default: "reset" means
+        // what the user configured, and a terminal that reset to black would
+        // undo a theme the user picked on purpose.
+        const render::Theme base = renderTheme();
+        if (action.slot == Slot::Palette && action.colorIndex < 0) {
+            live.ansi = base.ansi;
+        } else if (action.slot == Slot::Palette) {
+            if (std::uint32_t* target = slotOf(Slot::Palette, action.colorIndex);
+                target != nullptr) {
+                *target = base.ansi[static_cast<std::size_t>(action.colorIndex)];
+            }
+        } else {
+            std::uint32_t* target = slotOf(action.slot, -1);
+            const std::uint32_t value = action.slot == Slot::Foreground   ? base.fg
+                                        : action.slot == Slot::Background ? base.bg
+                                                                          : base.cursor;
+            if (target != nullptr) {
+                *target = value;
+            }
+        }
+    } else {
+        const std::optional<theme::Rgb> parsed = theme::parseColor(action.text);
+        if (!parsed) {
+            return;  // an unreadable spec changes nothing, and says nothing back
+        }
+        std::uint32_t* target = slotOf(action.slot, action.colorIndex);
+        if (target == nullptr) {
+            return;  // index 16-255: see the note above
+        }
+        *target = *parsed;
+    }
+
+    m_builder->setTheme(live);
+    m_builder->invalidate();
+    rebuildFrame();
+    update();
+}
+
 void TerminalItem::handleOsc(const core::vt::OscAction& action) {
     using Kind = core::vt::OscAction::Kind;
 
@@ -1124,6 +1342,12 @@ void TerminalItem::handleOsc(const core::vt::OscAction& action) {
                 }
             },
             Qt::QueuedConnection);
+        return;
+    }
+
+    if (action.kind == Kind::ColorSet || action.kind == Kind::ColorQuery ||
+        action.kind == Kind::ColorReset) {
+        handleColorOsc(action);
         return;
     }
 
@@ -1333,6 +1557,7 @@ void TerminalItem::rebuildFrame() {
         m_builder->invalidate();
     }
     render::unpackColor(m_builder->theme().bg, m_frame.clearR, m_frame.clearG, m_frame.clearB);
+    m_frame.clearA = m_backgroundAlpha;
     m_atlas->clearDirty();
 }
 
@@ -1902,7 +2127,12 @@ void TerminalRenderer::render(QRhiCommandBuffer* cb) {
     const bool ok =
         m_gpu.sync(rhi(), renderTarget()->renderPassDescriptor(), renderTarget()->sampleCount(), cb,
                    m_frame, renderTarget()->pixelSize());
-    const QColor clear = QColor::fromRgbF(m_frame.clearR, m_frame.clearG, m_frame.clearB);
+    // T78. The alpha is what lets a background image through, and it is applied
+    // HERE rather than by drawing the image on top at low opacity — that
+    // version washes out the text as well as the background, which is how this
+    // feature makes a terminal unreadable.
+    const QColor clear =
+        QColor::fromRgbF(m_frame.clearR, m_frame.clearG, m_frame.clearB, m_frame.clearA);
     if (!ok) {
         // Still clear the target: a skipped pass shows whatever the last device
         // left in it, which after a device loss is garbage.

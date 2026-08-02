@@ -24,6 +24,11 @@ struct FrameData {
     float clearR = 0;
     float clearG = 0;
     float clearB = 0;
+    // T78. The background image shows through THIS, not through an image drawn
+    // on top at low opacity — that version washes out the text as well as the
+    // background, which is how the feature makes a terminal unreadable. 1 when
+    // there is no image, so the default install asks for no blending at all.
+    float clearA = 1;
 };
 
 // The GPU-side resource set for the terminal: two pipelines (solid rects, then

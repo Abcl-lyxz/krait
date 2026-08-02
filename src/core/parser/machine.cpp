@@ -14,6 +14,8 @@ constexpr Action entryAction(State s) noexcept {
         return Action::Clear;
     case State::OscString:
         return Action::OscStart;
+    case State::ApcString:
+        return Action::ApcStart;
     case State::DcsPassthrough:
         return Action::Hook;
     default:
@@ -25,6 +27,8 @@ constexpr Action exitAction(State s) noexcept {
     switch (s) {
     case State::OscString:
         return Action::OscEnd;
+    case State::ApcString:
+        return Action::ApcEnd;
     case State::DcsPassthrough:
         return Action::Unhook;
     default:
@@ -90,7 +94,7 @@ void Parser::handleC1(std::uint8_t byte) {
     case 0x98:
     case 0x9E:
     case 0x9F:
-        transitionTo(State::SosPmApcString, byte);
+        transitionTo(byte == 0x9F ? State::ApcString : State::SosPmApcString, byte);
         break;
     case 0x9C:  // ST: terminates strings via the exit action, else no-op
         transitionTo(State::Ground, byte);
@@ -185,6 +189,15 @@ void Parser::doAction(Action action, std::uint8_t byte) {
         break;
     case Action::OscEnd:
         m_events.oscEnd(byte != 0x07 && byte != 0x1B && byte != 0x9C);
+        break;
+    case Action::ApcStart:
+        m_events.apcStart();
+        break;
+    case Action::ApcPut:
+        m_events.apcPut(byte);
+        break;
+    case Action::ApcEnd:
+        m_events.apcEnd(byte != 0x07 && byte != 0x1B && byte != 0x9C);
         break;
     }
 }

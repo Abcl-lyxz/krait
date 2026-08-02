@@ -1,4 +1,5 @@
 import QtQuick
+import Krait
 
 // Broadcast, with its interlock on screen (plan T74).
 //
@@ -42,7 +43,7 @@ Rectangle {
     // TODO(theme): tokens once the theme system exists (M5). Matched to the
     // snippet and tunnel strips so they read as one application — except while
     // armed, where the strip is deliberately the loudest thing on screen.
-    color: bar.armed ? "#2a1620" : "#12141c"
+    color: bar.armed ? Theme.wash(Theme.danger, 0.88) : Theme.surface
     height: visible ? content.implicitHeight + 12 : 0
 
     function toggleArmed() {
@@ -73,7 +74,7 @@ Rectangle {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: bar.armed ? qsTr("BROADCAST ON") : qsTr("BROADCAST READY")
-                color: bar.armed ? "#f38ba8" : "#f9e2af"
+                color: bar.armed ? Theme.danger : Theme.warning
                 font.bold: true
                 textFormat: Text.PlainText
             }
@@ -93,7 +94,7 @@ Rectangle {
                         required property var modelData
                         required property int index
 
-                        color: chip.modelData.marked ? "#5a2233" : "#1c2030"
+                        color: chip.modelData.marked ? Theme.wash(Theme.danger, 0.6) : Theme.surfaceAlt
                         radius: 3
                         width: chipLabel.implicitWidth + 16
                         height: chipLabel.implicitHeight + 6
@@ -104,7 +105,7 @@ Rectangle {
                             text: chip.index < 9
                                   ? qsTr("%1. %2").arg(chip.index + 1).arg(chip.modelData.label)
                                   : chip.modelData.label
-                            color: chip.modelData.marked ? "#ffd7e0" : "#7c869e"
+                            color: chip.modelData.marked ? Qt.lighter(Theme.danger, 1.5) : Theme.textDim
                             textFormat: Text.PlainText
                         }
 
@@ -127,7 +128,7 @@ Rectangle {
         Rectangle {
             width: parent.width
             height: inputRow.implicitHeight + 8
-            color: "#0d0f17"
+            color: Theme.bg
             radius: 3
 
             Row {
@@ -140,7 +141,7 @@ Rectangle {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: bar.armed ? "»" : "·"
-                    color: bar.armed ? "#f38ba8" : "#5b6478"
+                    color: bar.armed ? Theme.danger : Theme.textFaint
                     font.family: "Cascadia Mono"
                 }
 
@@ -148,7 +149,7 @@ Rectangle {
                     id: input
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width - 30
-                    color: "#e6e9f0"
+                    color: Theme.text
                     font.family: "Cascadia Mono"
                     selectByMouse: true
                     // Nothing can be typed until the broadcast is armed. The
@@ -160,7 +161,7 @@ Rectangle {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: input.text.length === 0
-                        color: "#5b6478"
+                        color: Theme.textFaint
                         textFormat: Text.PlainText
                         text: bar.armed
                               ? qsTr("Enter sends this line to every session above.")

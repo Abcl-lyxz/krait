@@ -1,4 +1,5 @@
 import QtQuick
+import Krait
 
 // The SFTP dual-pane file panel (plan T65).
 //
@@ -25,7 +26,7 @@ Rectangle {
 
     signal closeRequested
 
-    color: "#12141c"
+    color: Theme.surface
     clip: true
 
     // The MouseArea whose row is being dragged, or null.
@@ -142,7 +143,7 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("Refresh")
-                        accent: "#7c869e"
+                        accent: Theme.textDim
                         onClicked: side.refresh()
                     }
 
@@ -152,7 +153,7 @@ Rectangle {
                         anchors.rightMargin: 4
                         anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("Up")
-                        accent: "#7c869e"
+                        accent: Theme.textDim
                         onClicked: side.up()
                     }
 
@@ -163,7 +164,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         visible: side.remote
                         text: qsTr("Edit")
-                        accent: "#7c869e"
+                        accent: Theme.textDim
                         onClicked: side.edit(side.rows[list.currentIndex])
                     }
 
@@ -178,7 +179,7 @@ Rectangle {
                         // that says where you are.
                         elide: Text.ElideMiddle
                         text: (side.remote ? qsTr("Remote") : qsTr("Local")) + "  " + side.path
-                        color: "#e6e9f0"
+                        color: Theme.text
                         font.family: "Cascadia Mono"
                     }
                 }
@@ -189,9 +190,9 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.top: head.bottom
                     anchors.bottom: parent.bottom
-                    color: "#0d0f17"
+                    color: Theme.bg
                     border.width: 1
-                    border.color: dropTarget.containsDrag ? "#89b4fa" : "#2c3242"
+                    border.color: dropTarget.containsDrag ? Theme.accent : Theme.border
                     radius: 3
                     clip: true
 
@@ -229,7 +230,7 @@ Rectangle {
 
                             width: list.width
                             height: 19
-                            color: list.currentIndex === row.index ? "#243049" : "transparent"
+                            color: list.currentIndex === row.index ? Theme.selection : "transparent"
 
                             Text {
                                 id: nameText
@@ -246,7 +247,7 @@ Rectangle {
                                 text: row.modelData.name
                                       + (row.modelData.isDir ? "/" : "")
                                       + (row.modelData.isLink ? "@" : "")
-                                color: row.modelData.isDir ? "#9ecbff" : "#e6e9f0"
+                                color: row.modelData.isDir ? Theme.accent : Theme.text
                                 font.family: "Cascadia Mono"
                             }
 
@@ -259,7 +260,7 @@ Rectangle {
                                 horizontalAlignment: Text.AlignRight
                                 textFormat: Text.PlainText
                                 text: row.modelData.sizeText
-                                color: "#7c869e"
+                                color: Theme.textDim
                                 font.family: "Cascadia Mono"
                             }
 
@@ -272,7 +273,7 @@ Rectangle {
                                 horizontalAlignment: Text.AlignRight
                                 textFormat: Text.PlainText
                                 text: row.modelData.timeText
-                                color: "#7c869e"
+                                color: Theme.textDim
                                 font.family: "Cascadia Mono"
                             }
 
@@ -349,7 +350,7 @@ Rectangle {
                         anchors.centerIn: parent
                         visible: side.remote && dropTarget.containsDrag
                         text: qsTr("Drop to upload")
-                        color: "#89b4fa"
+                        color: Theme.accent
                         textFormat: Text.PlainText
                     }
                 }
@@ -388,7 +389,7 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Stop watching")
-                    accent: "#f38ba8"
+                    accent: Theme.danger
                     // localPath, not name: two remote folders can each hold a
                     // config.yml, and the name would stop the wrong one.
                     onClicked: if (panel.files) panel.files.stopEditing(watched.modelData.localPath)
@@ -406,7 +407,7 @@ Rectangle {
                     elide: Text.ElideMiddle
                     text: qsTr("Editing %1 — saving uploads it back")
                           .arg(watched.modelData.remotePath)
-                    color: "#f9e2af"
+                    color: Theme.warning
                     font.family: "Cascadia Mono"
                 }
             }
@@ -426,7 +427,7 @@ Rectangle {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: qsTr("Close")
-            accent: "#7c869e"
+            accent: Theme.textDim
             onClicked: panel.closeRequested()
         }
 
@@ -437,7 +438,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             visible: panel.files ? panel.files.busy : false
             text: qsTr("Stop")
-            accent: "#f38ba8"
+            accent: Theme.danger
             onClicked: if (panel.files) panel.files.cancel()
         }
 
@@ -451,7 +452,7 @@ Rectangle {
             width: 160
             height: 4
             radius: 2
-            color: "#2c3242"
+            color: Theme.border
             visible: panel.files ? panel.files.progress >= 0 : false
 
             Rectangle {
@@ -460,7 +461,7 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 width: parent.width * (panel.files ? Math.min(1, panel.files.progress) : 0)
                 radius: 2
-                color: "#a6e3a1"
+                color: Theme.success
             }
         }
 
@@ -473,13 +474,13 @@ Rectangle {
 
             BannerButton {
                 text: qsTr("Shell integration")
-                accent: "#89b4fa"
+                accent: Theme.accent
                 onClicked: if (panel.files) panel.files.proposeShellIntegration(false)
             }
 
             BannerButton {
                 text: qsTr("Uninstall")
-                accent: "#7c869e"
+                accent: Theme.textDim
                 onClicked: if (panel.files) panel.files.proposeShellIntegration(true)
             }
         }
@@ -495,7 +496,7 @@ Rectangle {
             text: panel.files && panel.files.activity.length > 0
                   ? panel.files.activity
                   : qsTr("Drag a file across to transfer it.")
-            color: "#7c869e"
+            color: Theme.textDim
         }
     }
 
@@ -508,7 +509,7 @@ Rectangle {
     Rectangle {
         id: installSheet
         anchors.fill: parent
-        color: "#12141c"
+        color: Theme.surface
         visible: panel.files ? panel.files.installStage.length > 0 : false
 
         readonly property string stage: panel.files ? panel.files.installStage : ""
@@ -530,7 +531,7 @@ Rectangle {
             // from a table plus the server's own answer to realpath.
             textFormat: Text.PlainText
             text: panel.files ? panel.files.installTitle : ""
-            color: "#e6e9f0"
+            color: Theme.text
         }
 
         Column {
@@ -552,7 +553,7 @@ Rectangle {
                     // the JS engine.
                     required property string modelData
                     text: modelData
-                    accent: "#89b4fa"
+                    accent: Theme.accent
                     onClicked: if (panel.files) panel.files.chooseShellTarget(modelData)
                 }
             }
@@ -571,7 +572,7 @@ Rectangle {
                   ? qsTr("Written between two marker lines in %1. The rest of that file is left exactly as it is.").arg(panel.files.installPath)
                   : qsTr("Krait's block comes out of %1. The rest of that file is left exactly as it is.").arg(panel.files ? panel.files.installPath : "")
             wrapMode: Text.WordWrap
-            color: "#7c869e"
+            color: Theme.textDim
         }
 
         Rectangle {
@@ -580,9 +581,9 @@ Rectangle {
             anchors.top: previewLabel.bottom
             anchors.bottom: installButtons.top
             anchors.margins: 10
-            color: "#0d0f17"
+            color: Theme.bg
             border.width: 1
-            border.color: "#2c3242"
+            border.color: Theme.border
             radius: 3
             clip: true
             visible: panel.files ? panel.files.installPreview.length > 0 : false
@@ -600,7 +601,7 @@ Rectangle {
                     // a preview that reflows is not the thing being written.
                     textFormat: Text.PlainText
                     text: panel.files ? panel.files.installPreview : ""
-                    color: "#e6e9f0"
+                    color: Theme.text
                     font.family: "Cascadia Mono"
                 }
             }
@@ -616,7 +617,7 @@ Rectangle {
             BannerButton {
                 visible: installSheet.stage === "proposed"
                 text: qsTr("Write the change")
-                accent: "#a6e3a1"
+                accent: Theme.success
                 onClicked: if (panel.files) panel.files.confirmShellIntegration()
             }
 
@@ -626,7 +627,7 @@ Rectangle {
                 // what it says is worse than no button.
                 visible: installSheet.stage !== "writing"
                 text: installSheet.stage === "done" ? qsTr("Close") : qsTr("Cancel")
-                accent: "#7c869e"
+                accent: Theme.textDim
                 onClicked: if (panel.files) panel.files.cancelShellIntegration()
             }
         }

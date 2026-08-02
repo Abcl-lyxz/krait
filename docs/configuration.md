@@ -48,7 +48,22 @@ size = 20            # 6-200, in logical pixels; scaled by your display's DPI
 ligatures = false
 
 [theme]
+# One of the built-ins — default-dark, default-light, solarized-dark,
+# solarized-light — or the name of any *.toml in <config dir>/themes.
+# A file wins over a built-in of the same name, which is how you fix one
+# without forking. Ctrl+Shift+P -> "Themes" opens the gallery and the live
+# editor; "Import a colour scheme" reads iTerm2 .itermcolors, Windows Terminal
+# schemes and base16 YAML.
 name = "default-dark"
+
+[background]
+image = ""           # empty: no background image. A path, not a URL.
+# 20-100, and ONLY applied when an image is set — a translucent terminal over a
+# window with nothing behind it just looks like a rendering bug. The floor is
+# 20 rather than 0 because at 0 the only control that could undo it is inside
+# the invisible window.
+opacity = 100
+fit = "cover"        # or "contain", "stretch", "tile", "center"
 
 [unicode]
 eastAsianAmbiguous = "narrow"   # or "wide"

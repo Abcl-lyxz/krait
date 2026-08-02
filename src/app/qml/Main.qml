@@ -7,7 +7,33 @@ Window {
     height: 540
     visible: false  // shown from main() after the graphics configuration
     title: qsTr("Krait")
-    color: "#0d0f17"
+    color: Theme.bg
+
+    // T78. The background image sits BEHIND everything, and the terminal is
+    // what becomes translucent over it — not this. An Image drawn on top at
+    // low opacity would wash out the text as well as the background, which is
+    // the version of this feature that makes a terminal unreadable.
+    //
+    // Only created when there is a path: a Loader rather than a permanently
+    // present Image, so the default install pays nothing for a feature it is
+    // not using.
+    Loader {
+        anchors.fill: parent
+        z: -1
+        active: Theme.backgroundImage.length > 0
+        sourceComponent: Image {
+            source: Theme.backgroundImage
+            fillMode: Theme.backgroundFillMode
+            // Asynchronous: a large wallpaper decoded on the GUI thread stalls
+            // the window on startup, and rules/ui.md bans blocking work there.
+            asynchronous: true
+            // The image is drawn at full strength. What lets it through is the
+            // TERMINAL's clear alpha (background.opacity), applied in
+            // TerminalItem — so text keeps its own contrast against whatever
+            // sits behind it.
+            cache: true
+        }
+    }
 
     // The tabs. A ListModel of { title, accent } mirroring what each
     // SessionPane reports, because a Repeater delegate cannot be read back as
@@ -260,6 +286,11 @@ Window {
             // silently ignored.
             switch (actionId) {
             case "settings.open": settingsPage.open(); return
+            case "themes.open": themeGallery.open(); return
+            // Straight to the file picker. Importing is the reason most people
+            // open the gallery at all, and making them open it first and find a
+            // button is a step the palette exists to remove.
+            case "themes.import": themeGallery.importScheme(); return
             case "session.new": root.addTab(); return
             case "session.close": root.closeTab(root.currentTab); return
             case "session.next": root.stepTab(1); return
@@ -352,6 +383,18 @@ Window {
             const pane = root.currentPane()
             if (pane) pane.focusCurrent()
         }
+    }
+
+    // T77. Above the settings page and below the palette, which is what OPENS
+    // this and therefore has to draw over it on the way out.
+    ThemeGallery {
+        id: themeGallery
+        z: 95
+        onDismissed: {
+            const pane = root.currentPane()
+            if (pane) pane.focusCurrent()
+        }
+        onReported: (message, detail) => root.raiseGlobalError(message, detail)
     }
 
     // A command line naming a session that is not saved. Reported once the

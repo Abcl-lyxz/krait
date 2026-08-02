@@ -13,7 +13,7 @@ namespace {
 // Each entry says what subsystem it drives, because a setting with nothing
 // behind it is worse than a missing one: the user changes it, nothing happens,
 // and they stop trusting the whole settings page.
-constexpr std::array<Def, 22> kDefs{{
+constexpr std::array<Def, 25> kDefs{{
     {
         .id = "font.family",
         .type = Type::String,
@@ -54,6 +54,46 @@ constexpr std::array<Def, 22> kDefs{{
         .doc = "settings.theme.name",
         .searchEn = "theme colours colors palette dark light",
         .searchTh = "ธีม สี ชุดสี มืด สว่าง",
+    },
+    {
+        .id = "background.image",
+        .type = Type::String,
+        // Empty means no image, which is the only default that can be right:
+        // there is no picture every user wants behind their terminal.
+        .fallback = std::string_view{},
+        .choices = "",
+        .doc = "settings.background.image",
+        .searchEn = "background image wallpaper picture photo backdrop behind",
+        .searchTh = "ภาพพื้นหลัง พื้นหลัง รูปภาพ วอลเปเปอร์ ฉากหลัง",
+    },
+    {
+        .id = "background.opacity",
+        .type = Type::Int,
+        // 100 = fully opaque, which is what a terminal with no background image
+        // must stay: transparency is a choice, and one that costs legibility.
+        .fallback = std::int64_t{100},
+        // The floor is 20 rather than 0 on purpose. At 0 the terminal is
+        // invisible, and the only control that could undo it is inside the
+        // invisible window — a setting that can lock a user out of its own UI
+        // is a trap, not an option.
+        .min = 20,
+        .max = 100,
+        .choices = "",
+        .doc = "settings.background.opacity",
+        .searchEn = "background opacity transparency transparent see through alpha faded",
+        .searchTh = "ความทึบ ความโปร่งใส โปร่งแสง พื้นหลัง จาง",
+    },
+    {
+        .id = "background.fit",
+        .type = Type::String,
+        // "cover" crops to fill, which is what a wallpaper does and what nearly
+        // every picture wants; the others exist because a tiled pattern and a
+        // logo in the corner are both real cases.
+        .fallback = std::string_view{"cover"},
+        .choices = "cover contain stretch tile center",
+        .doc = "settings.background.fit",
+        .searchEn = "background fit cover contain stretch tile center scale crop",
+        .searchTh = "พื้นหลัง ขนาด ปรับ ยืด เรียงต่อ กึ่งกลาง ครอบ",
     },
     {
         .id = "unicode.eastAsianAmbiguous",

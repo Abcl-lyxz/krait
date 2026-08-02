@@ -1,0 +1,103 @@
+# OSC 4/10/11/12 and 104/110/111/112 — colour set, query, reset (M5 T83).
+#
+# This directory asserts what the core SENDS BACK, and for every sequence here
+# the answer is nothing. That is the property worth pinning at the wire level:
+# the reply to a colour query belongs to the app layer, which is the only one
+# that owns a palette, and a core that also answered would eventually disagree
+# with it — a terminal reporting a colour it is not drawing is worse than one
+# that says nothing at all.
+#
+# What each string MEANS is asserted in tests/unit/osc_test.cpp, where the
+# OscAction is visible. These cases exist for the silence, and because
+# tools/extract-seeds.mjs turns every IN payload here into a fuzz seed
+# (ADR-0010) — which is how the new parsing gets fuzz coverage.
+#
+# EXPECT is "-" throughout: no replies.
+
+# --------------------------------------------------------------- setting ----
+IN \x1B]10;#ff8800\x1B\x5C
+EXPECT -
+IN \x1B]11;rgb:1e/1e/2e\x1B\x5C
+EXPECT -
+IN \x1B]12;#f5e0dc\x07
+EXPECT -
+IN \x1B]4;12;#89b4fa\x1B\x5C
+EXPECT -
+IN \x1B]4;255;rgb:ffff/0000/8080\x1B\x5C
+EXPECT -
+
+# A LIST of pairs, which xterm honours in full and we read the first of.
+IN \x1B]4;1;#ff0000;2;#00ff00\x1B\x5C
+EXPECT -
+IN \x1B]10;#ffffff;#000000\x1B\x5C
+EXPECT -
+
+# --------------------------------------------------------------- asking -----
+IN \x1B]11;?\x1B\x5C
+EXPECT -
+IN \x1B]10;?\x07
+EXPECT -
+IN \x1B]4;0;?\x1B\x5C
+EXPECT -
+
+# -------------------------------------------------------------- resetting ---
+IN \x1B]104\x1B\x5C
+EXPECT -
+IN \x1B]104;7\x1B\x5C
+EXPECT -
+IN \x1B]110\x1B\x5C
+EXPECT -
+IN \x1B]111\x07
+EXPECT -
+IN \x1B]112\x1B\x5C
+EXPECT -
+
+# --------------------------------------------------------------- hostile ----
+
+# Out of range, negative, and non-numeric indices.
+IN \x1B]4;256;#000000\x1B\x5C
+EXPECT -
+IN \x1B]4;-1;#000000\x1B\x5C
+EXPECT -
+IN \x1B]4;12x;#000000\x1B\x5C
+EXPECT -
+IN \x1B]4;;#000000\x1B\x5C
+EXPECT -
+IN \x1B]104;nope\x1B\x5C
+EXPECT -
+
+# Codes that merely BEGIN with ours. 1000 is not 10 and 41 is not 4; a prefix
+# match would let an unimplemented sequence repaint the window.
+IN \x1B]1000;#ff0000\x1B\x5C
+EXPECT -
+IN \x1B]41;1;#ff0000\x1B\x5C
+EXPECT -
+IN \x1B]113;#ff0000\x1B\x5C
+EXPECT -
+
+# Empty payloads.
+IN \x1B]11\x1B\x5C
+EXPECT -
+IN \x1B]11;\x1B\x5C
+EXPECT -
+IN \x1B]4\x1B\x5C
+EXPECT -
+IN \x1B]4;12\x1B\x5C
+EXPECT -
+
+# Interrupted mid-string: CAN and SUB abandon it.
+IN \x1B]11;#ff0000\x18
+EXPECT -
+IN \x1B]4;1;#ff0000\x1A
+EXPECT -
+
+# A C1 introducer arriving inside the string aborts it the same way.
+IN \x1B]11;#ff\x1B]10;#00ff00\x1B\x5C
+EXPECT -
+
+# Colour bytes that are themselves control characters. The spec is a string,
+# and the parser has to survive one that is not.
+IN \x1B]11;#\x00\x01\x02\x1B\x5C
+EXPECT -
+IN \x1B]4;1;\x7F\x1B\x5C
+EXPECT -

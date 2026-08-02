@@ -356,6 +356,240 @@
     </message>
 </context>
 <context>
+    <name>ThemeGallery</name>
+    <message>
+        <source> copy</source>
+        <translation> copy</translation>
+    </message>
+    <message>
+        <source>Give the theme a name before saving it.</source>
+        <translation>Give the theme a name before saving it.</translation>
+    </message>
+    <message>
+        <source>That theme could not be saved.</source>
+        <translation>That theme could not be saved.</translation>
+    </message>
+    <message>
+        <source>Saved %1.</source>
+        <translation>Saved %1.</translation>
+    </message>
+    <message>
+        <source>Import a colour scheme</source>
+        <translation>Import a colour scheme</translation>
+    </message>
+    <message>
+        <source>Colour schemes (*.itermcolors *.json *.yaml *.yml *.toml)</source>
+        <translation>Colour schemes (*.itermcolors *.json *.yaml *.yml *.toml)</translation>
+    </message>
+    <message>
+        <source>All files (*)</source>
+        <translation>All files (*)</translation>
+    </message>
+    <message>
+        <source>That colour scheme could not be imported.</source>
+        <translation>That colour scheme could not be imported.</translation>
+    </message>
+    <message>
+        <source>Imported %1.</source>
+        <translation>Imported %1.</translation>
+    </message>
+    <message>
+        <source>Themes</source>
+        <translation>Themes</translation>
+    </message>
+    <message>
+        <source>· edited, not saved</source>
+        <translation>· edited, not saved</translation>
+    </message>
+    <message>
+        <source>Built in · dark</source>
+        <translation>Built in · dark</translation>
+    </message>
+    <message>
+        <source>Built in · light</source>
+        <translation>Built in · light</translation>
+    </message>
+    <message>
+        <source>in use</source>
+        <translation>in use</translation>
+    </message>
+    <message>
+        <source>Save as…</source>
+        <translation>Save as…</translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>Revert</source>
+        <translation>Revert</translation>
+    </message>
+    <message>
+        <source>Import…</source>
+        <translation>Import…</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Close</translation>
+    </message>
+</context>
+<context>
+    <name>ThemeModel</name>
+    <message>
+        <source>Background</source>
+        <translation>Background</translation>
+    </message>
+    <message>
+        <source>Terminal</source>
+        <translation>Terminal</translation>
+    </message>
+    <message>
+        <source>Foreground</source>
+        <translation>Foreground</translation>
+    </message>
+    <message>
+        <source>Cursor</source>
+        <translation>Cursor</translation>
+    </message>
+    <message>
+        <source>Cursor text</source>
+        <translation>Cursor text</translation>
+    </message>
+    <message>
+        <source>Selection</source>
+        <translation>Selection</translation>
+    </message>
+    <message>
+        <source>Search highlight</source>
+        <translation>Search highlight</translation>
+    </message>
+    <message>
+        <source>Black</source>
+        <translation>Black</translation>
+    </message>
+    <message>
+        <source>Red</source>
+        <translation>Red</translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation>Green</translation>
+    </message>
+    <message>
+        <source>Yellow</source>
+        <translation>Yellow</translation>
+    </message>
+    <message>
+        <source>Blue</source>
+        <translation>Blue</translation>
+    </message>
+    <message>
+        <source>Magenta</source>
+        <translation>Magenta</translation>
+    </message>
+    <message>
+        <source>Cyan</source>
+        <translation>Cyan</translation>
+    </message>
+    <message>
+        <source>White</source>
+        <translation>White</translation>
+    </message>
+    <message>
+        <source>Bright black</source>
+        <translation>Bright black</translation>
+    </message>
+    <message>
+        <source>Bright red</source>
+        <translation>Bright red</translation>
+    </message>
+    <message>
+        <source>Bright green</source>
+        <translation>Bright green</translation>
+    </message>
+    <message>
+        <source>Bright yellow</source>
+        <translation>Bright yellow</translation>
+    </message>
+    <message>
+        <source>Bright blue</source>
+        <translation>Bright blue</translation>
+    </message>
+    <message>
+        <source>Bright magenta</source>
+        <translation>Bright magenta</translation>
+    </message>
+    <message>
+        <source>Bright cyan</source>
+        <translation>Bright cyan</translation>
+    </message>
+    <message>
+        <source>Bright white</source>
+        <translation>Bright white</translation>
+    </message>
+    <message>
+        <source>Window</source>
+        <translation>Window</translation>
+    </message>
+    <message>
+        <source>Interface</source>
+        <translation>Interface</translation>
+    </message>
+    <message>
+        <source>Bars and panels</source>
+        <translation>Bars and panels</translation>
+    </message>
+    <message>
+        <source>Buttons and tabs</source>
+        <translation>Buttons and tabs</translation>
+    </message>
+    <message>
+        <source>Popups</source>
+        <translation>Popups</translation>
+    </message>
+    <message>
+        <source>Borders</source>
+        <translation>Borders</translation>
+    </message>
+    <message>
+        <source>Selected row</source>
+        <translation>Selected row</translation>
+    </message>
+    <message>
+        <source>Text</source>
+        <translation>Text</translation>
+    </message>
+    <message>
+        <source>Secondary text</source>
+        <translation>Secondary text</translation>
+    </message>
+    <message>
+        <source>Hint text</source>
+        <translation>Hint text</translation>
+    </message>
+    <message>
+        <source>Accent</source>
+        <translation>Accent</translation>
+    </message>
+    <message>
+        <source>Success</source>
+        <translation>Success</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation>Warning</translation>
+    </message>
+    <message>
+        <source>Danger</source>
+        <translation>Danger</translation>
+    </message>
+    <message>
+        <source>Dimming</source>
+        <translation>Dimming</translation>
+    </message>
+</context>
+<context>
     <name>krait::app</name>
     <message>
         <source>New session</source>
@@ -452,6 +686,14 @@
     <message>
         <source>Settings</source>
         <translation>Settings</translation>
+    </message>
+    <message>
+        <source>Themes</source>
+        <translation>Themes</translation>
+    </message>
+    <message>
+        <source>Import a colour scheme</source>
+        <translation>Import a colour scheme</translation>
     </message>
     <message>
         <source>Reload settings from disk</source>
@@ -819,6 +1061,48 @@
     <message>
         <source>A command finished after %1 s.</source>
         <translation>A command finished after %1 s.</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::ThemeModel</name>
+    <message>
+        <source>Palette</source>
+        <translation>Palette</translation>
+    </message>
+    <message>
+        <source>The theme system is not running.</source>
+        <translation>The theme system is not running.</translation>
+    </message>
+</context>
+<context>
+    <name>krait::app::theme::ThemeStore</name>
+    <message>
+        <source>%1: %2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>No themes directory is configured.</source>
+        <translation>No themes directory is configured.</translation>
+    </message>
+    <message>
+        <source>A theme needs a name.</source>
+        <translation>A theme needs a name.</translation>
+    </message>
+    <message>
+        <source>&quot;%1&quot; is a built-in theme. Save it under a different name.</source>
+        <translation>&quot;%1&quot; is a built-in theme. Save it under a different name.</translation>
+    </message>
+    <message>
+        <source>Could not create %1.</source>
+        <translation>Could not create %1.</translation>
+    </message>
+    <message>
+        <source>%1 is too large to be a colour scheme.</source>
+        <translation>%1 is too large to be a colour scheme.</translation>
+    </message>
+    <message>
+        <source>No colour scheme in this file.</source>
+        <translation>No colour scheme in this file.</translation>
     </message>
 </context>
 <context>

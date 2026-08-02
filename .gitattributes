@@ -10,3 +10,14 @@
 *.ico binary
 *.ttf binary
 *.otf binary
+
+# Fuzz corpora are BYTES, not text, and `* text=auto eol=lf` above would
+# rewrite them. That is not a cosmetic problem: 85 of the current seeds contain
+# a CR, several of them precisely because they exercise how the parser handles
+# one, and normalising it away turns a seed that tests CR into a seed that does
+# not — while the file still looks present, still counts toward the corpus, and
+# still gets fed to the fuzzer. Silent loss of coverage is the worst failure a
+# corpus can have, so the whole tree is marked binary.
+tests/fuzz/seeds/** binary
+tests/fuzz/seeds-telnet/** binary
+tests/fuzz/regressions/** binary

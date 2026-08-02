@@ -43,6 +43,19 @@ class ParserEvents {
     virtual void oscStart() = 0;
     virtual void oscPut(std::uint8_t byte) = 0;
     virtual void oscEnd(bool aborted) = 0;
+
+    // APC (ESC _ ... ST), which the kitty graphics protocol rides (T80).
+    //
+    // These have DEFAULT no-op bodies while everything above is pure, and the
+    // asymmetry is deliberate: APC was ignored outright until M5, so a sink
+    // that goes on ignoring it behaves exactly as it did before. Making them
+    // pure would force three empty overrides into every existing sink — the
+    // corpus harness, the fuzz target — purely to express "unchanged".
+    virtual void apcStart() {}
+
+    virtual void apcPut(std::uint8_t) {}
+
+    virtual void apcEnd(bool /*aborted*/) {}
 };
 
 }  // namespace krait::core::vt

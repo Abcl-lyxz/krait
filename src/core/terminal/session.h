@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/caps/caps.h"
+#include "core/graphics/kitty.h"
+#include "core/graphics/sixel.h"
 #include "core/grid/grid.h"
 #include "core/parser/events.h"
 #include "core/parser/machine.h"
@@ -61,10 +63,32 @@ class Session final : public ParserEvents {
     void oscStart() override;
     void oscPut(std::uint8_t byte) override;
     void oscEnd(bool aborted) override;
+    void apcStart() override;
+    void apcPut(std::uint8_t byte) override;
+    void apcEnd(bool aborted) override;
 
   private:
+    // T81. OSC 66 text, written through the ordinary print path with the
+    // scale carried in the pen. Private because it is not an event — the
+    // parser never calls it; oscEnd does, for one Kind.
+    void writeSizedText(const OscAction& action);
+    // Moves the cursor below a just-placed image, BOUNDED BY THE SCREEN. The
+    // bound is a denial-of-service fix, not tidiness — see the comment on the
+    // definition. Shared by sixel and kitty so the two cannot diverge on it.
+    void advanceBelowImage(int rows);
+
     Grid m_grid;
     Parser m_parser;
+    // T79. One decoder reused across images rather than one per DCS: begin()
+    // resets it completely, and a fresh decoder per sixel would reallocate the
+    // 256-entry palette for every frame of an animation.
+    SixelDecoder m_sixel;
+    // Whether the DCS currently open is a sixel. Without this, dcsPut would
+    // feed a DECRQSS query's bytes to the image decoder.
+    bool m_inSixel = false;
+    // T80. Kitty graphics, over APC. Held across escapes because a large image
+    // arrives in chunks and only the first one carries the parameters.
+    KittyDecoder m_kitty;
     Capabilities m_caps;
     ReplyLimiter m_limiter;
     OscHandler m_osc;

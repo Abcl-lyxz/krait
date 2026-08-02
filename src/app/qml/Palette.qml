@@ -70,7 +70,7 @@ Item {
     }
 
     Rectangle {
-        color: "#000000"
+        color: Theme.scrim
         opacity: 0.45
         anchors.fill: parent
     }
@@ -81,8 +81,8 @@ Item {
         height: Math.min(parent.height - 80, 420)
         anchors.horizontalCenter: parent.horizontalCenter
         y: Math.round(parent.height * 0.12)
-        color: "#161923"
-        border.color: "#2c3242"
+        color: Theme.overlay
+        border.color: Theme.border
         border.width: 1
         radius: 6
 
@@ -94,7 +94,7 @@ Item {
             TextInput {
                 id: field
                 width: parent.width
-                color: "#e6e9f0"
+                color: Theme.text
                 font.pixelSize: 16
                 selectByMouse: true
                 onTextChanged: {
@@ -105,7 +105,7 @@ Item {
                 Text {
                     anchors.fill: parent
                     visible: field.text.length === 0
-                    color: "#5b6478"
+                    color: Theme.textFaint
                     font: field.font
                     text: qsTr("Type a command or a session…")
                 }
@@ -123,13 +123,13 @@ Item {
             Rectangle {
                 width: parent.width
                 height: 1
-                color: "#2c3242"
+                color: Theme.border
             }
 
             Text {
                 width: parent.width
                 visible: sessions.count === 0
-                color: "#5b6478"
+                color: Theme.textFaint
                 text: qsTr("Nothing matches.")
             }
 
@@ -149,13 +149,13 @@ Item {
 
                     width: list.width
                     height: 28
-                    color: row.index === list.currentIndex ? "#243049" : "transparent"
+                    color: row.index === list.currentIndex ? Theme.selection : "transparent"
 
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         x: 8
                         width: parent.width - detail.width - 24
-                        color: row.modelData.kind === "session" ? "#9ecbff" : "#e6e9f0"
+                        color: row.modelData.kind === "session" ? Theme.accent : Theme.text
                         text: row.modelData.label
                         elide: Text.ElideRight
                     }
@@ -165,7 +165,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.right: parent.right
                         anchors.rightMargin: 8
-                        color: "#5b6478"
+                        color: Theme.textFaint
                         text: row.modelData.detail
                     }
 

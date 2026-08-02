@@ -39,6 +39,32 @@ struct OscAction {
         // OSC 9;4: taskbar progress. Nothing in the core acts on it — a
         // taskbar is a platform surface — so this is purely a report.
         Progress,
+        // OSC 4/10/11/12: set a colour. `slot` says which, `colorIndex` narrows
+        // OSC 4, and `text` carries the SPEC EXACTLY AS SENT.
+        //
+        // The core deliberately does not parse the colour. It owns no palette —
+        // the theme lives in the app layer (src/app/theme) — so a parser here
+        // would be a second XParseColor reader that could disagree with the one
+        // reading theme files, about a value the core cannot use anyway.
+        ColorSet,
+        // The same sequences with `?` as the spec: the application is ASKING.
+        // Answered by the app, which is the only layer that knows the answer.
+        ColorQuery,
+        // OSC 104/110/111/112: back to the theme's value.
+        ColorReset,
+        // OSC 66: text at a chosen size (kitty's text-sizing protocol, T81).
+        // Handled inside the core FIRST — the text belongs on the grid and the
+        // scale belongs in the cells' attributes — and not forwarded, because
+        // unlike a prompt mark there is nothing the app layer could add.
+        SizedText,
+    };
+
+    // Which colour an OSC 4/10/11/12 (or 104/110/111/112) names.
+    enum class ColorSlot : std::uint8_t {
+        Palette,     // OSC 4 / 104 — see colorIndex
+        Foreground,  // OSC 10 / 110
+        Background,  // OSC 11 / 111
+        Cursor,      // OSC 12 / 112
     };
 
     // OSC 9 ; 4 ; <state> ; <progress>. ConEmu originated the sequence and
@@ -69,6 +95,28 @@ struct OscAction {
     // OSC 133 ; D ; <n> only. -1 when the shell sent a bare D, or sent a
     // status this parser refused.
     int exitCode = -1;
+    // ColorSet/ColorQuery/ColorReset only.
+    ColorSlot slot = ColorSlot::Foreground;
+    // OSC 4 / 104 only: which of the 256 palette entries. -1 on a bare OSC 104,
+    // which means "reset ALL of them" — distinct from 0, which is one entry,
+    // and the distinction is the whole sequence.
+    int colorIndex = -1;
+
+    // OSC 66 only. `text` carries the UTF-8 payload.
+    //
+    // Ranges are the protocol's, already validated: scale 1-7, width 0-7,
+    // numerator 0-15, denominator 0-15 and > numerator when non-zero, both
+    // alignments 0-2. A metadata field outside its range makes the WHOLE
+    // sequence a no-op rather than being clamped — this one writes text onto
+    // the grid, and a clamped scale would silently lay it out at a size the
+    // sender did not choose and could not detect.
+    int scale = 1;
+    int widthCells = 0;
+    int numerator = 0;
+    int denominator = 0;
+    int verticalAlign = 0;
+    int horizontalAlign = 0;
+
     // OSC 9;4 only.
     Progress progress = Progress::Remove;
     // OSC 9;4's percentage, already clamped to 0-100. -1 means the string did

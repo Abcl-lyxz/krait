@@ -1,148 +1,184 @@
 # STATE
 
-Phase: M4 — power tools. Feature-complete on `t64-m4-power-tools`, in review.
+Phase: M5 — beauty + protocol completeness. Feature work done on
+`t75-m5-beauty`, with one large gap named below. **PR #27 is open, CI green,
+MERGEABLE/CLEAN — it needs a human to merge it.**
 
 ## Now
 
-M4 is built and gated. Nine commits on `t64-m4-power-tools` (`3f4252a`..`385dbaa`),
-branched from the M3 merge `8627724`. **529 tests green**, up from 402. Build clean
-under `/W4 /WX`, clang-format clean, clang-tidy clean on the gated
-`bugprone-*`/`concurrency-*` checks. The working tree is clean and the branch is
-pushed; the PR is open and needs a human to merge it.
-
-Every feature `docs/plan/01-milestones.md` lists for M4 shipped, including all
-three cut-line items — editor round-trip, broadcast, quake mode. Nothing was cut.
+M4 merged (`3fba78c`). M5 is nine commits on `t75-m5-beauty`, branched from it.
+**589 tests green**, up from 529. Build clean under `/W4 /WX`, clang-format
+clean on all 41 changed C++ files, clang-tidy clean on the gated
+`bugprone-*`/`concurrency-*` checks, and `tests/core-standalone` still links
+with no Qt on the path — which is what proves the two new image decoders did
+not smuggle a dependency into `src/core/`.
 
 | Task | What landed |
 |---|---|
-| T64 | `src/net/ssh/sftp.{h,cpp}` — SFTP on the SSH worker thread, no second session |
-| T65 | `src/app/sftp_model.*` + `qml/FilePanel.qml` — dual-pane panel, drag-drop |
-| T66 | OSC 133 A/P/B/C/D marks on grid lines, surviving scrollback and reflow |
-| T67 | OSC 9;4 → `ITaskbarList3`, `Shell_NotifyIconW` notification, jump-to-prompt |
-| T68 | `src/app/session/triggers.*` — regex over output: highlight/notify/log/send |
-| T69 | Snippet bar |
-| T70 | Logging UX — path template, three formats, honest secret position |
-| T71 | `src/app/input/copy_mode.*` — vim-keys, cluster- and width-correct |
-| T73 | `assets/shell-integration/*`, rc-file auto-install over SFTP, editor round-trip |
-| T74 | Broadcast-with-interlock, quake mode + global hotkey |
+| T75 | `src/app/theme/` — the theme system. Model, 4 builtins, TOML round trip |
+| T76 | Importers: iTerm2 `.itermcolors`, Windows Terminal schemes, base16 YAML |
+| T77 | `qml/ThemeGallery.qml` — gallery + live editor; 101 QML hex literals gone |
+| T78 | Background image: `[background]` image/opacity/fit, alpha in the clear |
+| T79 | `src/core/graphics/sixel.*` — sixel decoder + `grid/images.*` placements |
+| T80 | `src/core/graphics/kitty.*` — kitty graphics over a new APC parser state |
+| T81 | OSC 66 text sizing, scale packed into `Attr::flags`' spare bits |
+| T82 | Mode 2048, in-band resize notification |
+| T83 | Mode 2031 + OSC 4/10/11/12 and 104/110/111/112 |
 
 ## Next task (exactly one)
 
-**Merge the PR, then start M5.** Watch CI settle and merge. If CI fails it will
-almost certainly be clang-format on a file a hook missed — that is what happened
-to PR #25, and the fix is to run clang-format in place and push, not to argue
-with the gate.
+**The renderer draws no images and no scaled text.** Everything upstream of the
+GPU is done and tested: sixel and kitty both decode, placements are anchored to
+stable line indices and survive scroll/eviction/reflow, OSC 66 reserves the
+right cells and advances the cursor correctly. Nothing paints any of it. So
+today `kitty icat` and `img2sixel` transmit successfully, get an `OK` back, and
+show nothing; OSC 66 text lays out at the right size and draws at 1x.
 
-M5 is theme gallery + live editor, background image/blur/acrylic, sixel + kitty
-graphics, OSC 66, mode 2048, mode 2031 + OSC 10/11, CRT shader. Read
-`docs/plan/01-milestones.md`. **Before starting it**, note that M4 left 47 hex
-colour literals across four new QML files with `TODO(theme)` markers, and
-`theme.name` is a dead setting — the theme system does not exist at all. M5's
-first task is that system, and those literals are its first customer.
+That is M5's one real gap and it is the whole of the next task. What it needs:
+
+1. A `QRhiTexture` per image, cached by image id, uploaded on first use and
+   dropped with the image. `GpuResources` already owns the atlas texture and
+   the device-lost rebuild path — this rides the same lifecycle.
+2. An `ImageInstance` array and a third pipeline. The glyph pipeline is close
+   but samples an alpha-only atlas; images need an RGBA sampler, so it is a new
+   shader pair in `src/render/shaders/` rather than a reuse.
+3. `FrameBuilder` emits the quads, resolving each `Placement::anchor` through
+   `Scrollback::indexOfStable()` to a viewport row and skipping placements that
+   scrolled out. Negative `zIndex` draws BEFORE the text, everything else after.
+4. Damage: a placement's rows must be dirtied when the viewport moves, or an
+   image will smear on scroll.
+5. Then the milestone's demo gate is runnable: `notcurses-demo`, `img2sixel`,
+   `kitty icat`.
+
+`docs/conformance.md` states this gap in both the Graphics and OSC rows rather
+than implying it by silence.
 
 ## Open questions
 
-- **Nothing in M4 has been run by a human.** The whole milestone is verified by
-  tests and by reading. **user-decides** whether to do a manual pass before merge;
-  the list of what only a human can check is under "Not covered by any test".
-- **M3's serial demo still has never been run** — carried over, unchanged. Needs a
-  USB serial adapter.
-- **First-run discoverability** — carried over from M3 and now worse: M4 added
-  five palette commands and five shortcuts, and still nothing tells a new user
-  that `Ctrl+Shift+P` exists. **user-decides**.
+- **Nothing in M5 has been run by a human either.** Same as M4. The theme
+  gallery, the live editor, the file picker and the background image are all
+  verified by reading and by the model tests underneath them. **user-decides**
+  whether to do a manual pass before merge.
+- **Acrylic/blur is CUT, not forgotten.** `docs/plan/01-milestones.md` puts it
+  on M5's cut line ("CRT shader → acrylic → iTerm2 image protocol"). It is a DWM
+  backdrop attribute needing a composited desktop, and nothing in an unattended
+  session can verify it. **The CRT shader is cut for the same reason** and is
+  first on that list.
+- **M3's serial demo still has never been run** — carried over, unchanged.
+- **First-run discoverability** — carried over from M3 and M4, now slightly
+  worse: M5 adds two palette commands and no new shortcut. **user-decides**.
 
 ## Watchouts
 
-- **`main` is protected.** Branch + PR, always. A direct commit is refused.
-- **The build shell has no dev environment.** vcvars64 (VS **18** Community, not
-  2022) plus `QT_ROOT=C:\Qt\6.10.3\msvc2022_64`; `VCPKG_ROOT` comes from vcvars —
-  do not override it. A hung ctest holds `krait-qt-tests.exe` open and the next
-  link fails LNK1168: `taskkill /F /IM krait-qt-tests.exe` first.
+- **`main` is protected.** Branch + PR, always.
+- **The build shell has no dev environment.** vcvars64 (VS **18** Community)
+  plus `QT_ROOT=C:\Qt\6.10.3\msvc2022_64`; `VCPKG_ROOT` comes from vcvars.
+  A hung ctest holds `krait-qt-tests.exe` open and the next link fails LNK1168:
+  `taskkill /F /IM krait-qt-tests.exe` first.
 - **A failed build leaves the OLD test exe in place, and ctest then reports
-  "All tests passed" from it.** This bit the M4 mutation testing: a mutation that
-  failed to compile came back green, which reads as "the test is not load-bearing"
-  when the truth is "the test never saw the change". Never read a ctest result
-  without confirming the build before it exited 0.
-- **Three `krait-app.exe` exist.** `build/dev/` is current; `build/rel/` and
-  `build/release/` are stale enough to look like regressions when run by hand.
-- **`Read` returns only line 1** of any file the claude-mem hook has observations
-  on. Use `Grep` with pattern `^`, `output_mode: content`, `head_limit: 0`.
+  "All tests passed" from it.** Never read a ctest result without confirming
+  the build before it exited 0.
+- **Three `krait-app.exe` exist.** `build/dev/` is current.
+- **`Read` returns only line 1** of any file the claude-mem hook has
+  observations on. Use `Grep` with pattern `^`, `output_mode: content`,
+  `head_limit: 0` — or `sed -n 'A,Bp'` for a range.
+- **Writing C++ through `node -e` from Bash eats `$` and collapses `\x1b` into
+  a raw ESC byte.** It happened three times this session. MSVC accepts the raw
+  byte and a human reading the file cannot see it. Use a `.mjs` file in the
+  scratchpad, or the Edit tool.
+- **CI's clang-format is 20.1.8; this machine's is 22.1.2, and they disagree.**
+  A locally clean tree can still fail the gate — it did once this milestone, on
+  one aligned braced list in `osc_test.cpp` that the two versions break
+  differently. Local success proves nothing on its own. Get the CI version and
+  check against it before pushing:
+  `python -m pip install --target <scratch>/cf20 clang-format==20.1.8`, then run
+  `<scratch>/cf20/clang_format/data/bin/clang-format.exe` — note the binary in
+  that package's `bin/` is a wrapper that runs whatever is on PATH, so the
+  `clang_format/data/bin` path is the one that matters. Code with nothing to
+  align (no trailing comments in a braced list) is what both versions agree on.
+- **CI runs clang-tidy over EVERY changed file with a compile command — tests
+  included.** Checking `src/*.cpp` only is how M5 burned a second 25-minute
+  cycle: four `int` multiplications widened to `size_t` in the new graphics
+  tests, the same shape that broke M4's PR in `sftp.cpp`. Use
+  `git diff --name-only <base>..HEAD -- '*.cpp'` for the list, not `src/*.cpp`.
+  Only `error:` lines ending in `warnings-as-errors` gate; Catch2's own
+  NOLINT-ed macro bodies appear as context and mean nothing.
+- **`/wd4702` is on krait-app only** (`src/app/CMakeLists.txt`), for a defect in
+  Qt's own `qjsengine.h`. It fires the moment qmlcachegen sees a .qml file call
+  a C++ singleton method returning QString or bool — which any future QML will.
+  Everything else keeps `/W4 /WX` whole.
 
-## Not covered by any automated test — M4's honest list
+## Not covered by any automated test — M5's honest list
 
-Do not read 529 green as "M4 is verified". These are the holes, and they are the
-first place to look when something is wrong:
+- **Every QML surface added this milestone**: the gallery, the live editor, the
+  file picker, the background image layer. There are still no QML tests in this
+  repo. The C++ underneath them (`ThemeStore`, `ThemeModel`'s token map, the
+  importers) is tested; the bindings are not.
+- **The renderer half of graphics and OSC 66** — because it does not exist. See
+  "Next task".
+- **`ThemeStore`'s file IO**: `save()`, `importFile()` and the directory scan
+  are exercised only through `ThemeModel` by reading. The pure halves
+  (`parseToml`, `toToml`, the three importers, `themeFileName`) have 12 cases.
+- **No sixel or kitty FUZZ RUN has been done**, only seeds. 1385 seeds now
+  exist and `tests/fuzz/run-smoke.cmd` needs the clang-cl fuzz preset, which
+  this session did not build. The two decoders allocate from remote-declared
+  sizes, so this is the highest-value unrun gate in the tree.
+- **`interleaveShell()` is still entirely uncovered** — carried from M4,
+  unchanged, still the biggest structural test gap.
 
-- **`interleaveShell()` is entirely uncovered.** Making it a complete no-op still
-  passes all 529 tests — not the stderr drain, not the tunnels, not the resize,
-  not the keystroke path that predates M4. The blocker is structural:
-  `SshTestServer` serves *either* a shell *or* SFTP on one session, and a
-  starvation test needs both channels live at once. Fixing it means restructuring
-  the fixture's linear `auth → one channel → serve` flow into a multi-channel
-  poll loop, in a fixture whose own comments record that libssh's callbacks-based
-  server path is a Windows stub. This is the single biggest test gap in M4.
-- **No SFTP fuzz harness.** `rules/net.md` wants fuzz seeds with new message
-  handling; `tests/fuzz/parser_fuzz.cpp` fuzzes VT sequences, not SFTP wire
-  messages, so a seed there would be theatre.
-- **Every QML surface** — FilePanel, SnippetBar, BroadcastBar, the copy-mode and
-  logging strips. There are no QML tests in this repo at all. Drag-and-drop and
-  keyboard reachability are both untested.
-- **The live Win32 calls**: `RegisterHotKey`, `ITaskbarList3`, `Shell_NotifyIconW`.
-  Compile-checked only; they need a desktop session with Explorer running.
-- **The editor launch path** — needs a real editor process.
-- **The zsh `precmd_functions` reordering** in the shell integration script is
-  reasoned from the documentation, not run against a real zsh with oh-my-zsh
-  loaded. Same class of gap as the serial demo.
-- **Docs↔schema agreement has no gate test**, which is exactly why the entire
-  `[logging]` block drifted out of `docs/configuration.md` undetected.
-- **The shortcut table vs `actions.cpp`** — 24 hardcoded duplicates in `Main.qml`,
-  no gate test.
+## Known defects, deliberately not fixed in M5
 
-## Known defects, deliberately not fixed in M4
+- **Sixel and kitty images are invisible.** See "Next task". A gap rather than a
+  defect, but it presents to a user as one.
+- **A sixel or kitty image is not erased by anything.** ED/EL clear cells and
+  OSC 133 marks; they do not drop placements covering those cells. A `clear`
+  will leave a picture on screen once the renderer draws them.
+- **A placement's anchor can be one line off on a WRAPPED row.** Both graphics
+  paths compute it as `linesEverStarted() + grid.row`, i.e. the stable index the
+  current screen row *will* have once pushed. That prediction is exact unless
+  the row carries `wrappedFromPrev`, in which case `Scrollback::push` coalesces
+  it onto the previous logical line and the real index is one lower — the same
+  off-by-one `setCommandExit` handles with its `- 1`. Left alone deliberately:
+  nothing draws placements yet, so the symptom cannot be seen or tested, and
+  guessing at a correction with no way to look at the result is how you fix it
+  in the wrong direction. **Whoever does the renderer task should settle this
+  first** — it is a two-line change and a corpus case once there is something
+  to compare against.
+- **Kitty's `a=d` has no selectors.** A bare `a=d` drops all placements and
+  keeps the images (kitty's `d=a` default); `d=i`, `d=z`, `d=p` and the
+  uppercase "also free the image" variants are not read.
+- **Unicode placeholders (`U=1`) are not implemented**, so an image placed
+  through them will not appear even once the renderer lands.
+- **Carried from M4, all unchanged**: the `D`-on-an-older-prompt case when a
+  marked line is destroyed under a scroll region; quake mode having no palette
+  entry; the mouse-only shell-integration confirmation; telnet/raw/serial
+  declaring `reconnecting` with nothing listening; `~TerminalItem` joining the
+  backend on the GUI thread; trigger highlights re-deriving per chunk.
 
-- **A `D` can still land on an older prompt** if a marked line is destroyed
-  without its mark being cleared — scroll-region scrolling discards `Line`s when
-  `scrollTop != 0`. Found during the gate audit, distinct from the anchor bug that
-  WAS fixed, and it needs its own corpus case.
-- **Quake mode has no palette entry and no registered Action**, and
-  `quake.hotkey` defaults to empty — out of the box it is reachable by neither
-  keyboard, mouse, nor palette.
-- **The shell-integration confirmation flow is mouse-only.** `BannerButton.qml`
-  has no focus or `Keys` handling and the install sheet has no Esc path, so
-  confirming a write to someone else's machine requires a mouse.
-- **Telnet, raw and serial declare `reconnecting`** but nothing in the app listens
-  to any of them, so broadcast cannot see their reconnects the way it now sees
-  SSH's. Pre-existing; flagged in the code where the next person will find it.
-- **`~TerminalItem` joins the backend on the GUI thread** while `resetSession()`
-  correctly offloads it to the pool. Pre-existing.
-- **Trigger highlights re-derive per output chunk**, not per frame, with a
-  `ponytail:` comment naming the ceiling and the upgrade path.
+## Facts verified during M5 — do not re-derive
 
-## Facts verified during M4 — do not re-derive
-
-- **libssh 0.12** (vcpkg, features `core;pcap;server`). `sftp_read` returns 0 for
-  EOF and negative for error — the OPPOSITE of `ssh_channel_read`. No fixed max
-  chunk: query `sftp_limits()`. The session must be in blocking mode.
-  `sftp_handle_remove` takes the *info* pointer, not `msg->handle`.
-  `sftp_client_message_get_data` NUL-terminates and truncates binary at the first
-  zero byte — use `ssh_string_data`/`ssh_string_len`. SFTP v3 has no wire type
-  field, so `permissions` must carry the format bits (`0100644`, `0040755`).
-  `sftp_get_client_message` treats a timed-out read as fatal, so it cannot be
-  called on an idle channel. Server-side SFTP needs `#define WITH_SERVER`; libssh's
-  default handler suite is `#ifndef _WIN32` and is a stub here.
-- **Qt cannot bound PCRE2.** `QRegularExpression::MatchOption` has three values and
-  nothing in the class reaches `match_limit` or `depth_limit`. That is why triggers
-  use `std::regex`, which throws `regex_error(error_complexity)` while matching.
-- **`LoadIconW` returns a SHARED icon** — never `DestroyIcon` it. Microsoft's own
-  taskbar sample does, which is only valid for its non-shared resource icon.
-- **`ITaskbarList3`**: `HrInit()` before every other method, and
-  `TaskbarButtonCreated` must arrive first. Qt already `OleInitialize`s the GUI
-  thread, so no `CoInitializeEx`.
-- **`QFileSystemWatcher` stops watching a file the instant it is renamed** — which
-  is what write-then-rename editors do, and why the round-trip watches the
-  directory too.
-- **Microsoft and ConEmu disagree about OSC 9;4 state 4** (Warning vs Paused).
-  Both map to `TBPF_PAUSED`, so the enum is named after the flag.
-- **zsh, wezterm and DomTerm emit `OSC 133;P`, never `133;A`.** kitty sends
-  `A;k=s` before PS2, so `k=` must be parsed, not ignored.
-- M3's libssh facts still hold — see `git show 728cbff:STATE.md`.
+- **Mode 2048**: enabling it MUST report the current size immediately. Reply is
+  `CSI 48 ; rows ; cols ; height_px ; width_px t` — **height before width in
+  BOTH pairs**, and the pixel figures are the TEXT AREA, excluding padding.
+- **Mode 2031**: notification is `CSI ? 997 ; 1 n` for dark, `; 2 n` for light.
+  Setting the mode sends nothing.
+- **Sixel colour components are PERCENTAGES, 0-100**, not bytes. A sixel byte's
+  **least significant bit is the TOP pixel**. DEC's HLS hue origin is 120° off
+  the usual one — 0 is BLUE.
+- **Sixel's "zero bits are set to the background" cannot be taken literally** —
+  it would make multi-colour images impossible, because overprinting with `$`
+  is how they are built. libsixel and xterm both treat P2 as deciding what an
+  UNWRITTEN pixel is instead.
+- **Kitty graphics**: `f=24` has no alpha, so it decodes OPAQUE. Chunks are
+  ≤4096 base64 bytes and a multiple of 4. Replies go only to senders that
+  supplied `i=` or `I=`; `q=1` suppresses OK, `q=2` also suppresses errors.
+  `t=f`/`t=t`/`t=s` name a path on the TERMINAL's machine — a file-disclosure
+  primitive over SSH, refused here on security grounds.
+- **OSC 66's metadata is COLON separated**, while `;` separates it from the
+  text. Payload cap 4096 bytes; `s` 1-7, `w` 0-7, `n`/`d` 0-15 with `d > n`.
+- **`Attr::flags` bit 3 and bits 8-15 were free**, which is the only reason
+  OSC 66's scale fits without growing `Cell` past its pinned 20 bytes.
+- **Qt's `qjsengine.h` has an `if constexpr` return chain with an unreachable
+  fallback return**, so C4702 fires through any qmlcachegen TU that calls a
+  singleton method returning QString or bool.
+- M4's and M3's libssh facts still hold — see `git show 385dbaa:STATE.md`.

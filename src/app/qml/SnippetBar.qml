@@ -1,4 +1,5 @@
 import QtQuick
+import Krait
 
 // The snippet bar (plan T69): the profile's named snippets, one click or one
 // keystroke from the session.
@@ -34,7 +35,7 @@ Rectangle {
 
     // TODO(theme): tokens once the theme system exists (M5). Matched to the
     // tunnel strip so the two do not look like different applications.
-    color: "#12141c"
+    color: Theme.surface
     height: visible ? content.implicitHeight + 12 : 0
     focus: visible
 
@@ -60,7 +61,7 @@ Rectangle {
             visible: bar.rows.length === 0
             width: parent.width
             text: qsTr("This session has no snippets. Add a snippets = list to it in sessions.toml.")
-            color: "#7c869e"
+            color: Theme.textDim
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
         }
@@ -77,7 +78,7 @@ Rectangle {
                     required property var modelData
                     required property int index
 
-                    color: hover.hovered ? "#2c3242" : "#1c2030"
+                    color: hover.hovered ? Theme.border : Theme.surfaceAlt
                     radius: 3
                     width: label.implicitWidth + 16
                     height: label.implicitHeight + 8
@@ -90,7 +91,7 @@ Rectangle {
                         text: chip.index < 9
                               ? qsTr("%1. %2").arg(chip.index + 1).arg(chip.modelData.name)
                               : chip.modelData.name
-                        color: "#e6e9f0"
+                        color: Theme.text
                         textFormat: Text.PlainText
                     }
 
@@ -110,7 +111,7 @@ Rectangle {
             visible: bar.preview.length > 0
             width: parent.width
             text: bar.preview
-            color: "#7c869e"
+            color: Theme.textDim
             font.family: "Cascadia Mono"
             textFormat: Text.PlainText
             elide: Text.ElideRight
